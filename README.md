@@ -78,3 +78,10 @@ im Ordner mit `index.html` starten und `http://localhost:8765` öffnen. Ollama b
 
 - **Projekte** speichert der Browser getrennt für jede Adresse. Was du lokal unter `localhost` gespeichert hast, erscheint nicht automatisch auf der GitHub-Seite. Mit „Projekte → Als Datei“ und „Datei öffnen“ nimmst du Projekte mit, auch auf andere Rechner.
 - Schriften im Design-Studio werden von Google Fonts geladen. Alles andere kommt aus dieser einen Datei.
+
+### Wenn es nicht funktioniert und Der Port nicht gestattet wird
+
+```javascript
+launchctl setenv OLLAMA_ORIGINS "https://<dein-name>.github.io"
+OLLAMA_ORIGINS="https://<dein-name>.github.io" ollama serve
+```
