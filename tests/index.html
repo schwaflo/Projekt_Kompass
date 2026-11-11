@@ -24,6 +24,7 @@ import { env, runAll } from './harness.js';
 import './designsystem.test.js';
 import './praesentation.test.js';
 import './pipeline.test.js';
+import './import.test.js';
 
 env.readText = async p => { try { const r = await fetch('../' + p, { cache: 'no-cache' }); return r.ok ? await r.text() : null; } catch { return null; } };
 const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));

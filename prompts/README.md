@@ -15,6 +15,7 @@ Wer einen Prompt ändert, erhöht `version`. Die Version steht im Protokoll jede
 | [outline.md](outline.md) | Gliederung | Titel, Storyline, Folien mit Layout und Kernaussage |
 | [folie.md](folie.md) | Eine Folie schreiben oder neu schreiben | Inhalte je Feld, Sprechernotizen |
 | [korrektur.md](korrektur.md) | Anhang bei ungültiger Antwort | – |
+| [asset-beschreiben.md](asset-beschreiben.md) | Designsystem-Editor: Bild beschreiben lassen (optional, braucht ein Modell mit Bildverständnis) | Beschreibung, Tags |
 
 ## Ablauf
 

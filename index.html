@@ -1392,11 +1392,12 @@ const KIND = {
   praes_briefing: { name: 'Briefing: Antwort einsortieren, nächste Frage wählen', expect: 800 },
   praes_system:   { name: 'Designsystem vorschlagen', expect: 200 },
   praes_outline:  { name: 'Gliederung der Präsentation erstellen', expect: 2200 },
-  praes_folie:    { name: 'Folie schreiben', expect: 900 }
+  praes_folie:    { name: 'Folie schreiben', expect: 900 },
+  praes_bild:     { name: 'Bild beschreiben', expect: 200 }
 };
 const now = () => performance.now();
 /* Obergrenze für die Antwortlänge (Tokens), damit Ollama in jedem Fall stoppt */
-const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400 };
+const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400 };
 const tokLimit = (kind, think) => (TOK[kind] || 3000) + (think === false ? 0 : 3000);
 /* JSON auch dann finden, wenn das Modell Text oder Codeblöcke drumherum schreibt */
 function parseJSONLoose(t) {
@@ -1440,6 +1441,8 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   const oa = isOpenAI(), rf = ui.rfStufe || 'json_schema';
   const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : 0.4;
   const msgs = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
+  /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
+  if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }
   const body = oa
     ? { model: S.model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
         ...(rf === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'antwort', schema, strict: false } } } : rf === 'json_object' ? { response_format: { type: 'json_object' } } : {}) }
@@ -1561,7 +1564,7 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
 
 /* Schnittstelle für den Präsentationsgenerator (praesentation/pipeline.js): derselbe Ablauf läuft
    über jeden hier eingestellten KI-Server, lokal oder in der Cloud. */
-window.KompassKI = { frage: ({ system, prompt, schema, art }) => llm(prompt, schema, art || 'praes_folie', { system }) };
+window.KompassKI = { frage: ({ system, prompt, schema, art, bilder }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder }) };
 
 async function run(text, fn) {
   ui.busy = true; ui.busyText = text; ui.error = null; ui.live = null; render();
@@ -2833,8 +2836,8 @@ const IDB = {
   open() {
     if (this.db) return Promise.resolve(this.db);
     return new Promise((res, rej) => {
-      const r = indexedDB.open('projektkompass', 2);
-      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); };
+      const r = indexedDB.open('projektkompass', 3);
+      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); if (!db.objectStoreNames.contains('designsysteme')) db.createObjectStore('designsysteme'); };
       r.onsuccess = () => { this.db = r.result; res(this.db); };
       r.onerror = () => rej(r.error);
     });

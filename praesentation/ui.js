@@ -13,6 +13,7 @@ import { buildSlides } from './layout.js';
 import { slideHTML, FOLIEN_CSS, fontUrl } from './render-html.js';
 import { exportPptx } from './render-pptx.js';
 import { ladeBild } from './bilder.js';
+import { initSysteme, ladeGespeicherte, viewSysteme, klickSysteme, wechselSysteme, dragSysteme, SYSTEME_CSS } from './ui-systeme.js';
 
 const reg = createRegistry();
 let bereit = false, prompts = null;
@@ -197,7 +198,8 @@ function viewStart() {
     </div>
     <aside class="panel"><h3>So läuft es ab</h3>
       <ol class="pr-ablauf"><li><b>Briefing.</b> Ziel, Zielgruppe, Kernbotschaft, Umfang.</li><li><b>Designsystem.</b> Du wählst eines, oder der Kompass schlägt eines vor.</li><li><b>Folien.</b> Die KI schreibt Gliederung und Texte. Layout, Farben und Schriften kommen aus dem Designsystem.</li><li><b>Bearbeiten und speichern.</b> Texte ändern, Folien neu schreiben lassen, als PowerPoint speichern.</li></ol>
-      <p class="small muted" style="margin:10px 0 0">${bereit ? `${reg.list().length} Designsysteme gefunden: ${reg.list().map(s => esc(s.meta.name)).join(', ')}.` : 'Designsysteme werden geladen …'}</p>
+      <p class="small muted" style="margin:10px 0 8px">${bereit ? `${reg.list().length} Designsysteme gefunden: ${reg.list().map(s => esc(s.meta.name)).join(', ')}.` : 'Designsysteme werden geladen …'}</p>
+      <button class="btn tiny" data-pr="systeme" ${bereit && !ui.busy ? '' : 'disabled'}>Designsysteme verwalten</button>
       ${reg.problems().map(p => `<div class="notice" style="margin-top:10px"><b>${esc(p.ordner || p.id)}</b> konnte nicht geladen werden: ${esc(p.errors[0])}${p.errors.length > 1 ? ` (und ${p.errors.length - 1} weitere)` : ''}</div>`).join('')}
     </aside>
   </section>`;
@@ -266,6 +268,7 @@ function viewSystem() {
   <div class="actions" style="margin-bottom:60px">
     <button class="btn primary" data-pr="erstellen" ${ui.busy || !gewaehlt ? 'disabled' : ''}>Präsentation schreiben (${z.briefing.folienzahl} Folien)</button>
     <button class="btn" data-pr="geh" data-s="briefing" ${ui.busy ? 'disabled' : ''}>Zurück zum Briefing</button>
+    <button class="btn ghost" data-pr="systeme" ${ui.busy ? 'disabled' : ''}>Designsysteme verwalten</button>
     <span class="small muted" id="pr-fort">${esc(ui.praesFortschritt || '')}</span>
   </div>${!ui.busy && ui.error ? statLine() : ''}`;
 }
@@ -343,6 +346,7 @@ function view() {
   if (z.schritt === 'briefing' && !z.B) z.schritt = 'start';
   if (z.schritt === 'system' && !z.briefing) z.schritt = z.B ? 'briefing' : 'start';
   if (z.schritt === 'vorschau' && !z.spec) z.schritt = 'start';
+  if (z.schritt === 'systeme') return `<div class="praes">${viewSysteme()}</div>`;
   return `<div class="praes">${({ start: viewStart, briefing: viewBriefing, system: viewSystem, vorschau: viewVorschau })[z.schritt]()}</div>`;
 }
 
@@ -352,11 +356,13 @@ function view() {
 const an = () => S.screen === 'praes';
 function klick(e) {
   if (!an()) return;
+  if (Z().schritt === 'systeme' && klickSysteme(e)) return;
   const b = e.target.closest('[data-pr]'); if (!b || b.disabled) return;
   const d = b.dataset, z = Z();
   switch (d.pr) {
     case 'zu': return close();
     case 'geh': return geh(d.s);
+    case 'systeme': Z().vorSystemen = Z().schritt; return geh('systeme');
     case 'start': return starte();
     case 'beispiel': return beispiel();
     case 'chip': { const t = document.getElementById('pr-answer'); t.value = z.B.aktuell.vorschlaege[+d.i]; return t.focus(); }
@@ -379,7 +385,7 @@ function klick(e) {
   }
 }
 function eingabe(e) {
-  if (!an()) return;
+  if (!an() || Z().schritt === 'systeme') return;
   const t = e.target, d = t.dataset || {};
   if (t.id === 'pr-desc') { Z().beschreibung = t.value; return; }
   if (Z().schritt !== 'vorschau') return;
@@ -390,6 +396,7 @@ function eingabe(e) {
 }
 function wechsel(e) {
   if (!an()) return;
+  if (Z().schritt === 'systeme') { wechselSysteme(e); return; }
   const t = e.target, z = Z();
   if (t.id === 'pr-proj') { z.mitProjekt = t.checked; return save(); }
   if (t.id === 'pr-system') return wechsleSystem(t.value);
@@ -424,7 +431,7 @@ function taste(e) {
   if (e.key === 'Enter' && e.target.isContentEditable && !Array.isArray(roh(e.target.dataset))) { e.preventDefault(); e.target.blur(); }
 }
 
-const CSS = FOLIEN_CSS + `
+const CSS = FOLIEN_CSS + SYSTEME_CSS + `
 .praes{padding-bottom:40px}
 .pr-kopf{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:26px 0 6px}
 .pr-kopf h1{font-size:clamp(1.8rem,3.4vw,2.6rem);font-weight:700}
@@ -490,9 +497,11 @@ app.addEventListener('change', wechsel);
 app.addEventListener('focusin', fokus);
 app.addEventListener('focusout', fokusWeg);
 app.addEventListener('keydown', taste);
+['dragstart', 'dragover', 'dragleave', 'drop'].forEach(t => app.addEventListener(t, e => { if (an() && Z().schritt === 'systeme') dragSysteme(e); }));
+initSysteme({ reg, ladePrompts, ki, zurueck: () => geh(Z().vorSystemen && Z().vorSystemen !== 'systeme' ? Z().vorSystemen : 'start') });
 /* Zähler nach jedem Zeichnen füllen */
 new MutationObserver(() => { if (an()) document.querySelectorAll('[data-zaehler]').forEach(el => { if (!el.textContent) { const t = document.querySelector(`[data-prf="${el.dataset.zaehler}"]`); if (t) zaehler(el, t); } }); }).observe(app, { childList: true });
 
 window.Praes = { view, open, close, reg };
 if (an()) render();
-reg.discover('design-systems/').then(() => { bereit = true; if (an()) render(); });
+reg.discover('design-systems/').then(ladeGespeicherte).then(() => { bereit = true; if (an()) render(); });

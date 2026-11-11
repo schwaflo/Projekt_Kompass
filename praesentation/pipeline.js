@@ -14,7 +14,7 @@ import { checkSchema } from './validate.js';
 import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, SPEC_VERSION } from './spec.js';
 
 export const MAX_VERSUCHE = 3;
-export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur'];
+export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben'];
 
 /* ---------- Prompts ---------- */
 /* Datei mit Kopf (--- name/version/… ---) lesen */
