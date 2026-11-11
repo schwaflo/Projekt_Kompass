@@ -1,0 +1,9 @@
+# docker compose up   → http://localhost:8080
+# Der Ordner design-systems/ ist eingebunden: ein neues Designsystem dort ablegen, Seite neu laden, fertig.
+services:
+  kompass:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./design-systems:/usr/share/nginx/html/design-systems:ro

@@ -8,10 +8,10 @@
   <rect width="1920" height="1080" fill="url(#p)"/>
   <path d="M0 0 L1920 1080 M1920 0 L0 1080" stroke="#1C1B1A" stroke-opacity=".12" stroke-width="3.0"/>
   <rect x="20" y="20" width="1880" height="1040" fill="none" stroke="#1C1B1A" stroke-opacity=".35" stroke-width="3.0" stroke-dasharray="18 12"/>
-  <circle cx="960.0" cy="370" r="58" fill="none" stroke="#C2410C" stroke-width="7.0"/>
-  <path d="M926 392 l22 -30 l16 18 l12 -12 l18 24 z" fill="#C2410C"/>
-  <text x="960.0" y="540" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="700" letter-spacing="4.0" fill="#1C1B1A">PLATZHALTER</text>
-  <text x="960.0" y="636" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#1C1B1A" fill-opacity=".85">Rolle: hero-image · Querformat 16:9</text>
-  <text x="960.0" y="702" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#1C1B1A" fill-opacity=".85">Empfohlen: 1920 × 1080 px, JPG oder PNG</text>
-  <text x="960.0" y="768" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#1C1B1A" fill-opacity=".85">Erscheint auf: image-full</text>
+  <circle cx="960.0" cy="266" r="58" fill="none" stroke="#C2410C" stroke-width="7.0"/>
+  <path d="M926 288 l22 -30 l16 18 l12 -12 l18 24 z" fill="#C2410C"/>
+  <text x="960.0" y="416" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="700" letter-spacing="4.0" fill="#1C1B1A">PLATZHALTER</text>
+  <text x="960.0" y="504" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#1C1B1A" fill-opacity=".85">Rolle: hero-image · Querformat 16:9</text>
+  <text x="960.0" y="562" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#1C1B1A" fill-opacity=".85">Empfohlen: 1920 × 1080 px, JPG oder PNG</text>
+  <text x="960.0" y="620" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#1C1B1A" fill-opacity=".85">Erscheint auf: image-full</text>
 </svg>

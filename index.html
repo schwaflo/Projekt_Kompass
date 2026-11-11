@@ -1151,6 +1151,7 @@ code.cmd{display:block;font-size:.76rem;background:var(--surface);border:1px sol
       Projekt-Kompass
     </div>
     <div class="spacer"></div>
+    <button class="btn ghost tiny" id="praesBtn">Präsentation</button>
     <button class="btn ghost tiny" id="projBtn">Projekte</button>
     <button class="btn tiny" id="saveBtn" hidden>Speichern</button>
     <span class="pill" id="connPill"><span class="dot" id="connDot"></span><span id="connText">Verbindung wird geprüft …</span></span>
@@ -1387,11 +1388,16 @@ const KIND = {
   plan:   { name: 'Ablauf für dein Projekt planen', expect: 2200 },
   turn:   { name: 'Antwort einsortieren, nächste Frage wählen', expect: 900 },
   expand: { name: 'Zusätzliche Fragen ergänzen', expect: 700 },
-  result: { name: 'Projekt-Steckbrief schreiben', expect: 3200 }
+  result: { name: 'Projekt-Steckbrief schreiben', expect: 3200 },
+  praes_briefing: { name: 'Briefing: Antwort einsortieren, nächste Frage wählen', expect: 800 },
+  praes_system:   { name: 'Designsystem vorschlagen', expect: 200 },
+  praes_outline:  { name: 'Gliederung der Präsentation erstellen', expect: 2200 },
+  praes_folie:    { name: 'Folie schreiben', expect: 900 },
+  praes_bild:     { name: 'Bild beschreiben', expect: 200 }
 };
 const now = () => performance.now();
 /* Obergrenze für die Antwortlänge (Tokens), damit Ollama in jedem Fall stoppt */
-const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200 };
+const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400 };
 const tokLimit = (kind, think) => (TOK[kind] || 3000) + (think === false ? 0 : 3000);
 /* JSON auch dann finden, wenn das Modell Text oder Codeblöcke drumherum schreibt */
 function parseJSONLoose(t) {
@@ -1434,7 +1440,9 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   updateLive();
   const oa = isOpenAI(), rf = ui.rfStufe || 'json_schema';
   const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : 0.4;
-  const msgs = [{ role: 'system', content: SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
+  const msgs = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
+  /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
+  if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }
   const body = oa
     ? { model: S.model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
         ...(rf === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'antwort', schema, strict: false } } } : rf === 'json_object' ? { response_format: { type: 'json_object' } } : {}) }
@@ -1553,6 +1561,10 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   if (attempt < 3) return next(think !== false ? { think: false } : {});
   throw new Error(ui.thinkIgnored ? 'Dieses Modell lässt sich die Denkphase nicht abschalten und liefert keine gültigen Daten. Wähle ein anderes Modell.' : 'Das Modell hat keine gültigen Daten geliefert. Versuche es erneut oder wähle ein anderes Modell. Details findest du im Protokoll.');
 }
+
+/* Schnittstelle für den Präsentationsgenerator (praesentation/pipeline.js): derselbe Ablauf läuft
+   über jeden hier eingestellten KI-Server, lokal oder in der Cloud. */
+window.KompassKI = { frage: ({ system, prompt, schema, art, bilder }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder }) };
 
 async function run(text, fn) {
   ui.busy = true; ui.busyText = text; ui.error = null; ui.live = null; render();
@@ -1972,10 +1984,19 @@ function render() {
   else if (S.screen === 'interview') app.innerHTML = viewInterview();
   else if (S.screen === 'modul') app.innerHTML = viewModule();
   else if (S.screen === 'design') app.innerHTML = viewDesign();
+  else if (S.screen === 'praes') app.innerHTML = window.Praes ? Praes.view() : viewPraesFehlt();
   else app.innerHTML = viewResult();
   app.insertAdjacentHTML('beforeend', viewInspector() + viewProjects());
   bind();
   if (S.screen === 'design') { requestAnimationFrame(fitFlyer); if (document.fonts) document.fonts.ready.then(refit); }
+}
+
+/* Präsentationsgenerator: liegt als Modul unter praesentation/ und wird vom Webserver nachgeladen */
+function openPraes() { if (window.Praes) return Praes.open(); S.prevScreen = S.screen; S.screen = 'praes'; render(); }
+function viewPraesFehlt() {
+  return `<section class="qcard" style="margin:30px 0"><h2>Präsentationsgenerator</h2>
+    <p class="muted">${location.protocol === 'file:' ? 'Dieser Teil der App braucht einen Webserver, weil er Designsysteme und Prompts nachlädt. Starte im Projektordner <code>python3 -m http.server 8765</code> und öffne <code>http://localhost:8765</code>.' : 'Das Modul wird geladen. Bleibt diese Meldung stehen, fehlt der Ordner <code>praesentation/</code> auf dem Server.'}</p>
+    <div class="actions"><button class="btn" data-act="closepraes">Zurück</button></div></section>`;
 }
 
 function errorBox() {
@@ -2638,7 +2659,10 @@ function viewModuleTiles(compact) {
       <span class="mt-text"><b>${esc(m.name)}${!done && rec.includes(id) ? '<em>empfohlen</em>' : ''}${done ? '<em class="ok">erledigt</em>' : ''}</b>
       <span>${esc(done ? d.zusammenfassung : m.kurz)}</span></span>
     </button>`;
-  }).join('')}</div>`;
+  }).join('')}<button class="mtile ${S.praes && S.praes.spec ? 'done' : ''}" data-act="openpraes">
+      <span class="m-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8 20h8"/></svg></span>
+      <span class="mt-text"><b>Präsentation${S.praes && S.praes.spec ? '<em class="ok">Folien vorhanden</em>' : ''}</b><span>Folien aus diesem Projekt: kurzes Briefing, Designsystem wählen, als PowerPoint speichern.</span></span>
+    </button></div>`;
 }
 
 /* ---------- Entwurf in Übersicht und Druck ---------- */
@@ -2812,8 +2836,8 @@ const IDB = {
   open() {
     if (this.db) return Promise.resolve(this.db);
     return new Promise((res, rej) => {
-      const r = indexedDB.open('projektkompass', 2);
-      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); };
+      const r = indexedDB.open('projektkompass', 3);
+      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); if (!db.objectStoreNames.contains('designsysteme')) db.createObjectStore('designsysteme'); };
       r.onsuccess = () => { this.db = r.result; res(this.db); };
       r.onerror = () => rej(r.error);
     });
@@ -4428,6 +4452,8 @@ function bind() {
       case 'exportcur': return exportProject();
       case 'closeproj': ui.projPanel = false; return render();
       case 'opendesign': return ui.busy ? null : openDesign();
+      case 'openpraes': return ui.busy ? null : openPraes();
+      case 'closepraes': S.screen = S.prevScreen && S.prevScreen !== 'praes' ? S.prevScreen : 'start'; return render();
       case 'closedesign': return closeDesign();
       case 'dsgo': return generateDesign(false);
       case 'dsrefine': return generateDesign(true);
@@ -4458,6 +4484,7 @@ $('#app').addEventListener('focusout', e => {
 });
 $('#saveBtn').onclick = () => saveProject(false);
 $('#projBtn').onclick = () => openProjects();
+$('#praesBtn').onclick = () => { if (!ui.busy) openPraes(); };
 $('#newBtn').onclick = async () => {
   if (!confirm('Neues Projekt beginnen? Das aktuelle wird vorher unter „Projekte“ gespeichert.')) return;
   const ok = !hasProject() || await saveProject(true);
@@ -4480,5 +4507,6 @@ checkServer();
 loadAssets().then(() => { if (['design', 'result'].includes(S.screen)) render(); });
 loadProjectList().then(() => { if (S.screen === 'start') render(); });
 </script>
+<script type="module" src="praesentation/ui.js"></script>
 </body>
 </html>

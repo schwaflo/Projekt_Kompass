@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designsysteme ansehen – Projekt-Kompass</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; background: #eef0f3; color: #1b1b1f; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; padding: 12px 20px; background: #fff; border-bottom: 1px solid #d9dde3; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  label { display: inline-flex; gap: 6px; align-items: center; }
+  select, button { font: inherit; padding: 6px 10px; border: 1px solid #b9c0ca; border-radius: 6px; background: #fff; }
+  button { cursor: pointer; background: #12284c; color: #fff; border-color: #12284c; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { max-width: 1500px; margin: 0 auto; padding: 20px; }
+  #hinweise { margin: 0 0 16px; padding: 0; }
+  #hinweise li { list-style: none; padding: 8px 12px; margin: 0 0 6px; border-radius: 6px; background: #fff3d6; }
+  #hinweise li.fehler { background: #fde2df; }
+  #raster { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 18px; }
+  figure { margin: 0; }
+  figure .pf { box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+  figcaption { font-size: 12px; color: #5a6578; margin-top: 4px; }
+  @media (max-width: 500px) { #raster { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Designsysteme ansehen</h1>
+  <label>Designsystem <select id="system"></select></label>
+  <label>Schrift <select id="schrift"><option value="system">Systemschrift (überall gleich)</option><option value="marke">Wunschschrift des Designsystems</option></select></label>
+  <button id="laden">Als PowerPoint speichern</button>
+  <span id="status"></span>
+</header>
+<main>
+  <p>Dieselbe Beispielpräsentation (<code>examples/demo.slides.json</code>) in jedem Designsystem, das unter <code>design-systems/</code> liegt. Die Seite braucht einen Webserver, zum Beispiel <code>python3 -m http.server 8765</code>.</p>
+  <ul id="hinweise"></ul>
+  <div id="raster"></div>
+</main>
+<script src="../vendor/pptxgen.bundle.js"></script>
+<script type="module">
+import { createRegistry } from './registry.js';
+import { validateSpec, remapSpec } from './spec.js';
+import { buildSlides } from './layout.js';
+import { slideHTML, FOLIEN_CSS, fontUrl } from './render-html.js';
+import { exportPptx } from './render-pptx.js';
+import { ladeBild } from './bilder.js';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+document.head.appendChild(Object.assign(document.createElement('style'), { textContent: FOLIEN_CSS }));
+
+const reg = createRegistry();
+await reg.discover('../design-systems/');
+const spec = await (await fetch('../examples/demo.slides.json', { cache: 'no-cache' })).json();
+const param = new URLSearchParams(location.search);
+$('system').innerHTML = reg.list().map(s => `<option value="${s.id}">${esc(s.meta.name)}</option>`).join('');
+if (reg.get(param.get('system'))) $('system').value = param.get('system');
+if (param.get('schrift') === 'marke') $('schrift').value = 'marke';
+
+let folien = [];
+function zeige() {
+  const system = reg.get($('system').value), marke = $('schrift').value === 'marke';
+  const hinweise = reg.problems().map(p => `<li class="fehler"><b>${esc(p.ordner)}</b> konnte nicht geladen werden: ${p.errors.map(esc).join(' · ')}</li>`);
+  if (!system) { $('hinweise').innerHTML = hinweise.join('') || '<li class="fehler">Kein Designsystem gefunden.</li>'; return; }
+  if (marke && fontUrl(system) && !document.querySelector(`link[href="${fontUrl(system)}"]`)) document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: fontUrl(system) }));
+  const passend = remapSpec(spec, reg.get('demo-corporate'), system), v = validateSpec(passend, system);
+  folien = buildSlides(passend, system, { schrift: marke ? 'marke' : 'system' });
+  v.errors.forEach(e => hinweise.push(`<li class="fehler">${esc(e)}</li>`));
+  system.warnings.forEach(w => hinweise.push(`<li>${esc(w)}</li>`));
+  folien.forEach(f => f.elemente.filter(e => e.gekuerzt).forEach(e => hinweise.push(`<li>Folie ${f.nr}, ${esc(e.ph)}: Text wurde gekürzt, weil er nicht in die Fläche passt.</li>`)));
+  $('hinweise').innerHTML = hinweise.join('');
+  $('raster').innerHTML = folien.map(f => `<figure>${slideHTML(f)}<figcaption>${f.nr} · ${esc(f.layoutId)}</figcaption></figure>`).join('');
+}
+$('system').onchange = zeige; $('schrift').onchange = zeige;
+zeige();
+
+/* Für Tests und zum Speichern: die fertige Datei als Blob */
+window.demo = {
+  reg, spec, folien: () => folien, zeige,
+  async blob() { const system = reg.get($('system').value); return (await exportPptx(folien, { PptxGenJS: window.PptxGenJS, ladeBild, titel: spec.titel, autor: system.meta.name })).write({ outputType: 'blob' }); }
+};
+$('laden').onclick = async () => {
+  $('laden').disabled = true; $('status').textContent = 'Datei wird erstellt …';
+  try {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await window.demo.blob()), download: `demo-${$('system').value}.pptx` });
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    $('status').textContent = 'Gespeichert.';
+  } catch (e) { $('status').textContent = 'Fehler: ' + e.message; console.error(e); }
+  $('laden').disabled = false;
+};
+</script>
+</body>
+</html>

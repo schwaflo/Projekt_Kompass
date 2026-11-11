@@ -8,10 +8,10 @@
   <rect width="1280" height="1800" fill="url(#p)"/>
   <path d="M0 0 L1280 1800 M1280 0 L0 1800" stroke="#1C1B1A" stroke-opacity=".12" stroke-width="3.6"/>
   <rect x="24" y="24" width="1233" height="1753" fill="none" stroke="#1C1B1A" stroke-opacity=".35" stroke-width="3.6" stroke-dasharray="21 14"/>
-  <circle cx="640.0" cy="699" r="69" fill="none" stroke="#C2410C" stroke-width="8.3"/>
-  <path d="M600 725 l26 -36 l19 21 l14 -14 l21 28 z" fill="#C2410C"/>
+  <circle cx="640.0" cy="722" r="69" fill="none" stroke="#C2410C" stroke-width="8.3"/>
+  <path d="M600 748 l26 -36 l19 21 l14 -14 l21 28 z" fill="#C2410C"/>
   <text x="640.0" y="900" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="100" font-weight="700" letter-spacing="4.7" fill="#1C1B1A">PLATZHALTER</text>
-  <text x="640.0" y="1014" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Rolle: portrait-image · Hochformat</text>
-  <text x="640.0" y="1092" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Empfohlen: 1280 × 1800 px, JPG oder PNG</text>
-  <text x="640.0" y="1170" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Erscheint auf: image-left</text>
+  <text x="640.0" y="1004" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Rolle: portrait-image · Hochformat</text>
+  <text x="640.0" y="1073" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Empfohlen: 1280 × 1800 px, JPG oder PNG</text>
+  <text x="640.0" y="1142" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Erscheint auf: image-left</text>
 </svg>

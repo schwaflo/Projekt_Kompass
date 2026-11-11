@@ -1,6 +1,6 @@
 # Projekt-Kompass
 
-Ein Werkzeug, das dich vor dem Start eines Projekts durch die wichtigen Fragen führt: Problem, Zielgruppe, Ziel, Inhalte, Risiken. Am Ende stehen ein Projekt-Steckbrief mit Strategien, Vertiefungen wie Personas, Stakeholder-Analyse und SWOT, und für Gestaltungsprojekte ein Design-Studio für Flyer und Website-Wireframes.
+Ein Werkzeug, das dich vor dem Start eines Projekts durch die wichtigen Fragen führt: Problem, Zielgruppe, Ziel, Inhalte, Risiken. Am Ende stehen ein Projekt-Steckbrief mit Strategien, Vertiefungen wie Personas, Stakeholder-Analyse und SWOT, für Gestaltungsprojekte ein Design-Studio für Flyer und Website-Wireframes, und ein Präsentationsgenerator, der aus einem kurzen Briefing fertige PowerPoint-Folien in deinem Design macht.
 
 **Die App läuft komplett in deinem Browser.** Sie spricht direkt mit einem KI-Server auf deinem eigenen Rechner. Es gibt keinen Server dazwischen, und deine Projektdaten liegen nur in deinem Browser.
 
@@ -62,7 +62,7 @@ Mögliche Werte für `anbieter`: `ollama`, `lmstudio`, `openai`. Einen Schlüsse
 
 ## Veröffentlichen auf GitHub Pages
 
-1. Neues Repository anlegen und `index.html` und `README.md` hochladen.
+1. Neues Repository anlegen und den gesamten Inhalt dieses Ordners hochladen. Die App selbst ist `index.html`; der Präsentationsgenerator braucht zusätzlich die Ordner `praesentation/`, `prompts/`, `design-systems/`, `examples/` und `vendor/`.
 2. **Settings → Pages**: unter „Build and deployment“ als Quelle „Deploy from a branch“, Branch `main`, Ordner `/ (root)` wählen.
 3. Nach ein, zwei Minuten ist die Seite unter `https://<dein-name>.github.io/<repo-name>/` erreichbar.
 
@@ -74,10 +74,47 @@ python3 -m http.server 8765
 
 im Ordner mit `index.html` starten und `http://localhost:8765` öffnen. Ollama braucht dann keine zusätzliche Freigabe.
 
+Ein Doppelklick auf `index.html` funktioniert für die Projektanalyse ebenfalls. Der Präsentationsgenerator braucht den kleinen Webserver, weil er Designsysteme und Prompts nachlädt.
+
+### Mit Docker
+
+```
+docker compose up
+```
+
+startet die App unter `http://localhost:8080`. Der Ordner `design-systems/` ist eingebunden: Ein neues Designsystem dort ablegen und die Seite neu laden genügt. Den KI-Server stellst du wie gewohnt auf der Startseite ein, zum Beispiel Ollama auf deinem Rechner unter `http://localhost:11434`.
+
+Für einen Server in der Cloud reicht jeder Dienst, der statische Dateien oder dieses Docker-Image ausliefert. Die App hat kein Backend. Liegt die Seite unter HTTPS, muss auch der KI-Server unter HTTPS erreichbar sein (oder auf dem eigenen Rechner unter `localhost` laufen).
+
+## Präsentationsgenerator
+
+Über **Präsentation** in der Kopfzeile:
+
+1. **Thema** beschreiben, auf Wunsch mit dem geöffneten Projekt als Grundlage.
+2. **Briefing:** Die KI fragt nach Ziel, Zielgruppe, Kernbotschaft, Umfang und dem, was sonst noch fehlt.
+3. **Designsystem** wählen. Die KI schlägt eines vor.
+4. **Folien** ansehen, Texte ändern, einzelne Folien neu schreiben lassen, Layout oder Designsystem wechseln und als PowerPoint speichern.
+
+Die KI liefert nur Inhalt und Struktur. Farben, Schriften, Layouts und Logos kommen aus dem Designsystem. Zwei Demo-Systeme sind dabei; **Beispiel ansehen, ohne KI** zeigt sie sofort.
+
+| Mehr dazu | |
+|---|---|
+| [docs/eigenes-designsystem.md](docs/eigenes-designsystem.md) | Eigenes Designsystem anlegen: im Editor, aus einer PowerPoint-Vorlage oder von Hand |
+| [docs/architektur.md](docs/architektur.md) | Wie das Modul aufgebaut ist |
+| [prompts/README.md](prompts/README.md) | Alle Prompts und der Ablauf der KI-Aufrufe |
+| [design-systems/demo-corporate/README.md](design-systems/demo-corporate/README.md) | Welche Datei eines Designsystems wohin gehört |
+| [examples/](examples/) | Beispiel-Slide-Spec und fertige `.pptx` in beiden Demo-Systemen |
+
+### Tests
+
+`http://localhost:8765/tests/` öffnen, oder ohne Browser `node tests/run.mjs`.
+
 ## Gut zu wissen
 
 - **Projekte** speichert der Browser getrennt für jede Adresse. Was du lokal unter `localhost` gespeichert hast, erscheint nicht automatisch auf der GitHub-Seite. Mit „Projekte → Als Datei“ und „Datei öffnen“ nimmst du Projekte mit, auch auf andere Rechner.
-- Schriften im Design-Studio werden von Google Fonts geladen. Alles andere kommt aus dieser einen Datei.
+- Schriften im Design-Studio werden von Google Fonts geladen, im Präsentationsgenerator nur, wenn du die Wunschschrift eines Designsystems wählst. Alles andere liegt in diesem Repository.
+- **Eigene Designsysteme**, die du im Editor anlegst oder hochlädst, speichert der Browser ebenfalls je Adresse. Mit „Als ZIP speichern“ nimmst du sie mit.
+- Nutzt du einen Cloud-Anbieter als KI-Server, gehen auch Briefing und Folientexte dorthin.
 
 ### Wenn es nicht funktioniert und Der Port nicht gestattet wird
 

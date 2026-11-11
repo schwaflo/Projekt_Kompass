@@ -1,0 +1,8 @@
+.git
+.github
+.claude
+node_modules
+docs
+*.md
+!prompts/*.md
+!design-systems/**/*.md
