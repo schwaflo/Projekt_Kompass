@@ -76,6 +76,18 @@ test('Briefing: vage Antwort führt zur Nachfrage, Antwort der Person geht nie v
   assert(B.aktuell && B.felder.find(f => f.id === B.aktuell.feld).kern, 'Ersatzfrage zu einem offenen Kernfeld');
 });
 
+test('Briefing: „Weiß ich nicht“ → Annahme der KI; ohne Annahme wird das Feld zurückgestellt', async () => {
+  const p = await prompts(), B = P.neuesBriefing(); B.aktuell = { feld: 'zielgruppe', frage: 'Wer?', vorschlaege: [] };
+  const ki = kiMit([{ updates: [{ feld: 'zielgruppe', wert: 'Eltern der Grundschule', status: 'annahme' }], antwort_vage: true, neue_felder: [], naechste_frage: { feld: 'ziel', frage: 'Ziel?', vorschlaege: [] } }]);
+  await P.briefingAntwort(ki, p, B, 'Weiß ich nicht.', { annahme: true });
+  gleich([B.felder.find(f => f.id === 'zielgruppe').wert, B.felder.find(f => f.id === 'zielgruppe').status], ['Eltern der Grundschule', 'annahme']);
+  assert(ki.anfragen[0].prompt.includes('bittet dich um eine Annahme') && ki.anfragen[0].prompt.includes('„Zielgruppe“'));
+  gleich(B.aktuell.feld, 'ziel');
+  P.wendeRundeAn(B, { updates: [], antwort_vage: true, neue_felder: [], naechste_frage: { feld: 'ziel', frage: 'Ziel?', vorschlaege: [] } }, 'Weiß ich nicht.', { annahme: true });
+  gleich(B.felder.find(f => f.id === 'ziel').status, 'uebersprungen');
+  assert(B.aktuell.feld !== 'ziel', 'dieselbe Frage wird nicht endlos wiederholt');
+});
+
 test('Briefing: höchstens drei Zusatzfelder, Bestätigtes bleibt', () => {
   const B = P.neuesBriefing(); B.aktuell = { feld: 'ziel', frage: '?', vorschlaege: [] };
   B.felder.find(f => f.id === 'thema').wert = 'Portal'; B.felder.find(f => f.id === 'thema').status = 'bestaetigt';

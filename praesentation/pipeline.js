@@ -14,7 +14,7 @@ import { checkSchema } from './validate.js';
 import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, SPEC_VERSION } from './spec.js';
 
 export const MAX_VERSUCHE = 3;
-export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-start', 'briefing-runde', 'designsystem', 'outline', 'folie', 'korrektur'];
+export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur'];
 
 /* ---------- Prompts ---------- */
 /* Datei mit Kopf (--- name/version/… ---) lesen */
@@ -125,11 +125,19 @@ export async function briefingStart(ki, prompts, B, projekt = '') {
 }
 
 /* Antwort auf die aktuelle Frage einsortieren (ohne KI-Aufruf testbar) */
-export function wendeRundeAn(B, res, antwort) {
-  const cur = B.aktuell, f = B.felder.find(x => x.id === cur.feld), vage = !!res.antwort_vage;
+/* Nach einer Änderung von Hand: ist die aktuelle Frage erledigt, zur nächsten offenen gehen */
+export function naechsteFrage(B) {
+  const f = B.aktuell && B.felder.find(x => x.id === B.aktuell.feld);
+  if (!f || !offen(f)) B.aktuell = naechsteOffene(B);
+  return B;
+}
+
+/* opts.annahme: Die Person hat um eine Annahme gebeten; ihre Antwort wird dann nicht wörtlich eingetragen. */
+export function wendeRundeAn(B, res, antwort, opts = {}) {
+  const cur = B.aktuell, f = B.felder.find(x => x.id === cur.feld), vage = !!res.antwort_vage && !opts.annahme;
   trageEin(B, res.updates, vage ? cur.feld : null);
   /* Die Antwort der Person geht nie verloren, auch wenn die KI sie nicht einträgt */
-  if (f && !vage && offen(f)) { f.wert = antwort; f.status = 'bestaetigt'; }
+  if (f && !vage && offen(f) && !opts.annahme) { f.wert = antwort; f.status = 'bestaetigt'; }
   const zusatz = B.felder.filter(x => x.zusatz).length;
   (res.neue_felder || []).slice(0, Math.max(0, MAX_ZUSATZFELDER - zusatz)).forEach(n => {
     const id = slug(n.id || n.label);
@@ -137,11 +145,13 @@ export function wendeRundeAn(B, res, antwort) {
     B.felder.push({ id, label: String(n.label), beschreibung: String(n.beschreibung || n.label), wert: '', status: 'leer', zusatz: true });
   });
   const q = res.naechste_frage || {};
+  /* Bleibt das Feld trotz Bitte um eine Annahme leer, wird es zurückgestellt statt erneut gefragt */
+  if (opts.annahme && f && offen(f)) { f.wert = '–'; f.status = 'uebersprungen'; }
   setzeFrage(B, q, vage && q.feld === cur.feld);
   return B;
 }
 
-export async function briefingAntwort(ki, prompts, B, antwort) {
+export async function briefingAntwort(ki, prompts, B, antwort, opts = {}) {
   const cur = B.aktuell, f = B.felder.find(x => x.id === cur.feld);
   B.verlauf.push({ feld: cur.feld, frage: cur.frage, antwort });
   const zusatz = B.felder.filter(x => x.zusatz).length;
@@ -150,11 +160,11 @@ export async function briefingAntwort(ki, prompts, B, antwort) {
     prompt: fuelle(prompts['briefing-runde'], {
       felder: JSON.stringify(B.felder.map(x => ({ id: x.id, label: x.label, beschreibung: x.beschreibung, wert: x.wert, status: x.status }))),
       verlauf: B.verlauf.slice(-6).map(v => `- F: ${v.frage}\n  A: ${v.antwort}`).join('\n'),
-      feld: cur.feld, label: f ? f.label : '', frage: cur.frage, antwort,
+      feld: cur.feld, label: f ? f.label : '', frage: cur.frage, antwort: opts.annahme ? fuelle(prompts['briefing-annahme'], { label: f ? f.label : cur.feld }).trim() : antwort,
       zusatzErlaubt: zusatz >= MAX_ZUSATZFELDER ? 'Es sind keine weiteren Felder mehr möglich: leeres Array.' : `Höchstens ${MAX_ZUSATZFELDER - zusatz} weitere, mit kurzer id in snake_case.`
     })
   });
-  return wendeRundeAn(B, res, antwort);
+  return wendeRundeAn(B, res, antwort, opts);
 }
 
 /* Frage überspringen: Feld bleibt leer und wird nicht mehr gefragt */

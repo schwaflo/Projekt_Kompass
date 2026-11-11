@@ -9,6 +9,7 @@ Wer einen Prompt ändert, erhöht `version`. Die Version steht im Protokoll jede
 | [system-briefing.md](system-briefing.md) | Rolle für das Briefing-Gespräch | – |
 | [briefing-start.md](briefing-start.md) | Briefing, erste Runde | bekannte Angaben, erste Frage |
 | [briefing-runde.md](briefing-runde.md) | Briefing, jede weitere Runde | Einträge, Nachfrage oder nächste Frage |
+| [briefing-annahme.md](briefing-annahme.md) | Briefing, wenn die Person „Weiß ich nicht“ wählt | – |
 | [designsystem.md](designsystem.md) | Designsystem vorschlagen | ID eines Designsystems, Begründung |
 | [system.md](system.md) | Rolle für Outline und Folien, enthält `voice.md` und die Regeln des Designsystems | – |
 | [outline.md](outline.md) | Gliederung | Titel, Storyline, Folien mit Layout und Kernaussage |
