@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1800" viewBox="0 0 1280 1800">
+  <!-- Platzhalter: portrait-image. Ersetze diese Datei durch ein eigenes Bild in 1280 × 1800 px (JPG oder PNG). -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#EDE6DC"/><stop offset="1" stop-color="#D9CFC2"/></linearGradient>
+    <pattern id="p" width="95" height="95" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="2.4" height="95" fill="#1C1B1A" fill-opacity=".07"/></pattern>
+  </defs>
+  <rect width="1280" height="1800" fill="url(#g)"/>
+  <rect width="1280" height="1800" fill="url(#p)"/>
+  <path d="M0 0 L1280 1800 M1280 0 L0 1800" stroke="#1C1B1A" stroke-opacity=".12" stroke-width="3.6"/>
+  <rect x="24" y="24" width="1233" height="1753" fill="none" stroke="#1C1B1A" stroke-opacity=".35" stroke-width="3.6" stroke-dasharray="21 14"/>
+  <circle cx="640.0" cy="699" r="69" fill="none" stroke="#C2410C" stroke-width="8.3"/>
+  <path d="M600 725 l26 -36 l19 21 l14 -14 l21 28 z" fill="#C2410C"/>
+  <text x="640.0" y="900" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="100" font-weight="700" letter-spacing="4.7" fill="#1C1B1A">PLATZHALTER</text>
+  <text x="640.0" y="1014" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Rolle: portrait-image · Hochformat</text>
+  <text x="640.0" y="1092" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Empfohlen: 1280 × 1800 px, JPG oder PNG</text>
+  <text x="640.0" y="1170" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="#1C1B1A" fill-opacity=".85">Erscheint auf: image-left</text>
+</svg>
