@@ -1,0 +1,4 @@
+{
+  "hinweis": "Liste der Ordner in design-systems/. Wird von scripts/build-index.mjs erzeugt, lässt sich aber auch von Hand pflegen.",
+  "systems": ["demo-corporate", "demo-hell"]
+}

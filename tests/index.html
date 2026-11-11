@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Tests – Präsentationsgenerator</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; color: #1b1b1f; }
+  h1 { font-size: 20px; }
+  li { margin: 2px 0; list-style: none; }
+  .ok::before { content: "✓ "; color: #1e8e5a; font-weight: 700; }
+  .nein::before { content: "✗ "; color: #c0392b; font-weight: 700; }
+  .nein small { display: block; color: #c0392b; margin-left: 18px; }
+  #summe { font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Tests – Präsentationsgenerator</h1>
+<p>Diese Seite muss über einen Webserver geöffnet werden, zum Beispiel mit <code>python3 -m http.server 8765</code> im Projektordner und dann <code>http://localhost:8765/tests/</code>.</p>
+<p id="summe">Tests laufen …</p>
+<ul id="liste"></ul>
+<script type="module">
+import { env, runAll } from './harness.js';
+import './designsystem.test.js';
+
+env.readText = async p => { try { const r = await fetch('../' + p, { cache: 'no-cache' }); return r.ok ? await r.text() : null; } catch { return null; } };
+const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const res = await runAll();
+const fehl = res.filter(r => !r.ok).length;
+document.getElementById('liste').innerHTML = res.map(r => `<li class="${r.ok ? 'ok' : 'nein'}">${esc(r.name)}${r.ok ? '' : `<small>${esc(r.fehler)}</small>`}</li>`).join('');
+document.getElementById('summe').textContent = fehl ? `${fehl} von ${res.length} Tests fehlgeschlagen` : `Alle ${res.length} Tests bestanden`;
+window.__tests = res;
+</script>
+</body>
+</html>
