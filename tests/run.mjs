@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { env, runAll } from './harness.js';
 import './designsystem.test.js';
+import './praesentation.test.js';
 
 const wurzel = fileURLToPath(new URL('..', import.meta.url));
 env.readText = async p => { try { return await readFile(wurzel + p, 'utf8'); } catch { return null; } };

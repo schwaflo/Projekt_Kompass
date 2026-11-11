@@ -1,0 +1,101 @@
+# 1 title #12284C
+  form ellipse 64,-30,56,100 #2E5E8C 0.35
+  form ellipse 78,38,40,71 #17B3A3 0.18
+  form rect 6,60.5,8,0.9 #17B3A3
+  bild 6,8,18,8.5 contain logo-negative
+  text 6,26,60,32 Arial 44pt #FFFFFF left/bottom fett | Neues Kundenportal: Stand und nächste Schritte
+  text 6,65,60,14 Arial 20pt #B8C6DC left/top | Was die Pilotphase gezeigt hat und was wir bis zum Start im Herbst entscheiden müssen
+  text 6,86,60,6 Arial 12pt #B8C6DC left/middle | LENKUNGSKREIS · 14. MAI · BEISPIELPRÄSENTATION
+# 2 section #12284C
+  form rect 0,0,2.2,100 #17B3A3
+  text 6,20,30,24 Arial 72pt #17B3A3 left/bottom fett | 01
+  text 6,46,80,20 Arial 44pt #FFFFFF left/top fett | Wo wir heute stehen
+  text 6,70,70,14 Arial 20pt #B8C6DC left/top | Die Pilotphase mit 400 Kundinnen und Kunden ist abgeschlossen
+# 3 content-bullets #FFFFFF
+  form rect 6,9,5,0.8 #17B3A3
+  form rect 6,90.5,88,0.2 #D5DCE6
+  text 6,92.5,60,4.5 Arial 12pt #5A6578 left/middle | Neues Kundenportal
+  text 84,92.5,10,4.5 Arial 12pt #5A6578 right/middle | 3
+  bild 89.5,6,4.5,8 contain logo-icon
+  text 6,11.5,80,14 Arial 30pt #12284C left/middle fett | Das Portal löst die drei häufigsten Anliegen ohne Anruf
+  text 6,29,86,57 Arial 18pt #1A2233 left/top | • Rechnungen einsehen und herunterladen, auch rückwirkend für drei Jahre ¶ • Adresse und Bankverbindung selbst ändern, mit Bestätigung per E-Mail ¶ • Den Stand einer Anfrage jederzeit nachverfolgen ¶ • Termine online buchen und verschieben
+# 4 kpi-grid #FFFFFF
+  form rect 6,9,5,0.8 #17B3A3
+  form rect 6,90.5,88,0.2 #D5DCE6
+  text 6,92.5,60,4.5 Arial 12pt #5A6578 left/middle | Neues Kundenportal
+  text 84,92.5,10,4.5 Arial 12pt #5A6578 right/middle | 4
+  bild 89.5,6,4.5,8 contain logo-icon
+  text 6,11.5,80,14 Arial 30pt #12284C left/middle fett | Die Pilotphase hat unsere Erwartungen übertroffen
+  form rect 6,31,19.75,40 #F2F5F9
+  text 7.38,34.2,16.99,18.48 Arial 46pt #12284C center/bottom fett | 72 %
+  text 7.38,52.68,16.99,15.12 Arial 13.5pt #5A6578 center/top | nutzen das Portal mindestens einmal im Monat
+  form rect 28.75,31,19.75,40 #F2F5F9
+  text 30.13,34.2,16.99,18.48 Arial 46pt #12284C center/bottom fett | −31 %
+  text 30.13,52.68,16.99,15.12 Arial 13.5pt #5A6578 center/top | weniger Anrufe zu Rechnungen
+  form rect 51.5,31,19.75,40 #F2F5F9
+  text 52.88,34.2,16.99,18.48 Arial 46pt #12284C center/bottom fett | 4,5
+  text 52.88,52.68,16.99,15.12 Arial 13.5pt #5A6578 center/top | von 5 Punkten in der Zufriedenheitsbefragung
+  form rect 74.25,31,19.75,40 #F2F5F9
+  text 75.63,34.2,16.99,18.48 Arial 46pt #12284C center/bottom fett | 2 Min.
+  text 75.63,52.68,16.99,15.12 Arial 13.5pt #5A6578 center/top | dauert eine Adressänderung im Schnitt
+  text 6,76,88,10 Arial 14pt #5A6578 left/top | Beispielzahlen zur Veranschaulichung. Zeitraum: Januar bis April, 400 Teilnehmende.
+# 5 two-column #FFFFFF
+  form rect 6,9,5,0.8 #17B3A3
+  form rect 6,90.5,88,0.2 #D5DCE6
+  form rect 49.9,30,0.2,54 #D5DCE6
+  text 6,92.5,60,4.5 Arial 12pt #5A6578 left/middle | Neues Kundenportal
+  text 84,92.5,10,4.5 Arial 12pt #5A6578 right/middle | 5
+  bild 89.5,6,4.5,8 contain logo-icon
+  text 6,11.5,80,14 Arial 30pt #12284C left/middle fett | Für Kundinnen und Kunden wird vieles einfacher
+  text 6,29,40,8 Arial 20pt #2E5E8C left/middle fett | Bisher
+  text 6,39,40,47 Arial 18pt #1A2233 left/top | • Rechnungskopie nur per Anruf oder Brief ¶ • Änderungen dauern bis zu fünf Werktage ¶ • Kein Einblick in den Stand einer Anfrage
+  text 54,29,40,8 Arial 20pt #2E5E8C left/middle fett | Mit dem Portal
+  text 54,39,40,47 Arial 18pt #1A2233 left/top | • Alle Rechnungen sofort als PDF ¶ • Änderungen gelten am selben Tag ¶ • Jede Anfrage mit Status und Ansprechperson
+# 6 image-left #FFFFFF
+  bild 0,0,40,100 cover portrait
+  form rect 46,9,5,0.8 #17B3A3
+  text 46,11.5,48,20 Arial 30pt #12284C left/middle fett | Das Service-Team gewinnt Zeit für Beratung
+  text 46,35,48,51 Arial 18pt #1A2233 left/top | • Weniger Routineanfragen am Telefon ¶ • Mehr Zeit für Anliegen, die ein Gespräch brauchen ¶ • Alle Vorgänge eines Kunden auf einen Blick
+  text 84,92.5,10,4.5 Arial 12pt #5A6578 right/middle | 6
+# 7 quote #F2F5F9
+  form rect 8,26,0.6,40 #17B3A3
+  text 12,24,76,44 Arial 30pt #12284C left/middle fett | Ich habe meine Bankverbindung abends auf dem Sofa geändert. Früher hätte ich dafür zweimal anrufen müssen.
+  text 12,71,76,7 Arial 18pt #5A6578 left/middle | Teilnehmerin der Pilotgruppe
+  bild 89.5,6,4.5,8 contain logo-icon
+# 8 image-full #12284C
+  bild 0,0,100,100 cover hero
+  form rect 0,60,100,40 #12284C 0.85
+  form rect 6,66,5,0.8 #17B3A3
+  text 6,69,84,13 Arial 30pt #FFFFFF left/middle fett | Im Herbst öffnen wir das Portal für alle
+  text 6,83,84,10 Arial 20pt #B8C6DC left/top | Bis dahin stehen vier Schritte an, für die wir heute Ihre Freigabe brauchen
+# 9 timeline #FFFFFF
+  form rect 6,9,5,0.8 #17B3A3
+  form rect 6,90.5,88,0.2 #D5DCE6
+  text 6,92.5,60,4.5 Arial 12pt #5A6578 left/middle | Neues Kundenportal
+  text 84,92.5,10,4.5 Arial 12pt #5A6578 right/middle | 9
+  bild 89.5,6,4.5,8 contain logo-icon
+  text 6,11.5,80,14 Arial 30pt #12284C left/middle fett | Der Fahrplan bis zum Start
+  form rect 6,33.1,88,0.3 #D5DCE6
+  form ellipse 6,32,1.4,2.49 #17B3A3
+  text 6,38,18.56,4.83 Arial 20pt #2E5E8C left/top fett | Mai
+  text 6,44.23,18.56,4.37 Arial 18pt #1A2233 left/top fett | Freigabe Phase 2
+  text 6,50,18.56,6.68 Arial 14pt #5A6578 left/top | Budget und Team für den Ausbau bestätigen
+  form ellipse 28.75,32,1.4,2.49 #17B3A3
+  text 28.75,38,18.56,4.83 Arial 20pt #2E5E8C left/top fett | Juni
+  text 28.75,44.23,18.56,4.37 Arial 18pt #1A2233 left/top fett | Ausbau
+  text 28.75,50,18.56,9.92 Arial 14pt #5A6578 left/top | Terminbuchung und mobile Ansicht fertigstellen
+  form ellipse 51.5,32,1.4,2.49 #17B3A3
+  text 51.5,38,18.56,4.83 Arial 20pt #2E5E8C left/top fett | August
+  text 51.5,44.23,18.56,4.37 Arial 18pt #1A2233 left/top fett | Schulung
+  text 51.5,50,18.56,6.68 Arial 14pt #5A6578 left/top | Service-Team an zwei Tagen einführen
+  form ellipse 74.25,32,1.4,2.49 #17B3A3
+  text 74.25,38,18.56,4.83 Arial 20pt #2E5E8C left/top fett | Oktober
+  text 74.25,44.23,18.56,4.37 Arial 18pt #1A2233 left/top fett | Start für alle
+  text 74.25,50,18.56,6.68 Arial 14pt #5A6578 left/top | Einladung per Brief und E-Mail in drei Wellen
+# 10 closing #12284C
+  form ellipse -18,40,50,89 #2E5E8C 0.3
+  form rect 46,50.5,8,0.9 #17B3A3
+  bild 41,10,18,8.5 contain logo-negative
+  text 10,26,80,22 Arial 44pt #FFFFFF center/bottom fett | Vielen Dank
+  text 15,55,70,18 Arial 20pt #B8C6DC center/top | Wir bitten Sie heute um die Freigabe für Phase 2 und um Ihre Entscheidung zum Starttermin im Oktober.
+  text 15,82,70,7 Arial 18pt #17B3A3 center/middle | Projektteam Kundenportal · portal@beispiel.de

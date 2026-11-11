@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "titel": "Neues Kundenportal",
+  "folien": [
+    {
+      "layoutId": "title",
+      "inhalt": {
+        "title": "Neues Kundenportal: Stand und nächste Schritte",
+        "subtitle": "Was die Pilotphase gezeigt hat und was wir bis zum Start im Herbst entscheiden müssen",
+        "meta": "Lenkungskreis · 14. Mai · Beispielpräsentation"
+      },
+      "notizen": "Begrüßung. Ziel der Sitzung nennen: Freigabe für Phase 2 und Entscheidung zum Starttermin."
+    },
+    {
+      "layoutId": "section",
+      "inhalt": {
+        "number": "01",
+        "title": "Wo wir heute stehen",
+        "subtitle": "Die Pilotphase mit 400 Kundinnen und Kunden ist abgeschlossen"
+      },
+      "notizen": "Kurzer Rückblick, höchstens zwei Minuten."
+    },
+    {
+      "layoutId": "content-bullets",
+      "inhalt": {
+        "title": "Das Portal löst die drei häufigsten Anliegen ohne Anruf",
+        "bullets": [
+          "Rechnungen einsehen und herunterladen, auch rückwirkend für drei Jahre",
+          "Adresse und Bankverbindung selbst ändern, mit Bestätigung per E-Mail",
+          "Den Stand einer Anfrage jederzeit nachverfolgen",
+          "Termine online buchen und verschieben"
+        ]
+      },
+      "notizen": "Diese vier Funktionen decken laut Auswertung des Service-Centers rund 60 Prozent aller Anrufe ab."
+    },
+    {
+      "layoutId": "kpi-grid",
+      "inhalt": {
+        "title": "Die Pilotphase hat unsere Erwartungen übertroffen",
+        "kpis": [
+          { "value": "72 %", "label": "nutzen das Portal mindestens einmal im Monat" },
+          { "value": "−31 %", "label": "weniger Anrufe zu Rechnungen" },
+          { "value": "4,5", "label": "von 5 Punkten in der Zufriedenheitsbefragung" },
+          { "value": "2 Min.", "label": "dauert eine Adressänderung im Schnitt" }
+        ],
+        "note": "Beispielzahlen zur Veranschaulichung. Zeitraum: Januar bis April, 400 Teilnehmende."
+      },
+      "notizen": "Auf die Anrufzahlen eingehen: Das war das Hauptziel des Projekts."
+    },
+    {
+      "layoutId": "two-column",
+      "inhalt": {
+        "title": "Für Kundinnen und Kunden wird vieles einfacher",
+        "leftTitle": "Bisher",
+        "leftBullets": [
+          "Rechnungskopie nur per Anruf oder Brief",
+          "Änderungen dauern bis zu fünf Werktage",
+          "Kein Einblick in den Stand einer Anfrage"
+        ],
+        "rightTitle": "Mit dem Portal",
+        "rightBullets": [
+          "Alle Rechnungen sofort als PDF",
+          "Änderungen gelten am selben Tag",
+          "Jede Anfrage mit Status und Ansprechperson"
+        ]
+      }
+    },
+    {
+      "layoutId": "image-left",
+      "inhalt": {
+        "image": "portrait",
+        "title": "Das Service-Team gewinnt Zeit für Beratung",
+        "bullets": [
+          "Weniger Routineanfragen am Telefon",
+          "Mehr Zeit für Anliegen, die ein Gespräch brauchen",
+          "Alle Vorgänge eines Kunden auf einen Blick"
+        ]
+      },
+      "notizen": "Rückmeldung aus dem Team zitieren, falls Zeit bleibt."
+    },
+    {
+      "layoutId": "quote",
+      "inhalt": {
+        "quote": "Ich habe meine Bankverbindung abends auf dem Sofa geändert. Früher hätte ich dafür zweimal anrufen müssen.",
+        "author": "Teilnehmerin der Pilotgruppe"
+      }
+    },
+    {
+      "layoutId": "image-full",
+      "inhalt": {
+        "image": "hero",
+        "title": "Im Herbst öffnen wir das Portal für alle",
+        "caption": "Bis dahin stehen vier Schritte an, für die wir heute Ihre Freigabe brauchen"
+      }
+    },
+    {
+      "layoutId": "timeline",
+      "inhalt": {
+        "title": "Der Fahrplan bis zum Start",
+        "steps": [
+          { "label": "Mai", "title": "Freigabe Phase 2", "text": "Budget und Team für den Ausbau bestätigen" },
+          { "label": "Juni", "title": "Ausbau", "text": "Terminbuchung und mobile Ansicht fertigstellen" },
+          { "label": "August", "title": "Schulung", "text": "Service-Team an zwei Tagen einführen" },
+          { "label": "Oktober", "title": "Start für alle", "text": "Einladung per Brief und E-Mail in drei Wellen" }
+        ]
+      },
+      "notizen": "Der kritische Punkt ist die Schulung im August wegen der Urlaubszeit."
+    },
+    {
+      "layoutId": "closing",
+      "inhalt": {
+        "title": "Vielen Dank",
+        "body": "Wir bitten Sie heute um die Freigabe für Phase 2 und um Ihre Entscheidung zum Starttermin im Oktober.",
+        "contact": "Projektteam Kundenportal · portal@beispiel.de"
+      },
+      "notizen": "Beschluss festhalten, Fragen sammeln."
+    }
+  ]
+}

@@ -8,10 +8,10 @@
   <rect width="1200" height="1200" fill="url(#p)"/>
   <path d="M0 0 L1200 1200 M1200 0 L0 1200" stroke="#FFFFFF" stroke-opacity=".12" stroke-width="3.3"/>
   <rect x="22" y="22" width="1156" height="1156" fill="none" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="3.3" stroke-dasharray="20 13"/>
-  <circle cx="600.0" cy="411" r="64" fill="none" stroke="#17B3A3" stroke-width="7.8"/>
-  <path d="M562 436 l24 -33 l18 20 l13 -13 l20 27 z" fill="#17B3A3"/>
+  <circle cx="600.0" cy="433" r="64" fill="none" stroke="#17B3A3" stroke-width="7.8"/>
+  <path d="M562 458 l24 -33 l18 20 l13 -13 l20 27 z" fill="#17B3A3"/>
   <text x="600.0" y="600" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="93" font-weight="700" letter-spacing="4.4" fill="#FFFFFF">PLATZHALTER</text>
-  <text x="600.0" y="707" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="49" fill="#FFFFFF" fill-opacity=".85">Rolle: square-image · Quadrat 1:1</text>
-  <text x="600.0" y="780" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="49" fill="#FFFFFF" fill-opacity=".85">Empfohlen: 1200 × 1200 px, JPG oder PNG</text>
-  <text x="600.0" y="853" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="49" fill="#FFFFFF" fill-opacity=".85">Wählbar für: image-left</text>
+  <text x="600.0" y="698" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="49" fill="#FFFFFF" fill-opacity=".85">Rolle: square-image · Quadrat 1:1</text>
+  <text x="600.0" y="762" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="49" fill="#FFFFFF" fill-opacity=".85">Empfohlen: 1200 × 1200 px, JPG oder PNG</text>
+  <text x="600.0" y="827" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="49" fill="#FFFFFF" fill-opacity=".85">Wählbar für: image-left</text>
 </svg>

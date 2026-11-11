@@ -1,0 +1,83 @@
+# 1 title #FAF8F5
+  form rect 8,40,3,5.3 #C2410C
+  bild 8,9,16,7.6 contain logo-primary
+  text 8,48,72,26 Georgia 48pt #1C1B1A left/top | Neues Kundenportal: Stand und nächste Schritte
+  text 8,75,64,12 Arial 20pt #6B6661 left/top | Was die Pilotphase gezeigt hat und was wir bis zum Start im Herbst entscheiden müssen
+  text 52,10.5,40,5 Arial 12pt #6B6661 right/middle | LENKUNGSKREIS · 14. MAI · BEISPIELPRÄSENTATION
+# 2 section #F0ECE6
+  text 8,12,30,28 Georgia 80pt #C2410C left/top | 01
+  text 8,50,76,22 Georgia 48pt #1C1B1A left/bottom | Wo wir heute stehen
+  text 8,75,64,13 Arial 20pt #6B6661 left/top | Die Pilotphase mit 400 Kundinnen und Kunden ist abgeschlossen
+# 3 content-bullets #FAF8F5
+  form rect 8,27,84,0.2 #D8D2CA
+  text 8,5,60,4.5 Arial 12pt #6B6661 left/middle | NEUES KUNDENPORTAL
+  text 82,5,10,4.5 Arial 12pt #6B6661 right/middle | 3
+  text 8,11,84,15 Georgia 31pt #1C1B1A left/bottom | Das Portal löst die drei häufigsten Anliegen ohne Anruf
+  text 8,32,70,58 Arial 18pt #1C1B1A left/top | • Rechnungen einsehen und herunterladen, auch rückwirkend für drei Jahre ¶ • Adresse und Bankverbindung selbst ändern, mit Bestätigung per E-Mail ¶ • Den Stand einer Anfrage jederzeit nachverfolgen ¶ • Termine online buchen und verschieben
+# 4 kpi-grid #FAF8F5
+  form rect 8,27,84,0.2 #D8D2CA
+  text 8,5,60,4.5 Arial 12pt #6B6661 left/middle | NEUES KUNDENPORTAL
+  text 82,5,10,4.5 Arial 12pt #6B6661 right/middle | 4
+  text 8,11,84,15 Georgia 31pt #1C1B1A left/bottom | Die Pilotphase hat unsere Erwartungen übertroffen
+  form rect 8,36,18,0.3 #D8D2CA
+  text 8,39,16.92,11.88 Georgia 48.5pt #C2410C left/top | 72 %
+  text 8,52.28,16.92,9.95 Arial 13.5pt #6B6661 left/top | nutzen das Portal mindestens einmal im Monat
+  form rect 30,36,18,0.3 #D8D2CA
+  text 30,39,16.92,11.88 Georgia 48.5pt #C2410C left/top | −31 %
+  text 30,52.28,16.92,6.7 Arial 13.5pt #6B6661 left/top | weniger Anrufe zu Rechnungen
+  form rect 52,36,18,0.3 #D8D2CA
+  text 52,39,16.92,11.88 Georgia 48.5pt #C2410C left/top | 4,5
+  text 52,52.28,16.92,6.7 Arial 13.5pt #6B6661 left/top | von 5 Punkten in der Zufriedenheitsbefragung
+  form rect 74,36,18,0.3 #D8D2CA
+  text 74,39,16.92,11.88 Georgia 48.5pt #C2410C left/top | 2 Min.
+  text 74,52.28,16.92,9.95 Arial 13.5pt #6B6661 left/top | dauert eine Adressänderung im Schnitt
+  text 8,80,84,10 Arial 14pt #6B6661 left/top | Beispielzahlen zur Veranschaulichung. Zeitraum: Januar bis April, 400 Teilnehmende.
+# 5 two-column #FAF8F5
+  form rect 8,27,84,0.2 #D8D2CA
+  text 8,5,60,4.5 Arial 12pt #6B6661 left/middle | NEUES KUNDENPORTAL
+  text 82,5,10,4.5 Arial 12pt #6B6661 right/middle | 5
+  text 8,11,84,15 Georgia 32pt #1C1B1A left/bottom | Für Kundinnen und Kunden wird vieles einfacher
+  text 8,32,39,7 Arial 12pt #C2410C left/middle fett | BISHER
+  text 8,41,39,49 Arial 18pt #1C1B1A left/top | • Rechnungskopie nur per Anruf oder Brief ¶ • Änderungen dauern bis zu fünf Werktage ¶ • Kein Einblick in den Stand einer Anfrage
+  text 53,32,39,7 Arial 12pt #C2410C left/middle fett | MIT DEM PORTAL
+  text 53,41,39,49 Arial 18pt #1C1B1A left/top | • Alle Rechnungen sofort als PDF ¶ • Änderungen gelten am selben Tag ¶ • Jede Anfrage mit Status und Ansprechperson
+# 6 image-left #FAF8F5
+  bild 8,10,32,80 cover portrait
+  text 46,10,46,26 Georgia 32pt #1C1B1A left/bottom | Das Service-Team gewinnt Zeit für Beratung
+  text 46,41,46,49 Arial 18pt #1C1B1A left/top | • Weniger Routineanfragen am Telefon ¶ • Mehr Zeit für Anliegen, die ein Gespräch brauchen ¶ • Alle Vorgänge eines Kunden auf einen Blick
+# 7 quote #FAF8F5
+  form rect 47,16,6,0.5 #C2410C
+  text 14,22,72,46 Georgia 34pt #1C1B1A center/middle | Ich habe meine Bankverbindung abends auf dem Sofa geändert. Früher hätte ich dafür zweimal anrufen müssen.
+  text 14,72,72,7 Arial 12pt #6B6661 center/middle | TEILNEHMERIN DER PILOTGRUPPE
+# 8 image-full #FAF8F5
+  bild 0,0,100,64 cover hero
+  text 8,68,84,14 Georgia 32pt #1C1B1A left/middle | Im Herbst öffnen wir das Portal für alle
+  text 8,83,76,10 Arial 20pt #6B6661 left/top | Bis dahin stehen vier Schritte an, für die wir heute Ihre Freigabe brauchen
+# 9 timeline #FAF8F5
+  form rect 8,27,84,0.2 #D8D2CA
+  text 8,5,60,4.5 Arial 12pt #6B6661 left/middle | NEUES KUNDENPORTAL
+  text 82,5,10,4.5 Arial 12pt #6B6661 right/middle | 9
+  text 8,11,84,15 Georgia 32pt #1C1B1A left/bottom | Der Fahrplan bis zum Start
+  form rect 8,37.1,84,0.3 #D8D2CA
+  form ellipse 8,36,1.4,2.49 #C2410C
+  text 8,42,16.92,3.09 Arial 12pt #C2410C left/top fett | MAI
+  text 8,46.49,16.92,9.83 Georgia 20pt #1C1B1A left/top | Freigabe Phase 2
+  text 8,57.72,16.92,6.94 Arial 14pt #6B6661 left/top | Budget und Team für den Ausbau bestätigen
+  form ellipse 30,36,1.4,2.49 #C2410C
+  text 30,42,16.92,3.09 Arial 12pt #C2410C left/top fett | JUNI
+  text 30,46.49,16.92,5.01 Georgia 20pt #1C1B1A left/top | Ausbau
+  text 30,52.9,16.92,10.31 Arial 14pt #6B6661 left/top | Terminbuchung und mobile Ansicht fertigstellen
+  form ellipse 52,36,1.4,2.49 #C2410C
+  text 52,42,16.92,3.09 Arial 12pt #C2410C left/top fett | AUGUST
+  text 52,46.49,16.92,5.01 Georgia 20pt #1C1B1A left/top | Schulung
+  text 52,52.9,16.92,6.94 Arial 14pt #6B6661 left/top | Service-Team an zwei Tagen einführen
+  form ellipse 74,36,1.4,2.49 #C2410C
+  text 74,42,16.92,3.09 Arial 12pt #C2410C left/top fett | OKTOBER
+  text 74,46.49,16.92,5.01 Georgia 20pt #1C1B1A left/top | Start für alle
+  text 74,52.9,16.92,6.94 Arial 14pt #6B6661 left/top | Einladung per Brief und E-Mail in drei Wellen
+# 10 closing #FAF8F5
+  form rect 8,79,84,0.2 #D8D2CA
+  text 8,14,76,30 Georgia 48pt #1C1B1A left/bottom | Vielen Dank
+  text 8,48,64,24 Arial 20pt #6B6661 left/top | Wir bitten Sie heute um die Freigabe für Phase 2 und um Ihre Entscheidung zum Starttermin im Oktober.
+  text 8,83,56,7.6 Arial 18pt #1C1B1A left/middle | Projektteam Kundenportal · portal@beispiel.de
+  bild 76,83,16,7.6 contain logo-primary
