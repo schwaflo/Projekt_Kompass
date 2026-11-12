@@ -1,6 +1,6 @@
 {
   "name": "arten",
-  "version": 2,
+  "version": 3,
   "zweck": "Präsentationsarten: woran man sie erkennt, was im Briefing gefragt wird, Dramaturgie, Stil und passende Layouts. Wird in briefing-art, briefing-start, briefing-runde, outline und folie eingesetzt.",
   "erklaerung": {
     "prio": "kern = muss geklärt sein, wird auch nach dem Fragenlimit noch gefragt. hoch = wird gefragt. mittel = wird nur gefragt, wenn das Fragenlimit es zulässt. auto = wird nie gefragt; die KI leitet es ab oder die Person trägt es selbst ein.",
@@ -48,7 +48,7 @@
         "jury",
         "begeistern"
       ],
-      "folien": 8,
+      "folien": 7,
       "felder": [
         {
           "id": "problem",
@@ -103,8 +103,7 @@
         "So funktioniert es: drei Bausteine",
         "Vorher und nachher: was sich ändert",
         "Warum es klappt: Belege, Vorbilder oder erste Rückmeldungen",
-        "Die Bitte: was genau gebraucht wird",
-        "Schluss: das Bild, wie es aussieht, wenn es umgesetzt ist"
+        "Abschluss: die Bitte, konkret (Betrag, Entscheidung, Termin), verbunden mit dem Bild, wie es aussieht, wenn es umgesetzt ist"
       ],
       "stil": "Pitch-Stil: kurz, bildhaft, selbstbewusst. Überschriften sind zugespitzte Behauptungen mit höchstens 7 Wörtern, die neugierig machen. Konkrete Szenen und Zahlen statt Abstraktionen. Wenig Text pro Folie: lieber eine starke Aussage als vier schwache Punkte. Die Abschlussfolie stellt die Bitte, nicht „Vielen Dank“.",
       "layouts": "Bevorzugt eine große Aussage (statement) oder eine große Zahl (big-number) für Haken und Kernidee, Karten (cards) für die drei Bausteine, große Bilder (image-full, image-left, image-right) und Gegenüberstellungen (two-column) für vorher und nachher. Aufzählungen (content-bullets) höchstens einmal.",

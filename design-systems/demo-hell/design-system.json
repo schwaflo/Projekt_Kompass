@@ -422,7 +422,8 @@
             "bold": true,
             "uppercase": true,
             "valign": "middle"
-          }
+          },
+          "pflicht": true
         },
         {
           "id": "leftBullets",
@@ -456,7 +457,8 @@
             "bold": true,
             "uppercase": true,
             "valign": "middle"
-          }
+          },
+          "pflicht": true
         },
         {
           "id": "rightBullets",

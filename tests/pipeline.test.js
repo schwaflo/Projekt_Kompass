@@ -186,7 +186,7 @@ test('Briefing: fertiges Briefing ist flach, Kernpunkte werden verlangt, Folienz
   B.aktuell = { feld: 'belege', frage: '?', vorschlaege: [], art: 'neu' }; P.briefingUeberspringen(B);
   r = P.briefingFertig(B, p.arten);
   gleich(r.errors, []);
-  gleich([r.briefing.art, r.briefing.art_name, r.briefing.problem, r.briefing.folienzahl, r.briefing.belege], ['pitch', 'Pitch', 'Gäste finden den Empfang nicht', 8, undefined]);
+  gleich([r.briefing.art, r.briefing.art_name, r.briefing.problem, r.briefing.folienzahl, r.briefing.belege], ['pitch', 'Pitch', 'Gäste finden den Empfang nicht', 7, undefined]);
   gleich(r.briefing.annahmen, ['Publikum: Geschäftsleitung']);
   setze('umfang', 'etwa 20 Minuten'); gleich(P.briefingFertig(B, p.arten).briefing.folienzahl, 10);
 });

@@ -471,7 +471,8 @@
             "size": "h2",
             "color": "secondary",
             "valign": "middle"
-          }
+          },
+          "pflicht": true
         },
         {
           "id": "leftBullets",
@@ -504,7 +505,8 @@
             "size": "h2",
             "color": "secondary",
             "valign": "middle"
-          }
+          },
+          "pflicht": true
         },
         {
           "id": "rightBullets",
