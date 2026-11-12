@@ -14,9 +14,10 @@ Beschreibung
 Briefing (JSON)
    │  1 KI-Aufruf mit Dramaturgie und Stil der Art
    ▼
-Outline (JSON): Titel, Storyline, je Folie Abschnitt, Layout und Kernaussage
-   │  Abwechslung (ohne KI): Bildseiten wechseln, keine Wiederholung, wenige Aufzählungen
+Outline (JSON): Titel, Storyline, je Folie Abschnitt, Form, Betonung und Kernaussage
+   │  Layoutwahl (ohne KI): Form + Betonung → passendstes Layout, mit Abwechslung
    │  je Folie 1 KI-Aufruf, Antwortformat = Felder und Limits des Layouts
+   │  optional je Folie 1 KI-Aufruf: Flächen verschieben und vergrößern (Schalter, geprüft)
    ▼
 Slide-Spec (JSON, geprüft)            ◄── Designsystem (Tokens, Layouts, Assets, voice.md)
    │  rechnerisch, ohne KI
@@ -40,11 +41,13 @@ Alle Dateien liegen in [`praesentation/`](../praesentation/) und sind ES-Module 
 | `layout.js` | Slide-Spec + Designsystem → Folienmodell | Browser, Node |
 | `render-html.js` | Folienmodell → HTML | Browser, Node |
 | `render-pptx.js` | Folienmodell → PptxGenJS | Browser, Node |
-| `pipeline.js` | Briefing, Outline, Folien; Wiederholung bei Fehlern; Faktenprüfung | Browser, Node |
+| `analyse.js` | Profil jedes Layouts (Schriftgrößen, Bildanteil, Kacheln, Wucht), Formen, Layoutwahl | Browser, Node |
+| `pipeline.js` | Briefing, Outline, Folien, Layout-Anpassung; Wiederholung bei Fehlern; Faktenprüfung | Browser, Node |
 | `bilder.js` | Bilder für den Export zuschneiden und als PNG oder JPG einbetten | nur Browser |
 | `assets.js` | Rolle, Tags und Beschreibung für Bilddateien vorschlagen | Vorschlag überall, Bildanalyse nur Browser |
 | `pakete.js` | ZIP lesen und schreiben, Designsysteme im Browser speichern, Kopien | nur Browser |
-| `import-pptx.js` | Entwurf eines Designsystems aus `.pptx` oder `.potx` | nur Browser |
+| `pptx-lesen.js` | OOXML lesen: Formen, Freiformen, Gruppen, Bilder, Texte, Farben mit Vererbung | nur Browser |
+| `import-pptx.js` | Designsystem aus `.pptx` oder `.potx`: Layouts und Beispielfolien, Zweck erkennen, fehlende Typen ableiten | nur Browser |
 | `ui.js` | Oberfläche: Thema, Briefing, Designsystem, Folien | nur Browser |
 | `ui-systeme.js` | Designsystem-Editor | nur Browser |
 | `demo.html` | Beispielpräsentation in jedem Designsystem ansehen, ohne KI | nur Browser |
@@ -59,13 +62,16 @@ Außerhalb des Ordners:
 
 ## Anbindung an die bestehende App
 
-`index.html` bleibt die App. Der Präsentationsgenerator hängt sich an fünf Stellen ein:
+`index.html` bleibt die App. Der Präsentationsgenerator hängt sich an sechs Stellen ein:
 
 1. `<script type="module" src="praesentation/ui.js">` am Ende der Seite
 2. Bildschirm `praes` in `render()`
 3. Knopf „Präsentation“ in der Kopfzeile und Kachel bei den Vertiefungen
 4. `window.KompassKI`: die Schnittstelle zur KI (siehe unten)
 5. Speicherbereich `designsysteme` in der IndexedDB der App
+6. Ergebnisseite der Projektanalyse: Knopf „Präsentation daraus erstellen“ und `Praes.hinweis()`, ein Hinweis, wenn die Person mit der Präsentation gestartet und dafür erst analysiert hat
+
+Die Projektanalyse selbst bleibt unverändert. Startet eine Präsentation aus einem Projekt, gehen Akte, Steckbrief und Vertiefungen ins Briefing. Was die Analyse sicher klärt (Problem, Idee, Nutzen …), wird nicht noch einmal gefragt; Punkte zur Präsentation selbst (Publikum, Bitte, Umfang) nur, wenn die Person sie in ihrer Beschreibung genannt hat. Höchstens vier Fragen.
 
 Der Zustand einer Präsentation liegt in `S.praes` und wird deshalb mit dem Projekt gespeichert, exportiert und importiert.
 
@@ -94,6 +100,29 @@ Das Briefing ist ein gesteuertes Gespräch: Die App entscheidet in jeder Runde, 
 - Nachfragen höchstens einmal je Punkt, Vertiefung höchstens einmal je Schwerpunkt.
 - Höchstens sechs Fragen; danach nur noch fehlende Kernpunkte.
 
+## Welches Layout für welche Folie
+
+Die KI wählt kein Layout, sondern die Form, in der eine Aussage wirken soll (`analyse.js`, `FORMEN`): Kernsatz, Zahl, Kennzahlen, Liste, Bausteine, Vergleich, Ablauf, Bild, Zitat, Kapitel, Titel, Abschluss. Dazu markiert sie die zwei, drei wichtigsten Aussagen als betont.
+
+Jedes Layout bekommt ein Profil, rein aus seinen Platzhaltern: größte Schrift im Verhältnis zum Fließtext, dunkler Grund, Fettung, Bildanteil und Bildseite, Kacheln für Zahlen, Textmenge. Daraus ergibt sich die „Wucht“ (wie stark das Layout betont) und die Eignung je Form. `waehleLayouts` nimmt je Folie das Layout mit der höchsten Eignung und berücksichtigt:
+
+- Betonte Aussagen bekommen Layouts mit mehr Wucht, Listen lieber ruhige.
+- Kein Layout zweimal hintereinander, mehrere Varianten desselben Zwecks wechseln sich ab.
+- Bildseiten wechseln; gibt es nur eine Seite und die KI darf Layouts anpassen, wird gespiegelt.
+- Höchstens etwa ein Drittel reine Textfolien, höchstens ein Zitat.
+- Ohne Fotos im Designsystem keine Bildfolien.
+
+Weil die Wahl nur von Form und Betonung abhängt, wählt der Kompass beim Wechsel des Designsystems für jede Folie neu das passende Layout. Inhalte wandern dabei in verwandte Felder (eine Überschrift wird zur großen Aussage, Kacheln werden zur Liste). Passt ein Text nicht mehr, bietet der Editor an, die betroffenen Folien von der KI anpassen zu lassen.
+
+## KI darf Layouts anpassen
+
+Ein Schalter im Schritt Designsystem und im Editor. Aus: Jede Folie sieht exakt so aus wie im Designsystem. An:
+
+- Nach dem Schreiben bekommt die KI je Folie die Inhaltsflächen mit Position, Größe und Füllstand und die feste Gestaltung der Marke und schlägt neue Positionen und Größen vor (`prompts/gestalten.md`).
+- Ohne KI wächst eine Textfläche, deren Schrift stark verkleinert werden musste, in freien Raum (`luftFuerText`).
+- `pruefeAnpassung` verwirft alles, was über den Rand ragt, Text oder Logo überdeckt oder Text kleiner macht oder abschneidet.
+- Die Anpassung liegt als `anpassung` in der Folie der Slide-Spec; das Designsystem bleibt unverändert. Mit dem Schalter aus wird sie ausgeblendet, „Original-Layout“ entfernt sie.
+
 ## Prüfung in vier Stufen
 
 1. **Antwortformat.** Jede Folie bekommt ein eigenes JSON-Schema: nur die Felder ihres Layouts und Bild-IDs als feste Auswahl. Layout-IDs in der Outline sind ebenfalls eine feste Auswahl. Zeichenlimits stehen bewusst nicht im Schema, weil Server mit Grammatik (Ollama, llama.cpp) den Text sonst mitten im Wort abschneiden; sie stehen im Prompt und werden in Stufe 2 geprüft.
@@ -120,7 +149,8 @@ Jedes Paket wird beim Laden geprüft. Ungültige Pakete erscheinen mit ihren Feh
 
 ## Bekannte Grenzen
 
-- **PowerPoint-Master.** Der Export zeichnet Folien aus den Tokens. Eine `template.potx` wird nicht als Master übernommen; der Import liest daraus Farben, Schriften und Platzhalter.
+- **PowerPoint-Master.** Der Export zeichnet jede Folie vollständig (Hintergrund, Formen, Bilder, Texte). Die Folienmaster der Vorlage stecken nicht als Master in der exportierten Datei.
+- **Import.** Tabellen, Diagramme, SmartArt und Videos werden nicht übernommen, Bilder im Format EMF oder WMF ebenfalls nicht. Seltene PowerPoint-Grundformen zeigt die Vorschau angenähert; im Export sind sie exakt.
 - **Schriften.** Eine `.pptx` kennt keine Ersatzschriften. Standard ist deshalb die erste Ersatzschrift des Designsystems (zum Beispiel Arial). Die Wunschschrift lässt sich wählen, muss dann aber auf dem Rechner installiert sein.
 - **Diagramme und Tabellen.** Die Platzhaltertypen `chart` und `table` sind im Schema vorgesehen, werden aber noch nicht gezeichnet. Die Prüfung meldet das.
 - **Faktenprüfung.** Sie erkennt Zahlen und Kontaktdaten, keine erfundenen Namen oder Zitate ohne Zahl.

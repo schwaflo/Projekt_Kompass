@@ -15,14 +15,18 @@ Die Kopie liegt im Speicher deines Browsers. Auf einen anderen Rechner kommt sie
 
 ## Aus einer PowerPoint-Vorlage
 
-Im Editor **Aus PowerPoint importieren** wählen und eine `.pptx` oder `.potx` angeben. Übernommen werden:
+Im Editor **Aus PowerPoint importieren** wählen und eine `.pptx` oder `.potx` angeben. Am besten eine Datei, die die Folienlayouts **und** ein paar gestaltete Beispielfolien enthält. Übernommen werden:
 
-- die zehn Theme-Farben
-- Überschriften- und Textschrift
-- Platzhalter der Master-Layouts für Titelfolie, Kapiteltrenner, Inhalt, zwei Spalten und Bild mit Text
-- Bilder aus dem Folienmaster, meist das Logo
+- jedes Folienlayout und jede Beispielfolie, mit Hintergrund (Farbe, Verlauf oder Bild), allen Formen (Rechtecke, Kreise, Linien, Freiformen, Gruppen), Bildern samt Zuschnitt, Logos und festen Texten wie „Vertraulich“
+- die Textstile jedes Platzhalters: Schrift, Größe, Farbe, Fettung, Ausrichtung, Großschreibung, aus Folie, Layout, Master und Theme
+- Seitenzahl, Datum und Fußzeile an ihrer Position
+- die Theme-Farben und Schriften; die häufigste helle Fläche wird zur Kartenfarbe
 
-Layouts, die die Vorlage nicht hat (Kennzahlen, Zeitstrahl, Zitat, Abschluss, Vollbild), werden aus „Demo Hell“ ergänzt und in deinen Farben dargestellt. Der Bericht nach dem Import sagt genau, was woher kommt. Prüfe danach die Zeichenlimits, sie sind aus der Größe der Flächen geschätzt.
+Danach ordnet der Kompass jedes Layout einem Zweck zu, zum Beispiel Titelfolie, große Aussage, Kennzahlen, Vergleich, Bild mit Text. Er nutzt dafür Schriftgrößen, Flächen, Bildanteil, Reihen gleich großer Textfelder und den Namen des Layouts. Drei Textfelder nebeneinander mit Zahlen darin werden zum Beispiel zu einer Kennzahlenfolie, deren Karten aus der Vorlage stammen. Den Zweck kannst du im Editor bei jedem Layout umstellen.
+
+Fehlt ein Zweck (etwa Zeitstrahl oder Zitat), wird er aus deinen eigenen Layouts abgeleitet: gleicher Hintergrund, gleiche Deko, gleiche Schriften. Nur wenn die Datei gar keine brauchbaren Layouts hat, wird mit „Demo Hell“ ergänzt. Der Bericht nach dem Import sagt genau, was woher kommt.
+
+Prüfe danach die Zeichenlimits. Sie sind aus der Größe der Flächen geschätzt.
 
 ## Von Hand: der Ordner
 
@@ -98,12 +102,25 @@ Jedes Layout hat:
 | `beschreibung` | liest die KI, um das passende Layout zu wählen. Schreib, **wann** das Layout passt. |
 | `master` | übernimmt Hintergrund, Deko und Platzhalter aus `masters.<name>` |
 | `background` | Name einer Farbe |
-| `deko` | Flächen ohne Inhalt: `rect` oder `ellipse` mit Position, Farbe und optional `opacity` |
+| `deko` | Gestaltung ohne Inhalt, siehe unten |
 | `placeholders` | die Felder der Folie |
 
 Standardtypen: `title`, `section`, `statement`, `content-bullets`, `cards`, `two-column`, `image-left`, `image-right`, `image-full`, `big-number`, `kpi-grid`, `timeline`, `quote`, `comparison`, `closing`.
 
-Je mehr dieser Typen ein Designsystem hat, desto abwechslungsreicher werden die Präsentationen: Die App wechselt Bildseiten, vermeidet zwei gleiche Layouts hintereinander und begrenzt reine Aufzählungen. Fehlt ein Typ, wird auf einen vorhandenen ausgewichen.
+Mehrere Layouts dürfen denselben Typ haben (`id` unterschiedlich, `typ` gleich), zum Beispiel drei Varianten für Inhalt mit Stichpunkten. Die App wechselt dann zwischen ihnen. Je mehr Typen und Varianten ein Designsystem hat, desto abwechslungsreicher werden die Präsentationen: Die App wählt je Folie das Layout, das zur Wirkung der Aussage passt, wechselt Bildseiten, vermeidet zwei gleiche Layouts hintereinander und begrenzt reine Aufzählungen. Fehlt ein Typ, wird auf einen vorhandenen ausgewichen.
+
+#### deko
+
+| `shape` | Inhalt |
+|---|---|
+| `rect`, `ellipse` | Fläche mit `fill` und/oder Rahmen mit `stroke` und `strokeWidth` (Punkt), Ecken mit `radius` (Punkt) oder `rounded: true` |
+| `line` | Linie von links oben nach rechts unten der Box; mit `flipH` oder `flipV` gedreht |
+| `preset` | PowerPoint-Grundform nach Name in `prst`, zum Beispiel `triangle`, `chevron`, `homePlate` |
+| `pfad` | freie Form: Befehle `['M',x,y]`, `['L',x,y]`, `['C',x1,y1,x2,y2,x,y]`, `['Q',x1,y1,x,y]`, `['Z']` in Koordinaten 0 bis 1 der Box |
+| `image` | Bild aus den Assets (`asset`), `logo: true` für Logos |
+| `text` | fester Text (`text`, `style`), zum Beispiel eine Fußzeile |
+
+Für alle: `opacity`, `rot` (Grad), `flipH`, `flipV`. `hinten: true` legt die Form hinter die Bilder der Platzhalter; sonst liegt sie davor (zum Beispiel als Abdunklung über einem Foto). Farben sind Namen aus `tokens.colors` oder direkt `#RRGGBB`.
 
 #### placeholders
 
@@ -124,7 +141,7 @@ Weitere Angaben:
 - `auto`: `pageNumber`, `presentationTitle` oder `date`. Das Feld füllt die App selbst.
 - `style`: `font` (`heading` oder `body`), `size` (Name aus `sizes` oder Zahl), `color`, `align`, `valign`, `bold`, `italic`, `uppercase`, `bullet` (`dot`, `dash`, `number`)
 - `on`: Farbe der Fläche hinter dem Text, falls sie vom Folienhintergrund abweicht (für die Kontrastprüfung und für Karten)
-- `variante` bei `items`: `karten`, `zeitstrahl` oder `schlicht`
+- `variante` bei `items`: `karten`, `zeitstrahl`, `schlicht` oder `frei`. Bei `frei` hat jede Kachel feste Flächen je Feld unter `zellen`, zum Beispiel `[{ "value": {x,y,w,h}, "label": {x,y,w,h} }, …]`; Rahmen und Karten kommen dann aus `deko`.
 
 **Gleiche Platzhalter-IDs wie in den Demo-Systemen verwenden** (`title`, `subtitle`, `statement`, `bullets`, `leftBullets`, `cards`, `kpis`, `value`, `label`, `steps`, `quote` …). Dann bleibt der Inhalt beim Wechsel zwischen Designsystemen vollständig erhalten.
 

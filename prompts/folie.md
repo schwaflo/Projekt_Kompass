@@ -1,8 +1,8 @@
 ---
 name: folie
-version: 4
+version: 5
 zweck: Schreibt den Inhalt einer einzelnen Folie passend zu ihrem Layout. Wird auch zum Neu-Generieren einer Folie verwendet.
-variablen: art, stil, briefing, gliederung, nr, anzahl, abschnitt, kernaussage, hinweis, layoutId, layoutBeschreibung, felder, bilder, wunsch
+variablen: art, stil, briefing, gliederung, nr, anzahl, abschnitt, form, kernaussage, hinweis, layoutId, layoutBeschreibung, felder, bilder, wunsch
 ---
 ART DER PRÄSENTATION: {{art}}
 STIL: {{stil}}
@@ -15,6 +15,7 @@ GLIEDERUNG (die Folie mit ► ist jetzt dran):
 
 AUFGABE: Schreibe Folie {{nr}} von {{anzahl}}.
 Abschnitt der Dramaturgie: {{abschnitt}}
+Form: {{form}}
 Kernaussage: {{kernaussage}}
 Was auf die Folie gehört: {{hinweis}}
 
@@ -28,6 +29,7 @@ BILDER (nur diese IDs sind erlaubt, keine Dateipfade):
 
 Regeln:
 - ÜBERSCHRIFTEN sprechen über die Sache, nie über die Präsentation: nicht „Willkommen“, nicht „Agenda“, nicht „Präsentation“, „Pitch“ oder „Folie“. Eine Überschrift ist eine konkrete Behauptung, die man sofort versteht und die neugierig macht. Falsch: „Verbesserung des Besuchserlebnisses“. Richtig: „Besucher finden den Eingang erst nach zehn Minuten“.
+- Ist die Folie BETONT (siehe Form), formuliere besonders knapp und kräftig: wenige starke Wörter, die man aus der letzten Reihe liest.
 - Halte dich an den STIL oben. Weniger Wörter sind besser, solange die Aussage konkret bleibt.
 - inhalt: fülle die Felder passend zur Kernaussage. Pflichtfelder müssen gefüllt sein, andere Felder darfst du weglassen, wenn sie nichts beitragen.
 - NUR FAKTEN AUS DEM BRIEFING: Jede Zahl, jeder Betrag, jeder Name, jede E-Mail-Adresse und jedes Zitat auf der Folie muss wörtlich im Briefing stehen. Steht dort nichts, lass das Feld weg oder setze einen Platzhalter wie [Betrag], [Name], [Kontakt]. Teile keine Summen selbst auf und erfinde keine Beispiele.

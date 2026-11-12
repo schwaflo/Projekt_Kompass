@@ -87,7 +87,7 @@ export function validateSpec(spec, system) {
           break;
         }
         case 'image':
-          if (typeof v !== 'string' || !system.asset(v)) errors.push(`${p}: „${v}“ ist kein Bild aus dem Designsystem. Erlaubte IDs: ${bildIds(system).join(', ')}. Freie Dateipfade sind nicht möglich.`);
+          if (typeof v !== 'string' || !system.asset(v) || !bildIds(system).includes(system.asset(v).id)) errors.push(`${p}: „${v}“ ist kein Bild aus dem Designsystem. Erlaubte IDs: ${bildIds(system).join(', ')}. Freie Dateipfade sind nicht möglich.`);
           break;
         default:
           errors.push(`${p}: Der Platzhaltertyp „${ph.typ}“ wird noch nicht unterstützt.`);
@@ -97,7 +97,7 @@ export function validateSpec(spec, system) {
   return { ok: !errors.length, errors };
 }
 
-const bildIds = system => system.manifest.assets.filter(a => !/^logo/.test(a.role)).map(a => a.id);
+const bildIds = system => system.manifest.assets.filter(a => !/^(logo|deko|background|icon)/.test(a.role)).map(a => a.id);
 
 /* Text an einer Wortgrenze kürzen und mit … abschließen */
 export function kuerze(text, max) {
@@ -204,4 +204,29 @@ export function remapSpec(spec, von, nach) {
       return { ...f, layoutId: neu.id, inhalt };
     })
   };
+}
+
+/* Inhalt einer Folie auf ein anderes Layout übertragen: gleiche IDs zuerst, sonst verwandte Felder
+   (eine Überschrift wird zur großen Aussage, Stichpunkte wandern in die linke Spalte …).
+   Felder, die im neuen Layout keinen Platz haben, bleiben im Inhalt erhalten. */
+const VERWANDT = {
+  title: ['statement', 'quote', 'value'], statement: ['title', 'quote', 'caption'], quote: ['statement', 'title'], value: ['title', 'statement'],
+  subtitle: ['subline', 'caption', 'label', 'body', 'author'], subline: ['subtitle', 'caption', 'body', 'label'], caption: ['subline', 'subtitle', 'body'],
+  label: ['subline', 'subtitle', 'caption'], body: ['subline', 'subtitle', 'caption'], author: ['subline', 'subtitle'],
+  bullets: ['leftBullets', 'rightBullets'], leftBullets: ['bullets'], rightBullets: ['bullets']
+};
+export function ordneInhaltZu(inhalt, layout) {
+  const out = { ...inhalt }, genutzt = new Set(inhaltsPlatzhalter(layout).map(p => p.id).filter(id => !leer(inhalt[id])));
+  inhaltsPlatzhalter(layout).forEach(ph => {
+    if (!leer(out[ph.id]) || !['text', 'bullets'].includes(ph.typ)) return;
+    const quelle = (VERWANDT[ph.id] || []).find(k => !genutzt.has(k) && !leer(inhalt[k]) && (ph.typ === 'text' ? typeof inhalt[k] === 'string' : Array.isArray(inhalt[k])));
+    if (!quelle && ph.typ === 'bullets' && ph.pflicht) {
+      /* Aus Kacheln oder zwei Spalten wird eine Liste */
+      const k = Object.keys(inhalt).find(x => !genutzt.has(x) && Array.isArray(inhalt[x]) && inhalt[x].some(it => it && typeof it === 'object'));
+      if (k) { out[ph.id] = inhalt[k].map(it => Object.values(it).filter(v => typeof v === 'string').join(': ')).filter(Boolean); genutzt.add(k); }
+      return;
+    }
+    if (quelle) { out[ph.id] = inhalt[quelle]; genutzt.add(quelle); }
+  });
+  return out;
 }

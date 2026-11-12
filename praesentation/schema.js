@@ -49,16 +49,31 @@ const STIL = {
   }
 };
 
+/* Gestaltung ohne Inhalt. Farben sind Namen aus tokens.colors oder #RRGGBB.
+   rect, ellipse: Fläche (fill) und/oder Rahmen (stroke)
+   line: Linie von links oben nach rechts unten der Box (mit flipH/flipV gedreht)
+   preset: PowerPoint-Grundform nach Name (prst), zum Beispiel triangle oder chevron
+   pfad: freie Form, Befehle in Koordinaten 0 bis 1 der Box: ['M',x,y] ['L',x,y] ['C',x1,y1,x2,y2,x,y] ['Q',x1,y1,x,y] ['Z']
+   image: Bild aus den Assets (asset), logo: true markiert Logos
+   text: fester Text (text, style), zum Beispiel „Vertraulich“ */
 const DEKO = {
   type: 'object',
   properties: {
-    shape: { type: 'string', enum: ['rect', 'ellipse', 'line'] },
+    shape: { type: 'string', enum: ['rect', 'ellipse', 'line', 'preset', 'pfad', 'image', 'text'] },
     x: PROZENT, y: PROZENT, w: PROZENT, h: PROZENT,
     fill: STR,
     opacity: { type: 'number', minimum: 0, maximum: 1 },
-    rounded: { type: 'boolean' }
+    rounded: { type: 'boolean' },
+    radius: { type: 'number', minimum: 0 },
+    stroke: STR, strokeWidth: { type: 'number', minimum: 0 }, strokeOpacity: { type: 'number', minimum: 0, maximum: 1 },
+    rot: NUM, flipH: { type: 'boolean' }, flipV: { type: 'boolean' },
+    prst: STR, pfad: { type: 'array', items: { type: 'array' } },
+    asset: STR, fit: { type: 'string', enum: ['cover', 'contain'] }, logo: { type: 'boolean' },
+    text: STR, style: STIL,
+    /* hinten: liegt hinter den Bildern der Platzhalter (sonst davor, zum Beispiel als Abdunklung) */
+    hinten: { type: 'boolean' }
   },
-  required: ['shape', 'x', 'y', 'w', 'h', 'fill']
+  required: ['shape', 'x', 'y', 'w', 'h']
 };
 
 const FELD = {
@@ -66,6 +81,7 @@ const FELD = {
   properties: { id: ID, beschreibung: STR, maxChars: { type: 'integer', minimum: 1 }, anteil: { type: 'number', minimum: 1 }, style: STIL },
   required: ['id', 'maxChars']
 };
+const BOX = { type: 'object', properties: { x: PROZENT, y: PROZENT, w: PROZENT, h: PROZENT }, required: ['x', 'y', 'w', 'h'] };
 
 const PLATZHALTER = {
   type: 'object',
@@ -83,8 +99,10 @@ const PLATZHALTER = {
     asset: STR,
     fit: { type: 'string', enum: ['cover', 'contain'] },
     on: STR,
-    variante: { type: 'string', enum: ['karten', 'zeitstrahl', 'schlicht'] },
+    /* frei: jede Kachel hat feste Flächen je Feld (zellen), zum Beispiel aus einer PowerPoint-Vorlage */
+    variante: { type: 'string', enum: ['karten', 'zeitstrahl', 'schlicht', 'frei'] },
     felder: { type: 'array', items: FELD, minItems: 1 },
+    zellen: { type: 'array', items: { type: 'object', additionalProperties: BOX } },
     style: STIL
   },
   required: ['id', 'typ', 'x', 'y', 'w', 'h']
@@ -146,6 +164,7 @@ export const DS_SCHEMA = {
       items: {
         type: 'object',
         properties: { id: ID, typ: STR, name: STR, beschreibung: TEXT, master: STR, ...FLAECHE },
+        /* typ: Zweck des Layouts (Standardtyp). Mehrere Layouts dürfen denselben Typ haben, die App wechselt dann zwischen ihnen. */
         required: ['id', 'beschreibung', 'placeholders']
       }
     },

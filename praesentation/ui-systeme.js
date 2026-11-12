@@ -14,6 +14,8 @@ import { inhaltsPlatzhalter } from './spec.js';
 import { buildSlides } from './layout.js';
 import { slideHTML, fontUrl } from './render-html.js';
 import { fuelle } from './pipeline.js';
+import { beschreibe, typName } from './analyse.js';
+import { LAYOUT_TYPEN } from './schema.js';
 
 const STORE = 'designsysteme';
 let K = null; /* { reg, ladePrompts, ki } aus ui.js */
@@ -190,8 +192,10 @@ function viewDetail(s) {
   </section>
 
   <section class="ps-block"><h3>Layouts</h3>
-    <p class="small muted" style="margin:0 0 12px">Jedes Layout mit Beispieltext nahe an den Zeichenlimits.</p>
-    <div class="ps-layouts">${layoutVorschau(s).map((f, i) => { const l = s.layouts[i]; return `<figure>${slideHTML(f)}<figcaption><b>${esc(l.name || l.id)}</b> <code>${esc(l.id)}</code><br><span class="small muted">${inhaltsPlatzhalter(l).map(p => `${p.id}${p.maxChars ? ' ≤ ' + p.maxChars : p.maxItems ? ' ≤ ' + p.maxItems + (p.maxCharsPerItem ? ' × ' + p.maxCharsPerItem : '') : ''}`).join(' · ')}</span></figcaption></figure>`; }).join('')}</div>
+    <p class="small muted" style="margin:0 0 12px">Jedes Layout mit Beispieltext nahe an den Zeichenlimits. Der Zweck sagt dem Kompass, für welche Inhalte er das Layout nimmt.${e ? ' Stimmt er nicht, stell ihn um.' : ''}</p>
+    <div class="ps-layouts">${layoutVorschau(s).map((f, i) => { const l = s.layouts[i], b = beschreibe(l, s); return `<figure>${slideHTML(f)}<figcaption><b>${esc(l.name || l.id)}</b> <code>${esc(l.id)}</code>
+      <span class="ps-zweck">${e ? `<select class="input" data-pl="${esc(l.id)}" aria-label="Zweck von ${esc(l.name || l.id)}">${[...new Set([...LAYOUT_TYPEN, l.typ])].map(t => `<option value="${t}" ${t === l.typ ? 'selected' : ''}>${esc(typName(t))}</option>`).join('')}</select>` : `<i>${esc(typName(l.typ))}</i>`}<span class="small muted">${esc(b.merkmale.join(' · '))}</span></span>
+      <span class="small muted">${inhaltsPlatzhalter(l).map(p => `${p.id}${p.maxChars ? ' ≤ ' + p.maxChars : p.maxItems ? ' ≤ ' + p.maxItems + (p.maxCharsPerItem ? ' × ' + p.maxCharsPerItem : '') : ''}`).join(' · ')}</span></figcaption></figure>`; }).join('')}</div>
   </section>
 
   <section class="ps-block"><h3>Formulierungsrichtlinien (voice.md)</h3>
@@ -234,6 +238,7 @@ export function wechselSysteme(e) {
   if (d.pt) { aendere(s, p => { p.manifest.tokens.typography[d.pt] = t.value.trim() || p.manifest.tokens.typography[d.pt]; }); return true; }
   if (d.pa) { aendere(s, p => { const a = p.manifest.assets.find(x => x.id === d.id); a[d.pa] = d.pa === 'tags' ? liste(t.value) : t.value.trim(); }); return true; }
   if (d.pv) { aendere(s, p => { p.voice = t.value; }); return true; }
+  if (d.pl) { aendere(s, p => { const l = p.manifest.layouts.find(x => x.id === d.pl); l.typ = t.value; l.beschreibung = beschreibe({ ...l, placeholders: l.placeholders }, { tokens: p.manifest.tokens }).text; }); return true; }
   return false;
 }
 
@@ -286,7 +291,8 @@ export const SYSTEME_CSS = `
 .ps-assets tr[draggable]{cursor:grab}.ps-assets .input{padding:5px 8px;font-size:.84rem}
 .ps-assets code,.ps-layouts code{font-size:.8rem;background:var(--surface-2);padding:1px 5px;border-radius:4px}
 .ps-layouts{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.ps-layouts figure{margin:0}.ps-layouts .pf{border:1px solid var(--line);border-radius:4px}.ps-layouts figcaption{font-size:.86rem;margin-top:6px}
+.ps-layouts figure{margin:0}.ps-layouts .pf{border:1px solid var(--line);border-radius:4px}.ps-layouts figcaption{font-size:.86rem;margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.ps-zweck{display:flex;flex-direction:column;gap:3px}.ps-zweck .input{padding:4px 8px;font-size:.84rem;width:auto;max-width:100%}.ps-zweck i{font-style:normal;font-weight:600}
 .ps-voice{white-space:pre-wrap;font:inherit;font-size:.88rem;background:var(--surface-2);border-radius:var(--radius-m);padding:14px;margin:0;max-height:320px;overflow:auto}
 @media (max-width:760px){.ps-form,.ps-schriften{grid-template-columns:1fr}.ps-assets thead{display:none}.ps-assets td{display:block;border:0;padding:3px 0}.ps-assets tr{display:block;border-top:1px solid var(--line);padding:8px 0}}
 `;

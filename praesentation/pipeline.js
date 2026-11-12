@@ -12,9 +12,12 @@
    ============================================================ */
 import { checkSchema } from './validate.js';
 import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, kuerze, SPEC_VERSION } from './spec.js';
+import { FORMEN, FORM_IDS, FORM_VON_TYP, waehleLayouts, eignung, profil } from './analyse.js';
+import { buildSlides, passeAn, FOLIE_PT } from './layout.js';
+import { blockHoehe } from './text.js';
 
 export const MAX_VERSUCHE = 3;
-export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben'];
+export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten'];
 
 /* ---------- Prompts ---------- */
 /* Datei mit Kopf (--- name/version/… ---) lesen */
@@ -101,6 +104,8 @@ const zahlFehlt = f => !!f.wert && /zahl|daten|anzahl|statistik|kennzahl|messung
 const klaeren = f => f.status !== 'uebersprungen' && f.prio !== 'auto' && !f.gefragt && (offen(f) || (f.vorbefuellt && (f.prio === 'kern' || zahlFehlt(f))));
 const rang = f => f.prio === 'kern' ? 0 : zahlFehlt(f) ? 1 : f.prio === 'hoch' ? 2 : 3;
 const fertigFeld = f => !offen(f);
+/* Punkte, die die Präsentation selbst betreffen und nicht aus einer Projektanalyse folgen */
+const PRAESENTATION_SELBST = new Set(['zielgruppe', 'bitte', 'cta', 'mitmachen', 'umfang', 'anlass', 'entscheidung']);
 export const art = (arten, id) => arten.arten.find(a => a.id === id) || arten.arten.find(a => a.id === 'vorstellung') || arten.arten[0];
 
 export function neuesBriefing(beschreibung = '') {
@@ -165,8 +170,10 @@ const felderListe = B => B.felder.map(f => `- ${f.id}: ${f.label}${f.prio === 'a
 const artenListe = arten => arten.arten.map(a => `- ${a.id}: ${a.name} – ${a.kurz}`).join('\n');
 const kandidatenText = (B, ids) => ids.map(id => { const f = B.felder.find(x => x.id === id); return `"${id}" (${f.label}: ${f.beschreibung}${f.wert ? ` Bisher nur vermutet oder zu ungenau: „${f.wert}“. Frage so, dass die Person es bestätigt und konkret macht${zahlFehlt(f) ? ', und frage nach der Zahl selbst' : ''}.` : ''})`; }).join('; ');
 
-/* Erste Runde: Art erkennen (sofern nicht gesetzt), Bekanntes eintragen, Schwerpunkte, erste Frage */
-export async function briefingStart(ki, prompts, B, projekt = '') {
+/* Erste Runde: Art erkennen (sofern nicht gesetzt), Bekanntes eintragen, Schwerpunkte, erste Frage.
+   opts.ausProjekt: Die Angaben stammen aus einer Projektanalyse, die die Person schon durchlaufen hat.
+   Was daraus sicher hervorgeht, wird nicht noch einmal gefragt, und es gibt weniger Fragen. */
+export async function briefingStart(ki, prompts, B, projekt = '', opts = {}) {
   const arten = prompts.arten, sys = fuelle(prompts['system-briefing']);
   if (!B.art) {
     let gewaehlt = null;
@@ -184,6 +191,18 @@ export async function briefingStart(ki, prompts, B, projekt = '') {
   });
   trageEin(B, res.vorbefuellt);
   B.felder.forEach(f => { if (f.wert && !f.gefragt) f.vorbefuellt = true; });
+  if (opts.ausProjekt) {
+    B.max = Math.min(B.max, 4);
+    /* Was das Projekt sicher klärt, wird nicht noch einmal gefragt. Punkte zur Präsentation selbst
+       (Publikum, Bitte, Umfang) kennt die Analyse nicht: sie gelten nur, wenn die Person sie selbst genannt hat. */
+    const genannt = w => { const worte = String(w).toLowerCase().match(/[\p{L}\d]{4,}/gu) || []; const b = String(B.beschreibung).toLowerCase(); return worte.length > 0 && worte.filter(x => b.includes(x)).length / worte.length >= 0.5; };
+    B.felder.forEach(f => {
+      if (!f.vorbefuellt) return;
+      if (PRAESENTATION_SELBST.has(f.id) && !genannt(f.wert)) { Object.assign(f, { wert: '', status: 'leer', vorbefuellt: false }); return; }
+      if (f.status === 'bestaetigt' && !zahlFehlt(f)) { f.gefragt = true; f.ausProjekt = true; }
+    });
+    if (B.aktuell && !kandidaten(B).includes(B.aktuell.feld)) B.aktuell = null;
+  }
   (res.schwerpunkte || []).slice(0, 2).forEach(id => { const f = B.felder.find(x => x.id === id); if (f && f.tief) f.schwerpunkt = true; });
   if (!B.felder.some(f => f.schwerpunkt)) { const f = B.felder.find(x => x.tief); if (f) f.schwerpunkt = true; }
   (res.unwichtig || []).forEach(id => { const f = B.felder.find(x => x.id === id); if (f && offen(f) && (f.prio === 'hoch' || f.prio === 'mittel') && !f.schwerpunkt) { f.wert = ''; f.status = 'uebersprungen'; f.unwichtig = true; } });
@@ -322,7 +341,13 @@ const systemPrompt = (prompts, system) => fuelle(prompts.system, {
   regeln: [...(system.rules.hinweise || []), system.rules.maxBullets ? `Höchstens ${system.rules.maxBullets} Stichpunkte pro Folie.` : '', system.rules.bildstil ? `Bildstil: ${system.rules.bildstil}` : ''].filter(Boolean).map(r => '- ' + r).join('\n') || '(keine)'
 });
 
+/* Formen, die dieses Designsystem darstellen kann. Ohne Fotos keine Bildfolien. */
+export function verfuegbareFormen(system) {
+  const fotos = bildAssets(system).length > 0;
+  return FORM_IDS.filter(f => system.layouts.some(l => (fotos || !profil(l, system).bilder) && eignung(l, system, f) > 0));
+}
 export function outlineSchema(system, folienzahl) {
+  const formen = verfuegbareFormen(system);
   return {
     type: 'object',
     properties: {
@@ -331,7 +356,7 @@ export function outlineSchema(system, folienzahl) {
       kernbotschaft: S_STR,
       folien: {
         type: 'array', minItems: Math.max(3, folienzahl - 2), maxItems: Math.min(30, folienzahl + 2),
-        items: { type: 'object', properties: { abschnitt: S_STR, layoutId: { type: 'string', enum: system.layouts.map(l => l.id) }, kernaussage: { type: 'string', minLength: 1 }, inhalt: S_STR }, required: ['abschnitt', 'layoutId', 'kernaussage', 'inhalt'] }
+        items: { type: 'object', properties: { abschnitt: S_STR, form: { type: 'string', enum: formen.length ? formen : ['liste'] }, betont: { type: 'boolean' }, kernaussage: { type: 'string', minLength: 1 }, inhalt: S_STR }, required: ['abschnitt', 'form', 'betont', 'kernaussage', 'inhalt'] }
       }
     },
     required: ['titel', 'storyline', 'kernbotschaft', 'folien']
@@ -373,32 +398,37 @@ export function abwechslung(folien, system) {
   return out;
 }
 
-export async function erstelleOutline(ki, prompts, briefing, system) {
-  const schema = outlineSchema(system, briefing.folienzahl), a = art(prompts.arten, briefing.art);
+/* opts.spiegeln: Bildlayouts dürfen für Abwechslung gespiegelt werden (nur wenn die KI Layouts anpassen darf) */
+export async function erstelleOutline(ki, prompts, briefing, system, opts = {}) {
+  const schema = outlineSchema(system, briefing.folienzahl), a = art(prompts.arten, briefing.art), formen = schema.properties.folien.items.properties.form.enum;
   const r = await frageGeprueft(ki, prompts, {
     art: 'praes_outline', system: systemPrompt(prompts, system), schema,
     prompt: fuelle(prompts.outline, {
       art: a.name, briefing: JSON.stringify(briefing), folienzahl: briefing.folienzahl,
-      dramaturgie: a.dramaturgie.map((d, i) => `${i + 1}. ${d}`).join('\n'), stil: a.stil, layoutHinweis: a.layouts,
-      layouts: system.layouts.map(l => `- ${l.id} – ${l.beschreibung}`).join('\n')
+      dramaturgie: a.dramaturgie.map((d, i) => `${i + 1}. ${d}`).join('\n'), stil: a.stil,
+      formen: formen.map(f => `- ${f} – ${FORMEN[f]}`).join('\n')
     })
   }, a => checkSchema(a, schema, 'Gliederung'));
 
   /* Fallback: unbekannte Layouts ersetzen, Länge begrenzen, statt die Erstellung abzubrechen */
   const aenderungen = [], roh = r.antwort && typeof r.antwort === 'object' ? r.antwort : {};
   const folien = (Array.isArray(roh.folien) ? roh.folien : []).filter(f => f && typeof f === 'object').slice(0, schema.properties.folien.maxItems).map((f, i) => {
-    let layoutId = f.layoutId;
-    if (!system.layout(layoutId)) { layoutId = system.layoutForTyp(i === 0 ? 'title' : 'content-bullets').id; aenderungen.push(`Gliederung, Folie ${i + 1}: Layout „${f.layoutId}“ unbekannt, ersetzt durch „${layoutId}“.`); }
-    return { abschnitt: String(f.abschnitt || ''), layoutId, kernaussage: String(f.kernaussage || ''), inhalt: String(f.inhalt || '') };
+    /* Form aus der Antwort; ältere Antworten mit Layout-ID werden über den Layouttyp übersetzt */
+    let form = formen.includes(f.form) ? f.form : system.layout(f.layoutId) ? FORM_VON_TYP[system.layout(f.layoutId).typ] : null;
+    if (!form || !formen.includes(form)) { if (f.form || f.layoutId) aenderungen.push(`Gliederung, Folie ${i + 1}: Form „${f.form || f.layoutId}“ gibt es nicht, ersetzt durch „liste“.`); form = 'liste'; }
+    return { abschnitt: String(f.abschnitt || ''), form, betont: f.betont === true, kernaussage: String(f.kernaussage || ''), inhalt: String(f.inhalt || ''), ...(system.layout(f.layoutId) ? { layoutId: f.layoutId } : {}) };
   });
   if (!folien.length) throw new Error('Die KI hat keine brauchbare Gliederung geliefert. Versuche es erneut oder wähle ein anderes Modell.');
-  return { outline: { titel: kuerze(String(roh.titel || briefing.thema).replace(/\s*[–-]?\s*(präsentation|pitch)\b/gi, '').trim() || String(briefing.thema), 40), storyline: String(roh.storyline || ''), kernbotschaft: String(roh.kernbotschaft || briefing.kernbotschaft || ''), folien: abwechslung(folien, system) }, versuche: r.versuche, aenderungen };
+  /* Das Layout wählt die App: passend zur Form, mit Abwechslung und Betonung */
+  const wahl = waehleLayouts(folien, system, { spiegeln: !!opts.spiegeln, bilder: bildAssets(system).length > 0 });
+  const mitLayout = folien.map((f, i) => ({ ...f, layoutId: wahl[i].layoutId, form: wahl[i].form, ...(wahl[i].spiegeln ? { spiegeln: true } : {}) }));
+  return { outline: { titel: kuerze(String(roh.titel || briefing.thema).replace(/\s*[–-]?\s*(präsentation|pitch)\b/gi, '').trim() || String(briefing.thema), 40), storyline: String(roh.storyline || ''), kernbotschaft: String(roh.kernbotschaft || briefing.kernbotschaft || ''), folien: mitLayout }, versuche: r.versuche, aenderungen };
 }
 
 /* ============================================================
    4. Slide-Spec: jede Folie einzeln
    ============================================================ */
-const bildAssets = system => system.manifest.assets.filter(a => !/^logo/.test(a.role));
+export const bildAssets = system => system.manifest.assets.filter(a => !/^(logo|deko|background|icon)/.test(a.role));
 
 /* Antwortformat für genau ein Layout: nur dessen Felder, mit Limits und festen Bild-IDs */
 export function folienSchema(layout, system, maxPunkte = Infinity) {
@@ -487,8 +517,8 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
     prompt: fuelle(prompts.folie, {
       art: a.name, stil: a.stil, abschnitt: plan.abschnitt || '(frei)',
       briefing: JSON.stringify(briefing),
-      gliederung: outline.folien.map((f, i) => `${i === index ? '►' : ' '} ${i + 1}. [${f.layoutId}] ${f.kernaussage}`).join('\n'),
-      nr: index + 1, anzahl: outline.folien.length, kernaussage: plan.kernaussage, hinweis: plan.inhalt || '(keine weiteren Hinweise)',
+      gliederung: outline.folien.map((f, i) => `${i === index ? '►' : ' '} ${i + 1}. [${f.form || f.layoutId}] ${f.kernaussage}`).join('\n'),
+      nr: index + 1, anzahl: outline.folien.length, form: plan.form ? `${plan.form} – ${FORMEN[plan.form] || ''}${plan.betont ? ' – BETONT' : ''}` : '(frei)', kernaussage: plan.kernaussage, hinweis: plan.inhalt || '(keine weiteren Hinweise)',
       layoutId: layout.id, layoutBeschreibung: layout.beschreibung,
       felder: felderBeschreibung(layout, system, maxPunkte),
       bilder: hatBild ? bildAssets(system).map(a => `- ${a.id}: ${a.beschreibung || a.role}${(a.tags || []).length ? ' (' + a.tags.join(', ') + ')' : ''}`).join('\n') || '(keine)' : '(dieses Layout hat kein Bild)',
@@ -523,17 +553,125 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
   return { folie, versuche: r.versuche, aenderungen, pruefen };
 }
 
+/* ============================================================
+   5. Layout anpassen (nur wenn die Person es erlaubt)
+   ============================================================ */
+const r1 = v => Math.round(v * 10) / 10;
+const ueberlapp = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+/* Wie voll ist jede Textfläche bei Sollgröße? (100 % = passt genau) */
+function fuellstand(e) {
+  const h = blockHoehe(e.absaetze, e.w / 100 * FOLIE_PT.w, e.sollPt, { font: e.schrift, bold: e.bold, lineHeight: e.zeilenhoehe });
+  return Math.round(h / (e.h / 100 * FOLIE_PT.h) * 100);
+}
+
+/* Vorschlag prüfen: Ränder, Mindestgröße, keine Überlappung, kein Text darf schlechter passen als vorher */
+export function pruefeAnpassung(folie, system, vorschlag) {
+  const layout = system.layout(folie.layoutId), meldungen = [];
+  if (!layout || !vorschlag) return { anpassung: null, meldungen };
+  const phs = inhaltsPlatzhalter(layout), boxen = {};
+  (Array.isArray(vorschlag.aenderungen) ? vorschlag.aenderungen : []).forEach(a => {
+    const ph = a && phs.find(p => p.id === a.id);
+    if (!ph) return;
+    const b = { x: r1(+a.x), y: r1(+a.y), w: r1(+a.w), h: r1(+a.h) }, bild = ph.typ === 'image';
+    if ([b.x, b.y, b.w, b.h].some(v => !isFinite(v))) return;
+    const rand = bild ? 0 : 3;
+    if (b.x < rand || b.y < rand || b.x + b.w > 100 - rand || b.y + b.h > 100 - rand || b.w < 8 || b.h < 4) { meldungen.push(`${a.id}: ragt über den Rand, nicht übernommen.`); return; }
+    if (Math.abs(b.x - ph.x) < 0.5 && Math.abs(b.y - ph.y) < 0.5 && Math.abs(b.w - ph.w) < 0.5 && Math.abs(b.h - ph.h) < 0.5) return;
+    boxen[a.id] = b;
+  });
+  const bildSeitlich = phs.some(p => p.typ === 'image' && p.w < 70);
+  const anp = { ...(vorschlag.spiegeln && bildSeitlich ? { spiegeln: true } : (folie.anpassung && folie.anpassung.spiegeln ? { spiegeln: true } : {})), boxen };
+  /* Überlappungen: Textflächen untereinander und mit fester Gestaltung (außer flächigem Hintergrund) */
+  const angepasst = passeAn(layout, anp), gefuellt = p => folie.inhalt[p.id] !== undefined || p.typ === 'image';
+  const texte = inhaltsPlatzhalter(angepasst).filter(p => p.typ !== 'image' && gefuellt(p));
+  /* Gestaltung der Marke: Logos, feste Texte, Akzente und Flächen. Hindernis ist sie nur, wenn die Fläche sie neu überdecken würde. */
+  const fest = (angepasst.deko || []).filter(d => d.logo || d.shape === 'text' || d.w * d.h < 6000).map(o => ({ ...o, x: o.x - 1, y: o.y - 1, w: Math.max(o.w, 0.5) + 2, h: Math.max(o.h, 0.5) + 2 })); /* mit 1 % Abstand */
+  const trifft = (b, o) => ueberlapp(b, o) > Math.max(0.3, Math.min(b.w * b.h, o.w * o.h) * 0.04);
+  Object.keys(boxen).forEach(id => {
+    const b = { ...boxen[id] }, ph = phs.find(p => p.id === id);
+    const stoert = [...texte.filter(p => p.id !== id), ...(ph.typ === 'image' ? [] : fest.filter(o => !trifft(ph, o)))].find(o => trifft(b, o));
+    if (stoert && ph.typ !== 'image') { delete boxen[id]; meldungen.push(`${id}: würde ${stoert.id || 'die Gestaltung'} überdecken, nicht übernommen.`); }
+    if (ph.typ === 'image' && texte.some(t => ueberlapp(b, t) > 0.5) && !phs.some(p => p.typ === 'image' && p.w * p.h > 5000)) { delete boxen[id]; meldungen.push(`${id}: Bild würde Text überdecken, nicht übernommen.`); }
+  });
+  /* Wirkung auf den Text: nichts darf abgeschnitten oder deutlich kleiner werden */
+  const probe = a => buildSlides({ titel: 'x', folien: [{ ...folie, anpassung: a }] }, system)[0].elemente.filter(e => e.art === 'text' && e.ph && !e.auto);
+  const vorher = new Map(probe(null).map(e => [e.ph + (e.index ?? ''), e]));
+  probe(anp).forEach(e => {
+    const v = vorher.get(e.ph + (e.index ?? ''));
+    if (!boxen[e.ph]) return;
+    if ((e.gekuerzt && !(v && v.gekuerzt)) || (v && e.pt < v.pt * 0.9)) { delete boxen[e.ph]; meldungen.push(`${e.ph}: Text würde kleiner oder abgeschnitten, nicht übernommen.`); }
+  });
+  return { anpassung: Object.keys(boxen).length || anp.spiegeln ? anp : null, meldungen };
+}
+
+/* Ohne KI: Textflächen, deren Schrift stark verkleinert werden musste, nach unten und rechts in freien Raum wachsen lassen */
+export function luftFuerText(folie, system) {
+  const layout = passeAn(system.layout(folie.layoutId), folie.anpassung), m = buildSlides({ titel: 'x', folien: [folie] }, system)[0];
+  const andere = id => [...inhaltsPlatzhalter(layout).filter(p => p.id !== id && (folie.inhalt[p.id] !== undefined || p.typ === 'image')), ...(layout.deko || []).filter(d => d.logo || d.shape === 'text')];
+  const aenderungen = [];
+  m.elemente.filter(e => e.art === 'text' && e.ph && !e.auto && e.index === undefined && e.pt < e.sollPt * 0.85).forEach(e => {
+    const b = { x: e.x, y: e.y, w: e.w, h: e.h }, hindernisse = andere(e.ph);
+    const frei = t => t.x >= 3 && t.y >= 3 && t.x + t.w <= 97 && t.y + t.h <= 96 && !hindernisse.some(o => ueberlapp(t, o) > 0.2);
+    for (let s = 0; s < 40; s++) { const t = { ...b, h: b.h + 1 }; if (!frei(t)) break; b.h = t.h; }
+    for (let s = 0; s < 40; s++) { const t = { ...b, w: b.w + 1 }; if (!frei(t)) break; b.w = t.w; }
+    if (b.h > e.h + 0.5 || b.w > e.w + 0.5) aenderungen.push({ id: e.ph, ...b });
+  });
+  return aenderungen;
+}
+
+/* Eine Folie gestalten lassen. Liefert { anpassung, meldungen, begruendung } */
+export async function gestalteFolie(ki, prompts, { folie, system, wunsch }) {
+  const layout = system.layout(folie.layoutId);
+  if (!layout) return { anpassung: null, meldungen: [], begruendung: '' };
+  const m = buildSlides({ titel: 'x', folien: [folie] }, system)[0];
+  const ids = inhaltsPlatzhalter(layout).filter(p => folie.inhalt[p.id] !== undefined || p.typ === 'image').map(p => p.id);
+  const elemente = inhaltsPlatzhalter(passeAn(layout, folie.anpassung)).filter(p => ids.includes(p.id)).map(p => {
+    const t = m.elemente.filter(e => e.ph === p.id && e.art === 'text');
+    const voll = t.length && p.typ !== 'items' ? `${Math.max(...t.map(fuellstand))} % voll${t.some(e => e.pt < e.sollPt * 0.9) ? ', Schrift musste verkleinert werden' : ''}` : p.typ === 'image' ? 'Bild' : 'Kacheln';
+    return `- ${p.id} – ${p.typ === 'image' ? 'Bild' : p.typ === 'bullets' ? 'Stichpunkte' : p.typ === 'items' ? 'Kacheln' : 'Text'} – ${r1(p.x)}, ${r1(p.y)}, ${r1(p.w)}, ${r1(p.h)} – ${voll}`;
+  });
+  const feste = (layout.deko || []).filter(d => d.logo || d.shape === 'text' || (d.w * d.h > 30 && d.w * d.h < 6000)).slice(0, 12).map(d => `- ${d.logo ? 'Logo' : d.shape === 'text' ? `Text „${String(d.text).slice(0, 30)}“` : 'Fläche'} – ${r1(d.x)}, ${r1(d.y)}, ${r1(d.w)}, ${r1(d.h)}`);
+  const auto = luftFuerText(folie, system);
+  const schema = { type: 'object', properties: { aenderungen: { type: 'array', maxItems: 6, items: { type: 'object', properties: { id: { type: 'string', enum: ids.length ? ids : ['keine'] }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['id', 'x', 'y', 'w', 'h'] } }, spiegeln: { type: 'boolean' }, begruendung: S_STR }, required: ['aenderungen', 'spiegeln', 'begruendung'] };
+  let antwort = { aenderungen: [], spiegeln: false, begruendung: '' };
+  try {
+    antwort = await ki.frage({
+      art: 'praes_layout', system: systemPrompt(prompts, system), schema,
+      prompt: fuelle(prompts.gestalten, {
+        form: folie.form ? `${folie.form}${folie.betont ? ' (betont)' : ''}` : '(frei)', kernaussage: folie.kernaussage || '(keine)',
+        layoutBeschreibung: layout.beschreibung, elemente: elemente.join('\n') || '(keine)', feste: feste.join('\n') || '(keine)',
+        wunsch: [auto.length ? `\nVORSCHLAG DER APP, weil Text zu eng ist (darfst du übernehmen oder verbessern): ${JSON.stringify(auto)}` : '', wunsch ? `\nWUNSCH DER PERSON (hat Vorrang): ${wunsch}` : ''].join('')
+      })
+    }) || antwort;
+  } catch (e) { if (!auto.length) throw e; }
+  const vorschlag = { aenderungen: [...auto.filter(a => !(antwort.aenderungen || []).some(b => b && b.id === a.id)), ...(antwort.aenderungen || [])], spiegeln: !!antwort.spiegeln };
+  const r = pruefeAnpassung(folie, system, vorschlag);
+  return { ...r, begruendung: String(antwort.begruendung || '') };
+}
+
 /* Alles in einem Lauf: Outline, dann jede Folie.
-   opts.fortschritt({ schritt, nr, anzahl }) wird vor jedem KI-Aufruf gerufen. */
+   opts.fortschritt({ schritt, nr, anzahl }) wird vor jedem KI-Aufruf gerufen.
+   opts.gestalten: die KI darf danach Positionen und Größen anpassen (und Bildlayouts spiegeln). */
 export async function erstellePraesentation(ki, prompts, briefing, system, opts = {}) {
   const melde = opts.fortschritt || (() => {});
   melde({ schritt: 'outline', nr: 0, anzahl: 0 });
-  const o = await erstelleOutline(ki, prompts, briefing, system);
+  const o = await erstelleOutline(ki, prompts, briefing, system, { spiegeln: !!opts.gestalten });
   const folien = [], protokoll = [...o.aenderungen], pruefen = [];
   for (let i = 0; i < o.outline.folien.length; i++) {
     melde({ schritt: 'folie', nr: i + 1, anzahl: o.outline.folien.length });
+    const plan = o.outline.folien[i];
     const f = await erstelleFolie(ki, prompts, { briefing, outline: o.outline, index: i, system });
+    f.folie.form = plan.form; f.folie.betont = !!plan.betont; f.folie.kernaussage = plan.kernaussage;
+    if (plan.spiegeln) f.folie.anpassung = { spiegeln: true };
     folien.push(f.folie); protokoll.push(...f.aenderungen); pruefen.push(...f.pruefen);
+  }
+  if (opts.gestalten) for (let i = 0; i < folien.length; i++) {
+    melde({ schritt: 'gestalten', nr: i + 1, anzahl: folien.length });
+    try {
+      const g = await gestalteFolie(ki, prompts, { folie: folien[i], system });
+      if (g.anpassung) { folien[i].anpassung = g.anpassung; protokoll.push(`Folie ${i + 1}: Layout angepasst${g.begruendung ? ` – ${g.begruendung.replace(/[.\s]+$/, '')}` : ''}.`); }
+    } catch (e) { protokoll.push(`Folie ${i + 1}: Layout konnte nicht angepasst werden (${e.message}).`); }
   }
   const spec = { schemaVersion: SPEC_VERSION, titel: o.outline.titel, folien };
   const v = validateSpec(spec, system);

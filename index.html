@@ -1393,11 +1393,12 @@ const KIND = {
   praes_system:   { name: 'Designsystem vorschlagen', expect: 200 },
   praes_outline:  { name: 'Gliederung der Präsentation erstellen', expect: 2200 },
   praes_folie:    { name: 'Folie schreiben', expect: 900 },
-  praes_bild:     { name: 'Bild beschreiben', expect: 200 }
+  praes_bild:     { name: 'Bild beschreiben', expect: 200 },
+  praes_layout:   { name: 'Layout einer Folie anpassen', expect: 400 }
 };
 const now = () => performance.now();
 /* Obergrenze für die Antwortlänge (Tokens), damit Ollama in jedem Fall stoppt */
-const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400 };
+const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400, praes_layout: 700 };
 const tokLimit = (kind, think) => (TOK[kind] || 3000) + (think === false ? 0 : 3000);
 /* JSON auch dann finden, wenn das Modell Text oder Codeblöcke drumherum schreibt */
 function parseJSONLoose(t) {
@@ -2303,7 +2304,9 @@ function viewResult() {
       <button class="btn" data-act="md">Als Markdown speichern</button>
       <button class="btn" data-act="print">Drucken / als PDF</button>
       <button class="btn ghost" data-act="result" ${ui.busy ? 'disabled' : ''}>Neu erstellen</button>
+      <button class="btn primary" data-act="openpraes" ${ui.busy ? 'disabled' : ''}>Präsentation daraus erstellen</button>
     </div>
+    ${window.Praes && Praes.hinweis ? Praes.hinweis() : ''}
     ${errorBox()}
     ${ui.busy ? `<div class="live" id="live" style="margin:0 0 18px">${liveInner()}</div>` : ''}
     ${!ui.busy && MODULE_ORDER.some(id => modDone(id) && S.module[id].updated > (S.ergebnisZeit || 0)) ? `<div class="m-next"><span>Du hast neue Vertiefungen erstellt, die noch nicht im Steckbrief stecken.</span><button class="btn primary tiny" data-act="result">Steckbrief aktualisieren</button></div>` : ''}

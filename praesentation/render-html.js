@@ -25,18 +25,41 @@ const VALIGN = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
 const zeichen = (a, n) => a.bullet === 'dash' ? '–' : a.bullet === 'number' ? n + '.' : a.bullet === 'none' ? '' : '•';
 const SCHATTEN = { soft: '0 .4cqw 1.4cqw rgba(0,0,0,.10)', hard: '.3cqw .3cqw 0 rgba(0,0,0,.18)' };
 
+/* PowerPoint-Grundformen, die die Vorschau nachzeichnen kann (Umriss in Prozent der Box) */
+const PRESET = {
+  triangle: '50% 0,100% 100%,0 100%', rtTriangle: '0 0,100% 100%,0 100%', diamond: '50% 0,100% 50%,50% 100%,0 50%',
+  parallelogram: '25% 0,100% 0,75% 100%,0 100%', trapezoid: '25% 0,75% 0,100% 100%,0 100%', homePlate: '0 0,75% 0,100% 50%,75% 100%,0 100%',
+  pentagon: '50% 0,100% 38%,82% 100%,18% 100%,0 38%', chevron: '0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%', hexagon: '25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%',
+  octagon: '29% 0,71% 0,100% 29%,100% 71%,71% 100%,29% 100%,0 71%,0 29%', snip1Rect: '0 0,84% 0,100% 16%,100% 100%,0 100%', snip2DiagRect: '0 0,84% 0,100% 16%,100% 100%,16% 100%,0 84%',
+  rightArrow: '0 25%,60% 25%,60% 0,100% 50%,60% 100%,60% 75%,0 75%', leftArrow: '100% 25%,40% 25%,40% 0,0 50%,40% 100%,40% 75%,100% 75%', flowChartOffpageConnector: '0 0,100% 0,100% 80%,50% 100%,0 80%'
+};
+const RUND = /ellipse|oval|circle|donut|pie|chord|arc|moon|flowChartConnector/i;
+const dreh = e => e.rot || e.flipH || e.flipV ? `transform:${e.rot ? `rotate(${e.rot}deg)` : ''}${e.flipH ? ' scaleX(-1)' : ''}${e.flipV ? ' scaleY(-1)' : ''};` : '';
+const rgba = (hex, a) => a === undefined || a >= 1 ? hex : `rgba(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(',')},${a})`;
+const svgPfad = p => p.map(([b, ...v]) => b + v.join(' ')).join(' ');
+
 function element(e) {
   if (e.art === 'form') {
-    const rund = e.form === 'ellipse' ? 'border-radius:50%;' : e.radius ? `border-radius:${cqw(e.radius)};` : '';
-    return `<div style="${pos(e)}background:${e.farbe};${rund}${e.deckkraft !== undefined ? `opacity:${e.deckkraft};` : ''}${SCHATTEN[e.schatten] ? `box-shadow:${SCHATTEN[e.schatten]};` : ''}"></div>`;
+    const strich = e.linie ? { farbe: rgba(e.linie.farbe, e.linie.deckkraft), breite: (e.linie.pt / 9.6).toFixed(3) + 'cqw' } : null;
+    if (e.form === 'line') {
+      const [x1, y1, x2, y2] = [e.flipH ? 100 : 0, e.flipV ? 100 : 0, e.flipH ? 0 : 100, e.flipV ? 0 : 100];
+      return `<svg style="${pos(e)}overflow:visible;${e.rot ? `transform:rotate(${e.rot}deg);` : ''}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${strich ? strich.farbe : e.farbe}" style="stroke-width:${strich ? strich.breite : '.1cqw'}" vector-effect="non-scaling-stroke"/></svg>`;
+    }
+    if (e.form === 'pfad' && e.pfad) {
+      return `<svg style="${pos(e)}overflow:visible;${dreh(e)}" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><path d="${svgPfad(e.pfad)}" fill="${e.farbe ? rgba(e.farbe, e.deckkraft) : 'none'}"${strich ? ` stroke="${strich.farbe}" style="stroke-width:${strich.breite}" vector-effect="non-scaling-stroke"` : ''}/></svg>`;
+    }
+    const clip = e.form === 'preset' && PRESET[e.prst] ? `clip-path:polygon(${PRESET[e.prst]});` : '';
+    const rund = e.form === 'ellipse' || (e.form === 'preset' && RUND.test(e.prst || '')) ? 'border-radius:50%;' : e.radius ? `border-radius:${cqw(e.radius)};` : '';
+    const rand = strich && !clip ? `border:${strich.breite} solid ${strich.farbe};` : '';
+    return `<div style="${pos(e)}${e.farbe ? `background:${e.farbe};` : ''}${rund}${clip}${rand}${e.deckkraft !== undefined ? `opacity:${e.deckkraft};` : ''}${SCHATTEN[e.schatten] ? `box-shadow:${SCHATTEN[e.schatten]};` : ''}${dreh(e)}"></div>`;
   }
   if (e.art === 'bild') {
-    if (!e.src) return `<div class="pf-leer" style="${pos(e)}">Bild</div>`;
-    return `<div class="pf-i" style="${pos(e)}"><img src="${esc(e.src)}" alt="${esc(e.alt)}" style="object-fit:${e.fit === 'contain' ? 'contain' : 'cover'}"></div>`;
+    if (!e.src) return e.deko ? '' : `<div class="pf-leer" style="${pos(e)}">Bild</div>`;
+    return `<div class="pf-i" style="${pos(e)}${e.deckkraft !== undefined ? `opacity:${e.deckkraft};` : ''}${dreh(e)}"><img src="${esc(e.src)}" alt="${esc(e.alt)}" style="object-fit:${e.fit === 'contain' ? 'contain' : 'cover'}"></div>`;
   }
   let n = 0;
   const abs = e.absaetze.map(a => a.bullet ? `<p class="pf-b" data-z="${esc(zeichen(a, ++n))}">${esc(a.text)}</p>` : `<p>${esc(a.text).replace(/\n/g, '<br>')}</p>`).join('');
-  const daten = `data-ph="${esc(e.ph || '')}"${e.index !== undefined ? ` data-index="${e.index}" data-feld="${esc(e.feld)}"` : ''}${e.auto ? ' data-auto="1"' : ''}`;
+  const daten = `${e.deko ? 'data-deko="1" ' : ''}data-ph="${esc(e.ph || '')}"${e.index !== undefined ? ` data-index="${e.index}" data-feld="${esc(e.feld)}"` : ''}${e.auto ? ' data-auto="1"' : ''}`;
   return `<div class="pf-t" ${daten} style="${pos(e)}justify-content:${VALIGN[e.valign] || 'flex-start'};text-align:${e.align};font-family:${esc(e.schriftCss)};font-size:${cqw(e.pt)};line-height:${e.zeilenhoehe};color:${e.farbe};font-weight:${e.bold ? 700 : 400};${e.italic ? 'font-style:italic;' : ''}">${abs}</div>`;
 }
 

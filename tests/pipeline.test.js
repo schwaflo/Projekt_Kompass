@@ -3,6 +3,8 @@ import { loadPackage, fnSource } from '../praesentation/registry.js';
 import { validateSpec } from '../praesentation/spec.js';
 import { buildSlides } from '../praesentation/layout.js';
 import * as P from '../praesentation/pipeline.js';
+import { waehleLayouts, profil, rangliste } from '../praesentation/analyse.js';
+import { ordneInhaltZu } from '../praesentation/spec.js';
 
 const system = async id => (await loadPackage(fnSource({ readText: p => env.readText(`design-systems/${id}/${p}`) }), id)).system;
 const prompts = () => P.ladePrompts(env.readText);
@@ -14,11 +16,11 @@ function kiMit(antworten) {
 }
 const BRIEFING = { schemaVersion: '2.0', art: 'entscheidung', art_name: 'Entscheidungsvorlage', thema: 'Neues Kundenportal', ziel: 'Freigabe für Phase 2', zielgruppe: 'Lenkungskreis', kernbotschaft: 'Das Portal entlastet den Service', anlass: 'Sitzung am 14. Mai', pflichtinhalte: 'Ergebnisse der Pilotphase', daten: '72 % nutzen das Portal monatlich; 31 % weniger Anrufe', cta: 'Freigabe erteilen', umfang: '5 Folien', folienzahl: 5, weiteres: [], annahmen: [] };
 const OUTLINE = { titel: 'Neues Kundenportal', storyline: 'Der Pilot lief gut. Jetzt braucht es die Freigabe.', kernbotschaft: 'Das Portal entlastet den Service', folien: [
-  { abschnitt: 'Abschnitt', layoutId: 'title', kernaussage: 'Das Kundenportal ist bereit für den nächsten Schritt.', inhalt: 'Titel, Anlass' },
-  { abschnitt: 'Abschnitt', layoutId: 'kpi-grid', kernaussage: 'Die Pilotphase hat überzeugt.', inhalt: '72 %, 31 %' },
-  { abschnitt: 'Abschnitt', layoutId: 'content-bullets', kernaussage: 'Das Portal löst die häufigsten Anliegen.', inhalt: 'Rechnungen, Adresse, Status' },
-  { abschnitt: 'Abschnitt', layoutId: 'image-left', kernaussage: 'Das Team gewinnt Zeit.', inhalt: 'Beratung' },
-  { abschnitt: 'Abschnitt', layoutId: 'closing', kernaussage: 'Wir bitten um die Freigabe.', inhalt: 'Freigabe erteilen' }
+  { abschnitt: 'Abschnitt', form: 'titel', betont: false, layoutId: 'title', kernaussage: 'Das Kundenportal ist bereit für den nächsten Schritt.', inhalt: 'Titel, Anlass' },
+  { abschnitt: 'Abschnitt', form: 'kennzahlen', betont: true, layoutId: 'kpi-grid', kernaussage: 'Die Pilotphase hat überzeugt.', inhalt: '72 %, 31 %' },
+  { abschnitt: 'Abschnitt', form: 'liste', betont: false, layoutId: 'content-bullets', kernaussage: 'Das Portal löst die häufigsten Anliegen.', inhalt: 'Rechnungen, Adresse, Status' },
+  { abschnitt: 'Abschnitt', form: 'bild', betont: false, layoutId: 'image-left', kernaussage: 'Das Team gewinnt Zeit.', inhalt: 'Beratung' },
+  { abschnitt: 'Abschnitt', form: 'abschluss', betont: false, layoutId: 'closing', kernaussage: 'Wir bitten um die Freigabe.', inhalt: 'Freigabe erteilen' }
 ] };
 const FOLIEN = [
   { inhalt: { title: 'Kundenportal: bereit für Phase 2', subtitle: 'Ergebnisse der Pilotphase', meta: 'Lenkungskreis · 14. Mai' }, notizen: 'Begrüßung.' },
@@ -208,35 +210,37 @@ test('Designsystem: Vorschlag der KI, bei ungültiger Antwort Auswahl über Tags
 });
 
 /* ---------- Outline ---------- */
-test('Outline: KI bekommt nur die Layouts des Designsystems und die Formulierungsrichtlinien', async () => {
+test('Outline: KI wählt Formen, die das Designsystem darstellen kann; das Layout wählt die App', async () => {
   const p = await prompts(), sys = await system('demo-corporate'), ki = kiMit([OUTLINE]);
   const r = await P.erstelleOutline(ki, p, BRIEFING, sys);
   gleich(r.versuche, 1); gleich(r.outline.folien.length, 5);
-  const a = ki.anfragen[0];
-  gleich(a.schema.properties.folien.items.properties.layoutId.enum, sys.layouts.map(l => l.id));
-  sys.layouts.forEach(l => assert(a.prompt.includes(`- ${l.id} – ${l.beschreibung}`), `Layout ${l.id} fehlt im Prompt`));
+  const a = ki.anfragen[0], formen = a.schema.properties.folien.items.properties.form.enum;
+  gleich(formen, P.verfuegbareFormen(sys));
+  ['titel', 'kernsatz', 'zahl', 'kennzahlen', 'vergleich', 'ablauf', 'bild', 'abschluss'].forEach(f => assert(formen.includes(f), f));
+  assert(a.prompt.includes('- kernsatz – eine einzelne starke Aussage') && !a.prompt.includes('content-bullets'), 'Formen statt Layout-IDs im Prompt');
+  gleich(r.outline.folien.map(f => f.layoutId), ['title', 'kpi-grid', 'content-bullets', 'image-left', 'closing']);
   assert(a.system.includes('Das Publikum wird mit **Sie** angesprochen'), 'voice.md fehlt im System-Prompt');
   assert(a.system.includes('Höchstens 5 Stichpunkte pro Folie') && a.system.includes('Höchstens eine Zitatfolie'), 'Regeln fehlen');
   assert(!a.prompt.includes('{{') && !a.system.includes('{{'));
 });
 
-test('Outline: erfundenes Layout → Wiederholung mit Fehlerhinweis', async () => {
+test('Outline: erfundene Form → Wiederholung mit Fehlerhinweis', async () => {
   const p = await prompts(), sys = await system('demo-corporate');
-  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, layoutId: 'agenda' } : f) };
+  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, form: 'agenda' } : f) };
   const ki = kiMit([falsch, OUTLINE]);
   const r = await P.erstelleOutline(ki, p, BRIEFING, sys);
   gleich(r.versuche, 2); gleich(r.aenderungen, []);
   assert(ki.anfragen[1].prompt.startsWith(ki.anfragen[0].prompt), 'ursprünglicher Prompt bleibt erhalten');
-  assert(ki.anfragen[1].prompt.includes('KORREKTUR NÖTIG') && ki.anfragen[1].prompt.includes('„agenda“ ist nicht erlaubt') && ki.anfragen[1].prompt.includes('"layoutId":"agenda"'));
+  assert(ki.anfragen[1].prompt.includes('KORREKTUR NÖTIG') && ki.anfragen[1].prompt.includes('„agenda“ ist nicht erlaubt') && ki.anfragen[1].prompt.includes('"form":"agenda"'));
 });
 
 test('Outline: nach drei ungültigen Antworten wird ersetzt statt abgebrochen', async () => {
   const p = await prompts(), sys = await system('demo-hell');
-  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, layoutId: 'agenda' } : f) };
+  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, form: 'agenda', layoutId: undefined } : f) };
   const ki = kiMit([falsch, falsch, falsch]);
   const r = await P.erstelleOutline(ki, p, BRIEFING, sys);
-  gleich(ki.anfragen.length, 3); gleich(r.outline.folien[2].layoutId, 'content-bullets');
-  meldet(r.aenderungen, 'Layout „agenda“ unbekannt');
+  gleich(ki.anfragen.length, 3); gleich([r.outline.folien[2].form, r.outline.folien[2].layoutId], ['liste', 'content-bullets']);
+  meldet(r.aenderungen, 'Form „agenda“ gibt es nicht');
 });
 
 /* ---------- Folien ---------- */
@@ -257,7 +261,7 @@ test('Folie: Prompt nennt Felder, Limits, Bilder und markiert die Folie in der G
   const r = await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 3, system: sys });
   gleich(r.versuche, 1); gleich(r.folie.layoutId, 'image-left'); gleich(r.folie.inhalt.image, 'portrait');
   const t = ki.anfragen[0].prompt;
-  assert(t.includes('► 4. [image-left] Das Team gewinnt Zeit.') && t.includes('  3. [content-bullets]'));
+  assert(t.includes('► 4. [bild] Das Team gewinnt Zeit.') && t.includes('  3. [liste]') && t.includes('Form: bild – '));
   assert(t.includes('- title (Text, Pflicht, höchstens 60 Zeichen)') && t.includes('höchstens 4 Punkte mit je höchstens 90 Zeichen'));
   assert(t.includes('- portrait: Bild im Hochformat') && !t.includes('assets/images'), 'Bilder nur per ID, ohne Dateipfad');
   assert(!t.includes('{{'));
@@ -359,7 +363,7 @@ test('Outline: Dramaturgie, Stil und Layouthinweise der Art stehen im Prompt', a
   const p = await prompts(), sys = await system('demo-corporate'), ki = kiMit([OUTLINE]);
   await P.erstelleOutline(ki, p, { ...BRIEFING, art: 'pitch' }, sys);
   const t = ki.anfragen[0].prompt;
-  assert(t.includes('ART DER PRÄSENTATION: Pitch') && t.includes('1. Haken:') && t.includes('Pitch-Stil') && t.includes('big-number'));
+  assert(t.includes('ART DER PRÄSENTATION: Pitch') && t.includes('1. Haken:') && t.includes('Pitch-Stil') && t.includes('- zahl – '));
 });
 
 test('Abwechslung: Titel und Abschluss, Bildseiten wechseln, keine Wiederholung, wenig Aufzählungen', async () => {
@@ -401,3 +405,97 @@ for (const id of ['demo-corporate', 'demo-hell']) {
     assert(ki.anfragen[1].system.includes(id === 'demo-hell' ? 'mit **Du** angesprochen' : 'mit **Sie** angesprochen'), 'Formulierungsrichtlinien des gewählten Systems');
   });
 }
+
+
+/* ---------- Layoutwahl nach Inhalt ---------- */
+test('Layoutwahl: Form bestimmt das Layout, betonte Aussagen bekommen kräftige Layouts, keine Wiederholung', async () => {
+  const sys = await system('demo-corporate'), typ = id => sys.layout(id).typ;
+  const w = waehleLayouts(['titel', 'kernsatz', 'zahl', 'vergleich', 'bausteine', 'ablauf', 'liste', 'liste', 'zitat', 'abschluss'].map(form => ({ form })), sys);
+  gleich(w.map(x => typ(x.layoutId)), ['title', 'statement', 'big-number', 'two-column', 'cards', 'timeline', 'content-bullets', 'image-left', 'quote', 'closing']);
+  /* Kennzahlen ohne Kachel-Layout fallen auf eine passende Alternative, nie auf ein Bildlayout */
+  const ohneBild = waehleLayouts([{ form: 'titel' }, { form: 'bild' }, { form: 'liste' }, { form: 'abschluss' }], sys, { bilder: false });
+  assert(!ohneBild.some(x => profil(sys.layout(x.layoutId), sys).bilder), 'ohne Fotos keine Bildlayouts');
+  /* Betonung: Kernsatz auf dem kräftigsten Layout */
+  gleich(typ(rangliste('kernsatz', true, sys)[0].id), 'statement');
+  assert(profil(sys.layout('statement'), sys).wucht > profil(sys.layout('content-bullets'), sys).wucht);
+});
+
+test('Layoutwahl: Bildseiten wechseln; mit Spiegeln auch bei nur einer Bildseite', async () => {
+  const sys = await system('demo-corporate');
+  const w = waehleLayouts([{ form: 'titel' }, { form: 'bild' }, { form: 'liste' }, { form: 'bild' }, { form: 'abschluss' }], sys);
+  gleich([w[1].layoutId, w[3].layoutId], ['image-left', 'image-right']);
+  /* System mit nur einem Bildlayout: zweites Bild wird gespiegelt, wenn erlaubt */
+  const weg = l => ['image-right', 'image-full'].includes(l.typ);
+  const nurLinks = { ...sys, layouts: sys.layouts.filter(l => !weg(l)), layout: id => sys.layouts.find(l => l.id === id && !weg(l)) || null };
+  const s = waehleLayouts([{ form: 'titel' }, { form: 'bild' }, { form: 'kernsatz' }, { form: 'bild' }, { form: 'abschluss' }], nurLinks, { spiegeln: true });
+  gleich([s[1].layoutId, s[3].layoutId, !!s[1].spiegeln, !!s[3].spiegeln], ['image-left', 'image-left', false, true]);
+});
+
+test('Inhalt wandert beim Layoutwechsel in verwandte Felder', async () => {
+  const sys = await system('demo-corporate');
+  gleich(ordneInhaltZu({ title: 'Wir halbieren die Wartezeit', bullets: ['a'] }, sys.layout('statement')).statement, 'Wir halbieren die Wartezeit');
+  gleich(ordneInhaltZu({ title: 'T', bullets: ['a', 'b'] }, sys.layout('two-column')).leftBullets, ['a', 'b']);
+  gleich(ordneInhaltZu({ title: 'T', cards: [{ title: 'Schnell', text: 'In zwei Minuten' }] }, sys.layout('content-bullets')).bullets, ['Schnell: In zwei Minuten']);
+});
+
+/* ---------- Layout anpassen ---------- */
+const FOLIE_BULLETS = { layoutId: 'content-bullets', form: 'liste', inhalt: { title: 'Das Portal löst die häufigsten Anliegen', bullets: ['Rechnungen einsehen', 'Adresse ändern'] } };
+test('Layout anpassen: Vorschläge außerhalb der Ränder, mit Überlappung oder kleinerer Schrift werden verworfen', async () => {
+  const sys = await system('demo-corporate'), l = sys.layout('content-bullets'), b = l.placeholders.find(p => p.id === 'bullets');
+  const r = P.pruefeAnpassung(FOLIE_BULLETS, sys, { aenderungen: [
+    { id: 'bullets', x: b.x, y: b.y + 2, w: b.w * 0.8, h: b.h - 2 },
+    { id: 'title', x: -5, y: 2, w: 50, h: 10 }
+  ], spiegeln: true });
+  assert(r.anpassung && r.anpassung.boxen.bullets && !r.anpassung.boxen.title, JSON.stringify(r));
+  assert(!r.anpassung.spiegeln, 'Spiegeln nur bei Bildlayouts');
+  meldet(r.meldungen, 'title: ragt über den Rand');
+  const t = l.placeholders.find(p => p.id === 'title');
+  const ueber = P.pruefeAnpassung(FOLIE_BULLETS, sys, { aenderungen: [{ id: 'bullets', x: t.x, y: t.y, w: t.w, h: 40 }], spiegeln: false });
+  assert(!ueber.anpassung, 'Liste über der Überschrift'); meldet(ueber.meldungen, 'überdecken');
+  const klein = P.pruefeAnpassung(FOLIE_BULLETS, sys, { aenderungen: [{ id: 'title', x: t.x, y: t.y, w: 12, h: 5 }], spiegeln: false });
+  assert(!klein.anpassung, 'Überschrift würde winzig'); meldet(klein.meldungen, 'kleiner oder abgeschnitten');
+  /* angewendet wird die Anpassung nur, wenn der Schalter an ist */
+  const f = { ...FOLIE_BULLETS, anpassung: r.anpassung };
+  const an = buildSlides({ titel: 'x', folien: [f] }, sys)[0].elemente.find(e => e.ph === 'bullets'), aus = buildSlides({ titel: 'x', folien: [f] }, sys, { anpassen: false })[0].elemente.find(e => e.ph === 'bullets');
+  assert(an.w < aus.w, 'Anpassung wirkt'); gleich(aus.w, b.w);
+});
+
+test('Layout anpassen: KI-Vorschlag wird geprüft übernommen, Spiegeln nur bei Bildfolien', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  const folie = { layoutId: 'image-left', form: 'bild', kernaussage: 'Das Team gewinnt Zeit', inhalt: { title: 'Das Team gewinnt Zeit', bullets: ['Weniger Routine'], image: 'portrait' } };
+  const ki = kiMit([a => { assert(a.prompt.includes('- image – Bild') && a.prompt.includes('- bullets – Stichpunkte') && a.art === 'praes_layout'); return { aenderungen: [], spiegeln: true, begruendung: 'Abwechslung zur vorherigen Bildfolie' }; }]);
+  const g = await P.gestalteFolie(ki, p, { folie, system: sys });
+  assert(g.anpassung && g.anpassung.spiegeln, JSON.stringify(g));
+  const m = buildSlides({ titel: 'x', folien: [{ ...folie, anpassung: g.anpassung }] }, sys)[0];
+  assert(m.elemente.find(e => e.art === 'bild' && !e.deko).x > 40, 'Bild steht jetzt rechts');
+});
+
+test('Gesamter Lauf mit Layout-Anpassung: zusätzlicher Aufruf je Folie, Fehler brechen nichts ab', async () => {
+  const p = await prompts(), sys = await system('demo-corporate'), schritte = [];
+  const ki = kiMit([OUTLINE, ...FOLIEN.map(f => JSON.parse(JSON.stringify(f))), ...FOLIEN.map((_, i) => i === 1 ? (() => { throw new Error('Zeitüberschreitung'); }) : { aenderungen: [], spiegeln: false, begruendung: '' })]);
+  const r = await P.erstellePraesentation(ki, p, BRIEFING, sys, { gestalten: true, fortschritt: s => schritte.push(s.schritt + s.nr) });
+  assert(r.ok, r.errors.join(' '));
+  gleich(schritte.filter(x => x.startsWith('gestalten')).length, 5);
+  meldet(r.protokoll, 'Folie 2: Layout konnte nicht angepasst werden');
+  gleich(r.spec.folien.map(f => f.form), ['titel', 'kennzahlen', 'liste', 'bild', 'abschluss']);
+  gleich(r.spec.folien[1].betont, true);
+});
+
+/* ---------- Start aus der Projektanalyse ---------- */
+test('Briefing aus einer Projektanalyse: Bestätigtes wird nicht noch einmal gefragt, höchstens vier Fragen', async () => {
+  const p = await prompts(), B = P.neuesBriefing('Projekt der Geschäftsleitung vorstellen und Budget bekommen');
+  const ki = kiMit([
+    { art: 'pitch', thema: 'Besucherbereich' },
+    { vorbefuellt: [{ feld: 'problem', wert: 'Gäste finden den Empfang nicht', status: 'bestaetigt' }, { feld: 'idee', wert: 'Ein Empfangstresen mit Leitsystem', status: 'bestaetigt' }, { feld: 'zielgruppe', wert: 'Besucherinnen und Besucher', status: 'bestaetigt' }, { feld: 'bitte', wert: 'Budget für den Umbau', status: 'bestaetigt' }],
+      schwerpunkte: ['nutzen'], unwichtig: [], erste_frage: { feld: 'problem', frage: 'Was ist das Problem?', vorschlaege: [] } }
+  ]);
+  await P.briefingStart(ki, p, B, '{"projekt":{"titel":"Besucherbereich"}}', { ausProjekt: true });
+  gleich(B.max, 4);
+  assert(feld(B, 'problem').gefragt && feld(B, 'idee').gefragt, 'aus der Analyse bestätigt');
+  assert(!P.kandidaten(B).includes('problem') && !P.kandidaten(B).includes('idee'));
+  gleich([feld(B, 'zielgruppe').wert, feld(B, 'zielgruppe').status], ['', 'leer'], 'die Zielgruppe des Projekts ist nicht das Publikum der Präsentation');
+  assert(feld(B, 'bitte').gefragt, 'die Bitte stand in der eigenen Beschreibung');
+  assert(P.kandidaten(B).includes('zielgruppe'), 'nach dem Publikum wird gefragt');
+  assert(B.aktuell.feld !== 'problem', 'die Frage der KI zu einem geklärten Punkt wird ersetzt');
+  assert(ki.anfragen[1].prompt.includes('"titel":"Besucherbereich"'), 'Projektkontext steht im Prompt');
+});
