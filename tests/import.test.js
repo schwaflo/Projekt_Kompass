@@ -253,3 +253,25 @@ test(nurBrowser('PowerPoint-Import: verständliche Fehler'), async () => {
   let fehler = ''; try { await importPptx(await vorlage([L_LEER]), window.JSZip, {}); } catch (e) { fehler = e.message; }
   assert(fehler.includes('kein Layout'), fehler);
 });
+
+test(nurBrowser('Richtlinien: Text aus PowerPoint mit Notizen, aus Word und aus Markdown lesen'), async () => {
+  if (!imBrowser) return;
+  const { textAusDatei } = await import('../praesentation/richtlinien.js');
+  const P = new window.PptxGenJS();
+  const a = P.addSlide(); a.addText('Unser Ton', { x: 1, y: 1, w: 8, h: 1 }); a.addText('Wir duzen.\nWir schreiben aktiv.', { x: 1, y: 2, w: 8, h: 2 }); a.addNotes('Nie „quasi“ verwenden.');
+  P.addSlide();
+  P.addSlide().addText('Begriffe: Gäste statt Kunden', { x: 1, y: 1, w: 8, h: 1 });
+  const pp = await textAusDatei(new File([await P.write({ outputType: 'blob' })], 'Wording.pptx'), window.JSZip);
+  gleich(pp.abschnitte.length, 2, 'leere Folien fallen weg');
+  assert(pp.abschnitte[0].titel === 'Folie 1: Unser Ton' && pp.abschnitte[0].text.includes('Wir schreiben aktiv.') && pp.abschnitte[0].text.includes('Notizen: Nie „quasi“'), JSON.stringify(pp.abschnitte[0]));
+  assert(pp.abschnitte[1].titel.startsWith('Folie 3'));
+  const w = new window.JSZip();
+  w.file('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Tonalität</w:t></w:r></w:p><w:p><w:r><w:t>Klar und nahbar.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Anrede</w:t></w:r></w:p><w:p><w:r><w:t>Wir duzen.</w:t></w:r></w:p></w:body></w:document>');
+  const wd = await textAusDatei(new File([await w.generateAsync({ type: 'blob' })], 'Wording.docx'), window.JSZip);
+  gleich(wd.abschnitte.map(x => x.titel), ['Tonalität', 'Anrede']);
+  assert(wd.abschnitte[1].text === 'Anrede\nWir duzen.');
+  const md = await textAusDatei(new File(['# Ton\nKlar.\n## Anrede\nDu.'], 'w.md'), window.JSZip);
+  gleich(md.abschnitte.map(x => x.titel), ['Ton', 'Anrede']);
+  let fehler = ''; try { await textAusDatei(new File(['x'], 'w.pdf'), window.JSZip); } catch (e) { fehler = e.message; }
+  assert(fehler.includes('PDF'));
+});

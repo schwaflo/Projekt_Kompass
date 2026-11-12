@@ -16,6 +16,7 @@ Wer einen Prompt ändert, erhöht `version`. Die Version steht im Protokoll jede
 | [system.md](system.md) | Rolle für Outline und Folien, enthält `voice.md` und die Regeln des Designsystems | – |
 | [outline.md](outline.md) | Gliederung nach der Dramaturgie der Art | Titel, Storyline, Kernbotschaft, Folien mit Abschnitt, Form (Kernsatz, Zahl, Vergleich …), Betonung und Kernaussage. Das Layout wählt danach die App. |
 | [folie.md](folie.md) | Eine Folie schreiben oder neu schreiben | Inhalte je Feld, Sprechernotizen |
+| [richtlinien.md](richtlinien.md) | Designsystem-Editor: Formulierungsrichtlinien einer Marke aus einer Datei lesen, Teil für Teil | Tonalität, Anrede, Regeln, verbotene und bevorzugte Begriffe, Schreibweisen, Beispiele. Die App führt die Teile zusammen und schreibt sie in voice.md. |
 | [gestalten.md](gestalten.md) | Nur mit dem Schalter „KI darf Layouts anpassen“: Positionen und Größen der Flächen einer fertigen Folie verbessern | Geänderte Flächen, Spiegeln ja/nein, Begründung. Die App prüft Ränder, Überlappung und Lesbarkeit. |
 | [korrektur.md](korrektur.md) | Anhang bei ungültiger Antwort | – |
 | [asset-beschreiben.md](asset-beschreiben.md) | Designsystem-Editor: Bild beschreiben lassen (optional, braucht ein Modell mit Bildverständnis) | Beschreibung, Tags |

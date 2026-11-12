@@ -15,9 +15,10 @@ import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, kuerze, SPEC_VERSION } fr
 import { FORMEN, FORM_IDS, FORM_VON_TYP, waehleLayouts, eignung, profil } from './analyse.js';
 import { buildSlides, passeAn, FOLIE_PT } from './layout.js';
 import { blockHoehe } from './text.js';
+import { leseSprachregeln, pruefeSprache } from './richtlinien.js';
 
 export const MAX_VERSUCHE = 3;
-export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten'];
+export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten', 'richtlinien'];
 
 /* ---------- Prompts ---------- */
 /* Datei mit Kopf (--- name/version/… ---) lesen */
@@ -481,7 +482,8 @@ export function pruefeFakten(folie, layout, quelle) {
 
 /* Überschriften, die über die Präsentation statt über die Sache sprechen */
 const META = /\b(präsentation\w*|\w*pitch\w*|folie\w*|willkommen|agenda|vortrag\w*|tagesordnung)\b/i;
-export function pruefeStil(folie, layout) {
+/* sprache: prüfbare Regeln aus voice.md (verbotene Wörter, bevorzugte Begriffe, Anrede), siehe richtlinien.js */
+export function pruefeStil(folie, layout, sprache = null) {
   const out = [], kopf = st => st && st.font === 'heading';
   inhaltsPlatzhalter(layout).forEach(ph => {
     const v = folie.inhalt[ph.id];
@@ -490,6 +492,8 @@ export function pruefeStil(folie, layout) {
     const luecke = (wo, text) => { const m = /\[[^\]]*(zahl|prozent|%|wert|anzahl|zeit|betrag)[^\]]*\]/i.exec(String(text)); if (m) out.push(`${wo}: „${m[0]}“ ist ein Platzhalter für eine Zahl, die niemand kennt. Formuliere die Aussage ohne Zahl.`); };
     if (typeof v === 'string' && (kopf(ph.style) || ph.typ === 'text')) pruef(ph.id, v);
     if (typeof v === 'string') luecke(ph.id, v);
+    const texte = typeof v === 'string' ? [[ph.id, v]] : Array.isArray(v) ? v.flatMap((x, i) => typeof x === 'string' ? [[`${ph.id}, Punkt ${i + 1}`, x]] : x && typeof x === 'object' ? Object.entries(x).map(([k, w]) => [`${ph.id}, Eintrag ${i + 1}, ${k}`, w]) : []) : [];
+    if (sprache) texte.forEach(([wo, t]) => pruefeSprache(t, sprache).forEach(m => out.push(`${wo}: ${m}`)));
     if (Array.isArray(v) && ph.typ === 'bullets') v.forEach((x, i) => luecke(`${ph.id}, Punkt ${i + 1}`, x));
     if (Array.isArray(v) && ph.typ === 'items') v.forEach((x, i) => x && typeof x === 'object' && Object.entries(x).forEach(([k, w]) => luecke(`${ph.id}, Eintrag ${i + 1}, ${k}`, w)));
     if (Array.isArray(v) && ph.typ === 'items') v.forEach((x, i) => x && typeof x === 'object' && ph.felder.filter(fd => kopf(fd.style)).forEach(fd => x[fd.id] && pruef(`${ph.id}, Eintrag ${i + 1}, ${fd.id}`, x[fd.id])));
@@ -509,7 +513,8 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
   const { schemaVersion, folienzahl, ...inhaltlich } = briefing;
   const quelle = JSON.stringify(inhaltlich) + ' ' + (opts.wunsch || '') + ' ' + JSON.stringify(opts.bisher || '');
   const fakten = f => pruefeFakten(f, layout, quelle);
-  const stil = f => [...pruefeStil(f, layout), ...inhaltsPlatzhalter(layout).filter(ph => ph.typ === 'bullets' && Array.isArray(f.inhalt[ph.id]) && f.inhalt[ph.id].length > maxPunkte).map(ph => `${ph.id}: ${f.inhalt[ph.id].length} Stichpunkte, bei dieser Präsentationsart höchstens ${maxPunkte}. Schreibe weniger, dafür stärkere Punkte.`)];
+  const sprache = leseSprachregeln(system.voice);
+  const stil = f => [...pruefeStil(f, layout, sprache), ...inhaltsPlatzhalter(layout).filter(ph => ph.typ === 'bullets' && Array.isArray(f.inhalt[ph.id]) && f.inhalt[ph.id].length > maxPunkte).map(ph => `${ph.id}: ${f.inhalt[ph.id].length} Stichpunkte, bei dieser Präsentationsart höchstens ${maxPunkte}. Schreibe weniger, dafür stärkere Punkte.`)];
   const wunsch = [opts.bisher ? `\nBISHERIGER INHALT DIESER FOLIE (JSON):\n${JSON.stringify(opts.bisher)}` : '', opts.wunsch ? `\nWUNSCH DER PERSON ZUR ÜBERARBEITUNG (hat Vorrang):\n${opts.wunsch}` : (opts.bisher ? '\nSchreibe die Folie neu und formuliere sie anders als bisher.' : '')].join('');
 
   const r = await frageGeprueft(ki, prompts, {

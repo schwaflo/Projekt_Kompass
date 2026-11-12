@@ -15,6 +15,7 @@ import { buildSlides } from './layout.js';
 import { slideHTML, fontUrl } from './render-html.js';
 import { fuelle } from './pipeline.js';
 import { beschreibe, typName } from './analyse.js';
+import { textAusDatei, destilliere, voiceAbschnitt, setzeEin, leseSprachregeln } from './richtlinien.js';
 import { LAYOUT_TYPEN } from './schema.js';
 
 const STORE = 'designsysteme';
@@ -94,6 +95,29 @@ async function loesche(system) {
   K.reg.remove(system.id); zustand().id = '';
   if (S.praes && S.praes.systemId === system.id) S.praes.systemId = '';
   render();
+}
+
+/* Brand-Guide oder Wording-Datei lesen und als Formulierungsrichtlinien übernehmen */
+function ladeRichtlinien(system, datei) {
+  const z = zustand(); z.fehler = []; z.bericht = [];
+  ui.prRlFort = '';
+  run('Formulierungsrichtlinien werden gelesen …', async () => {
+    const prompts = await K.ladePrompts();
+    const inhalt = await textAusDatei(datei, await zip());
+    if (!inhalt.abschnitte.length) throw new Error(`In „${datei.name}“ steht kein lesbarer Text.`);
+    const r = await destilliere(K.ki(), prompts, inhalt, { fortschritt: (n, a) => { ui.prRlFort = `Teil ${n} von ${a} wird gelesen (${inhalt.abschnitte.length} ${/\.(pptx|potx)$/i.test(datei.name) ? 'Folien' : 'Abschnitte'} insgesamt)`; const el = document.getElementById('ps-fort'); if (el) el.textContent = ui.prRlFort; } });
+    const p = { ...system.paket, manifest: kopie(system.paket.manifest), dateien: { ...system.paket.dateien } };
+    p.voice = setzeEin(system.voice, voiceAbschnitt(r.regeln, datei.name), `Formulierungsrichtlinien: ${system.meta.name}`);
+    const fehler = await speichere(p);
+    if (fehler.length) throw new Error(fehler[0]);
+    const g = r.regeln, n = (x, e, m) => `${x.length} ${x.length === 1 ? e : m}`;
+    z.bericht = [`Formulierungsrichtlinien aus „${datei.name}“ übernommen. Sie gelten ab sofort für alle Präsentationen mit „${system.meta.name}“.`,
+      `${n(g.regeln, 'Regel', 'Regeln')}, ${n(g.tonalitaet, 'Aussage', 'Aussagen')} zur Tonalität, Anrede: ${g.anrede === 'du' ? 'Du' : g.anrede === 'sie' ? 'Sie' : 'nicht festgelegt'}.`,
+      `${n(g.verboten, 'verbotenes Wort', 'verbotene Wörter')} und ${n(g.ersetzen, 'bevorzugter Begriff', 'bevorzugte Begriffe')}: Diese prüft der Kompass bei jeder Folie und lässt die KI nachbessern.`,
+      `${n(g.schreibweisen, 'Schreibweise', 'Schreibweisen')} und ${n(g.beispiele, 'Formulierungsbeispiel', 'Formulierungsbeispiele')}.`,
+      'Unten unter „Formulierungsrichtlinien“ kannst du alles lesen und ändern.', ...r.fehler.map(f => `Nicht gelesen: ${f}`)];
+    ui.prRlFort = '';
+  });
 }
 
 const neueDateien = (system, files, rolle) => aendere(system, async p => { for (const f of files) await fuegeDateiHinzu(p, f, rolle); });
@@ -199,6 +223,8 @@ function viewDetail(s) {
   </section>
 
   <section class="ps-block"><h3>Formulierungsrichtlinien (voice.md)</h3>
+    ${(() => { const r = leseSprachregeln(s.voice); return `<p class="small muted" style="margin:0 0 10px">Gehen bei jeder Folie an die KI. Geprüft werden automatisch: ${r.verboten.length} verbotene Wörter, ${r.ersetzen.length} bevorzugte Begriffe, Anrede ${r.anrede === 'du' ? 'Du' : r.anrede === 'sie' ? 'Sie' : 'nicht festgelegt'}.</p>`; })()}
+    ${e ? `<div class="ps-drop klein" id="ps-richtlinien" style="margin:0 0 12px"><span class="muted">Brand-Guide oder Wording-Datei hierher ziehen (.pptx, .docx, .txt, .md). Die KI liest sie Teil für Teil und übernimmt Tonalität, Anrede, Regeln, Begriffe und Beispiele.</span><label class="btn tiny">Datei wählen<input type="file" id="ps-rl" accept=".pptx,.potx,.docx,.txt,.md" hidden></label></div><p class="small muted" id="ps-fort">${esc(ui.prRlFort || '')}</p>` : '<p class="small muted">Lege eine Kopie an, um eigene Richtlinien zu hinterlegen, zum Beispiel aus eurem Brand-Guide.</p>'}
     ${e ? `<textarea class="answer" data-pv="1" rows="10" style="min-height:220px;font-size:.9rem">${esc(s.voice)}</textarea><p class="small muted">Wird gespeichert, sobald du das Feld verlässt.</p>` : `<pre class="ps-voice">${esc(s.voice || '(keine)')}</pre>`}
   </section>`;
 }
@@ -231,6 +257,7 @@ export function wechselSysteme(e) {
   if (t.id === 'ps-zip' && t.files[0]) { ladeZip(t.files[0]); t.value = ''; return true; }
   if (t.id === 'ps-pptx' && t.files[0]) { ladePptx(t.files[0]); t.value = ''; return true; }
   if (!s || !bearbeitbar(s)) return false;
+  if (t.id === 'ps-rl' && t.files[0]) { ladeRichtlinien(s, t.files[0]); t.value = ''; return true; }
   if (d.prolle !== undefined && t.files && t.files.length) { neueDateien(s, [...t.files], d.prolle); t.value = ''; return true; }
   const liste = v => v.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
   if (d.pm) { aendere(s, p => { p.manifest.meta[d.pm] = d.pm === 'tags' ? liste(t.value) : t.value.trim() || p.manifest.meta[d.pm]; }); return true; }
@@ -254,6 +281,7 @@ export function dragSysteme(e) {
   const files = [...e.dataTransfer.files], assetId = e.dataTransfer.getData('text/x-asset');
   if (ziel.id === 'ps-drop') { const f = files[0]; if (!f) return; return /\.(pptx|potx)$/i.test(f.name) ? ladePptx(f) : ladeZip(f); }
   if (!s || !bearbeitbar(s)) return;
+  if (ziel.id === 'ps-richtlinien') { if (files[0]) ladeRichtlinien(s, files[0]); return; }
   const rolle = ziel.dataset.rolle || '';
   if (files.length) return neueDateien(s, files, rolle);
   if (assetId && rolle) aendere(s, p => { p.manifest.assets.find(x => x.id === assetId).role = rolle; });

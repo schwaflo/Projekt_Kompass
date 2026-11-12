@@ -710,7 +710,7 @@ Diese Datei wird beim Schreiben der Folien an die KI übergeben. Passe sie an eu
 
 ## Anrede
 
-- Das Publikum wird mit **Sie** angesprochen.
+- Noch nicht festgelegt. Trage hier Du oder Sie ein oder lade im Editor eure Formulierungsrichtlinien hoch.
 
 ## Satzlänge
 

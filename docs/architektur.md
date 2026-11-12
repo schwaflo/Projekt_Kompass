@@ -42,6 +42,7 @@ Alle Dateien liegen in [`praesentation/`](../praesentation/) und sind ES-Module 
 | `render-html.js` | Folienmodell → HTML | Browser, Node |
 | `render-pptx.js` | Folienmodell → PptxGenJS | Browser, Node |
 | `analyse.js` | Profil jedes Layouts (Schriftgrößen, Bildanteil, Kacheln, Wucht), Formen, Layoutwahl | Browser, Node |
+| `richtlinien.js` | Formulierungsrichtlinien aus PowerPoint, Word oder Text lesen, von der KI auswerten lassen, in voice.md schreiben; prüfbare Sprachregeln | Browser (Lesen), überall (Rest) |
 | `pipeline.js` | Briefing, Outline, Folien, Layout-Anpassung; Wiederholung bei Fehlern; Faktenprüfung | Browser, Node |
 | `bilder.js` | Bilder für den Export zuschneiden und als PNG oder JPG einbetten | nur Browser |
 | `assets.js` | Rolle, Tags und Beschreibung für Bilddateien vorschlagen | Vorschlag überall, Bildanalyse nur Browser |
@@ -126,7 +127,7 @@ Ein Schalter im Schritt Designsystem und im Editor. Aus: Jede Folie sieht exakt 
 ## Prüfung in vier Stufen
 
 1. **Antwortformat.** Jede Folie bekommt ein eigenes JSON-Schema: nur die Felder ihres Layouts und Bild-IDs als feste Auswahl. Layout-IDs in der Outline sind ebenfalls eine feste Auswahl. Zeichenlimits stehen bewusst nicht im Schema, weil Server mit Grammatik (Ollama, llama.cpp) den Text sonst mitten im Wort abschneiden; sie stehen im Prompt und werden in Stufe 2 geprüft.
-2. **Prüfung der Antwort.** `validateSpec` prüft Layout-IDs, Platzhalter, Limits und Bild-IDs. `pruefeFakten` prüft, ob Zahlen, E-Mail- und Webadressen im Briefing stehen. `pruefeStil` erkennt Überschriften, die über die Präsentation statt über die Sache sprechen („Willkommen“, „… im Pitch“), und zu viele Stichpunkte für die Art.
+2. **Prüfung der Antwort.** `validateSpec` prüft Layout-IDs, Platzhalter, Limits und Bild-IDs. `pruefeFakten` prüft, ob Zahlen, E-Mail- und Webadressen im Briefing stehen. `pruefeStil` erkennt Überschriften, die über die Präsentation statt über die Sache sprechen („Willkommen“, „… im Pitch“), zu viele Stichpunkte für die Art und Verstöße gegen die Formulierungsrichtlinien (verbotene Wörter, bevorzugte Begriffe, Du oder Sie).
 3. **Wiederholung.** Bei Fehlern geht derselbe Prompt mit den konkreten Meldungen erneut an die KI, höchstens drei Versuche.
 4. **Fallback.** `kuerzeSpec` bringt jede Antwort in einen gültigen Zustand: kürzt an der Wortgrenze, streicht überzählige Punkte, markiert fehlende Pflichtinhalte als `[…]`. Angaben, die nicht aus dem Briefing stammen, bleiben stehen und werden als „Bitte prüfen“ gemeldet.
 

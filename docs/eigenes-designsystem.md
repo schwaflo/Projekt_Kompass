@@ -178,6 +178,16 @@ Bilder füllen ihre Fläche und werden dafür mittig beschnitten. Logos werden n
 
 Freier Text in Markdown. Er wird vollständig in den System-Prompt übernommen. Bewährt haben sich die Abschnitte Tonalität, Anrede (Du oder Sie), Satzlänge, verbotene Füllwörter, bevorzugte Begriffe. Vorlage: [`design-systems/demo-corporate/voice.md`](../design-systems/demo-corporate/voice.md).
 
+Drei Abschnitte prüft der Kompass bei jeder Folie automatisch und lässt die KI nachbessern, wenn etwas nicht passt:
+
+- `## Verbotene Füllwörter`: Wörter, mit Komma getrennt
+- `## Bevorzugte Begriffe`: Tabelle `| Statt | Lieber |`
+- `## Anrede`: `**Du**` oder `**Sie**`
+
+#### Aus eurem Brand-Guide
+
+Habt ihr Formulierungsrichtlinien als PowerPoint, Word, Text oder Markdown, zieh die Datei im Editor auf das Feld unter „Formulierungsrichtlinien“. Die KI liest sie Teil für Teil, auch bei 50 Folien. Sie übernimmt Tonalität, Anrede, Regeln, verbotene und bevorzugte Begriffe, Schreibweisen der Marke und Formulierungsbeispiele. Das Ergebnis steht oben in `voice.md` und lässt sich dort ändern. Ein neuer Import ersetzt diesen Abschnitt, eigene Ergänzungen darunter bleiben erhalten. PDF kann der Browser nicht lesen; speichere sie vorher als PowerPoint oder Text.
+
 ## Prüfen
 
 - **Im Editor:** Fehler erscheinen mit Pfad und Erklärung, zum Beispiel „layouts[2] (content-bullets).title.style.color: Die Farbe „blau“ gibt es in tokens.colors nicht.“

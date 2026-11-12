@@ -27,7 +27,7 @@ const FOLIEN = [
   { inhalt: { title: 'Die Pilotphase hat überzeugt', kpis: [{ value: '72 %', label: 'nutzen das Portal monatlich' }, { value: '−31 %', label: 'weniger Anrufe' }] }, notizen: 'Zahlen erläutern.' },
   { inhalt: { title: 'Das Portal löst die häufigsten Anliegen', bullets: ['Rechnungen einsehen', 'Adresse ändern', 'Status verfolgen'] }, notizen: 'Beispiele nennen.' },
   { inhalt: { title: 'Das Team gewinnt Zeit für Beratung', bullets: ['Weniger Routineanfragen'], image: 'portrait' }, notizen: 'Stimmen aus dem Team.' },
-  { inhalt: { title: 'Vielen Dank', body: 'Wir bitten Sie um die Freigabe für Phase 2.' }, notizen: 'Beschluss festhalten.' }
+  { inhalt: { title: 'Vielen Dank', body: 'Wir bitten um die Freigabe für Phase 2.' }, notizen: 'Beschluss festhalten.' }
 ];
 
 /* ---------- Prompts ---------- */
@@ -348,7 +348,7 @@ test('Folie: Platzhalter werden aus Sätzen entfernt, Abschluss bekommt immer ei
   r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Starten wir jetzt', body: '[Handlungsaufforderung]' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 4, system: sys });
   gleich(r.folie.inhalt.body, 'Freigabe für 25.000 Euro und eine Projektgruppe.');
   meldet(r.aenderungen, 'Handlungsaufforderung aus dem Briefing eingesetzt');
-  r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Neues Portal', subtitle: 'Für alle Kunden', meta: '[Datum] | [Name] | Lenkungskreis' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 0, system: sys });
+  r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Neues Portal', subtitle: 'Für alle Kundinnen und Kunden', meta: '[Datum] | [Name] | Lenkungskreis' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 0, system: sys });
   gleich(r.folie.inhalt.meta, 'Lenkungskreis');
 });
 
@@ -498,4 +498,54 @@ test('Briefing aus einer Projektanalyse: Bestätigtes wird nicht noch einmal gef
   assert(P.kandidaten(B).includes('zielgruppe'), 'nach dem Publikum wird gefragt');
   assert(B.aktuell.feld !== 'problem', 'die Frage der KI zu einem geklärten Punkt wird ersetzt');
   assert(ki.anfragen[1].prompt.includes('"titel":"Besucherbereich"'), 'Projektkontext steht im Prompt');
+});
+
+/* ---------- Formulierungsrichtlinien ---------- */
+import * as R from '../praesentation/richtlinien.js';
+
+test('Richtlinien: prüfbare Regeln aus voice.md, bevorzugte Form zählt nicht als Verstoß', async () => {
+  const corp = await system('demo-corporate'), hell = await system('demo-hell');
+  const r = R.leseSprachregeln(corp.voice);
+  assert(r.verboten.includes('innovativ') && r.verboten.includes('zeitnah'), r.verboten.join(', '));
+  assert(r.ersetzen.some(e => e.statt === 'Kunden' && e.besser === 'Kundinnen und Kunden'));
+  gleich([r.anrede, R.leseSprachregeln(hell.voice).anrede], ['sie', 'du']);
+  gleich(R.pruefeSprache('Kundinnen und Kunden erledigen es selbst', r), []);
+  meldet(R.pruefeSprache('Kunden erledigen es selbst', r), 'heißt es „Kundinnen und Kunden“');
+  meldet(R.pruefeSprache('Eine innovative, zeitnah umgesetzte Lösung', r), '„zeitnah“');
+  meldet(R.pruefeSprache('Das spart dir Zeit', r), 'mit „Sie“');
+  meldet(R.pruefeSprache('Wir bitten Sie um die Freigabe', R.leseSprachregeln(hell.voice)), 'mit „du“');
+  gleich(R.pruefeSprache('Sie sparen Zeit. Wir zeigen wie.', { verboten: [], ersetzen: [], anrede: 'du' }).length, 0, '„Sie“ am Satzanfang kann auch „sie“ (Mehrzahl) sein');
+});
+
+test('Richtlinien: Folie mit verbotenem Wort wird nachgebessert', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  const ki = kiMit([{ inhalt: { title: 'Das Portal löst Anliegen zeitnah', bullets: ['Kunden sehen Rechnungen'] }, notizen: '' }, FOLIEN[2]]);
+  const r = await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 2, system: sys });
+  gleich(r.versuche, 2);
+  assert(ki.anfragen[1].prompt.includes('„zeitnah“ ist laut Formulierungsrichtlinien nicht erlaubt') && ki.anfragen[1].prompt.includes('heißt es „Kundinnen und Kunden“'));
+});
+
+test('Richtlinien: Teile zusammenführen und als voice.md einsetzen', async () => {
+  const p = await prompts(), datei = { name: 'Wording.pptx', abschnitte: Array.from({ length: 12 }, (_, i) => ({ titel: `Folie ${i + 1}`, text: 'Regel '.repeat(150) })) };
+  gleich(R.teile(datei.abschnitte, 2000).length, 6);
+  const ki = kiMit([
+    { tonalitaet: ['Klar und nahbar'], anrede: 'du', regeln: ['Aktiv formulieren', 'Überschriften ohne Punkt'], verboten: ['quasi, eigentlich'], ersetzen: [{ statt: 'Kunden', besser: 'Gäste' }], schreibweisen: ['nordlicht immer klein'], beispiele: [{ schlecht: 'Es wird umgesetzt', gut: 'Wir setzen um' }] },
+    () => { throw new Error('Zeitüberschreitung'); },
+    { tonalitaet: ['klar und nahbar'], anrede: 'du', regeln: ['aktiv formulieren.'], verboten: ['Gäste'], ersetzen: [{ statt: 'kunden', besser: 'Gäste' }], schreibweisen: [], beispiele: [] }
+  ]);
+  const r = await R.destilliere(ki, p, datei, { max: 4000 });
+  gleich(ki.anfragen.length, 3); gleich(ki.anfragen[0].art, 'praes_richtlinien');
+  assert(ki.anfragen[0].prompt.includes('Teil 1 von 3') && ki.anfragen[0].prompt.includes('### Folie 1'));
+  gleich(r.regeln.tonalitaet, ['Klar und nahbar'], 'Doppeltes fällt weg');
+  gleich(r.regeln.regeln, ['Aktiv formulieren', 'Überschriften ohne Punkt']);
+  gleich(r.regeln.verboten, ['quasi', 'eigentlich'], 'ein bevorzugter Begriff ist nie verboten');
+  gleich([r.regeln.anrede, r.regeln.ersetzen.length, r.fehler.length], ['du', 1, 1]);
+  const alt = '# Formulierungsrichtlinien\n\n## Eigenes\n\n- Keine Ausrufezeichen\n';
+  const v1 = R.setzeEin(alt, R.voiceAbschnitt(r.regeln, 'Wording.pptx'), 'Formulierungsrichtlinien: Nordlicht');
+  const sr = R.leseSprachregeln(v1);
+  gleich([sr.anrede, sr.verboten, sr.ersetzen], ['du', ['quasi', 'eigentlich'], [{ statt: 'Kunden', besser: 'Gäste' }]]);
+  assert(v1.includes('## Weitere Richtlinien') && v1.includes('Keine Ausrufezeichen') && v1.includes('Nicht: „Es wird umgesetzt“'));
+  const v2 = R.setzeEin(v1, R.voiceAbschnitt({ ...r.regeln, verboten: ['zeitnah'] }, 'Neu.pptx'), 'Formulierungsrichtlinien: Nordlicht');
+  gleich(R.leseSprachregeln(v2).verboten, ['zeitnah'], 'ein neuer Import ersetzt den alten');
+  assert((v2.match(/aus-richtlinien:/g) || []).length === 1 && v2.includes('Keine Ausrufezeichen'));
 });
