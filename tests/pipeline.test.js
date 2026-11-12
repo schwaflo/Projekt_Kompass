@@ -337,6 +337,17 @@ test('Folie: Zahlwörter zählen als genannt, Platzhalter für unbekannte Zahlen
   assert(!('contact' in r.folie.inhalt)); meldet(r.aenderungen, 'contact: entfernt');
 });
 
+test('Folie: Platzhalter werden aus Sätzen entfernt, Abschluss bekommt immer eine Handlungsaufforderung', async () => {
+  const p = await prompts(), sys = await system('demo-corporate'), b = { ...BRIEFING, art: 'pitch', bitte: 'Freigabe für 25.000 Euro und eine Projektgruppe.' };
+  let r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Starten wir jetzt', body: 'Wir bitten um die Freigabe von 25.000 Euro bis [Datum].' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 4, system: sys });
+  gleich(r.folie.inhalt.body, 'Wir bitten um die Freigabe von 25.000 Euro.');
+  r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Starten wir jetzt', body: '[Handlungsaufforderung]' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 4, system: sys });
+  gleich(r.folie.inhalt.body, 'Freigabe für 25.000 Euro und eine Projektgruppe.');
+  meldet(r.aenderungen, 'Handlungsaufforderung aus dem Briefing eingesetzt');
+  r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Neues Portal', subtitle: 'Für alle Kunden', meta: '[Datum] | [Name] | Lenkungskreis' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 0, system: sys });
+  gleich(r.folie.inhalt.meta, 'Lenkungskreis');
+});
+
 test('Folie neu generieren: bisheriger Inhalt und Wunsch stehen im Prompt', async () => {
   const p = await prompts(), sys = await system('demo-corporate'), ki = kiMit([FOLIEN[2]]);
   await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 2, system: sys }, { bisher: { title: 'Alt' }, wunsch: 'Bitte kürzer und mit Beispiel' });

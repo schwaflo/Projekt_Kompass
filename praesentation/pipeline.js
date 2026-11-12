@@ -502,11 +502,22 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
   /* Nach drei Versuchen noch Fehler: selbst kürzen, statt abzubrechen */
   let folie = einzel(r.antwort).folien[0], aenderungen = [];
   if (r.fehler.length) { const k = kuerzeSpec(einzel(r.antwort), system); folie = k.spec.folien[0]; aenderungen = k.aenderungen.map(a => a.replace(/^Folie 1/, `Folie ${index + 1}`)); }
-  /* Optionale Felder, die nur Platzhalter oder unbekannte Namen enthalten, sind auf der Folie wertlos: weg damit */
+  /* Optionale Felder: Platzhalter samt Präposition aus dem Satz nehmen („bis [Datum]“); bleibt kaum etwas übrig
+     oder steht ein Name ohne Grundlage im Briefing darin, fällt das Feld weg */
   inhaltsPlatzhalter(layout).filter(ph => !ph.pflicht && ph.typ === 'text' && typeof folie.inhalt[ph.id] === 'string').forEach(ph => {
     const v = folie.inhalt[ph.id], namen = (v.match(/\b(Herr|Frau|Dr\.)\s+\p{Lu}\p{Ll}+/gu) || []).filter(n => !quelle.includes(n.split(/\s+/).pop()));
-    if (/\[[^\]]+\]/.test(v) || namen.length) { delete folie.inhalt[ph.id]; aenderungen.push(`Folie ${index + 1}, ${ph.id}: entfernt, weil nur ein Platzhalter oder ein Name ohne Grundlage im Briefing darin stand.`); }
+    if (!/\[[^\]]+\]/.test(v) && !namen.length) return;
+    const rest = v.replace(/\s*(?:\b(?:bis|am|zum|zur|um|ab|von|für|mit|unter|per|an|bei)\s*)?\[[^\]]+\]/gi, '').replace(/\s*[|·,;:–-]\s*(?=[|·,;:–-]|$)/g, '').replace(/\s+([.,;:])/g, '$1').replace(/^[\s|·,;:–-]+|[\s|·,;–-]+$/g, '').trim();
+    if (!namen.length && rest.replace(/[^\p{L}]/gu, '').length >= 12) { folie.inhalt[ph.id] = rest; aenderungen.push(`Folie ${index + 1}, ${ph.id}: Platzhalter entfernt.`); }
+    else { delete folie.inhalt[ph.id]; aenderungen.push(`Folie ${index + 1}, ${ph.id}: entfernt, weil nur ein Platzhalter oder ein Name ohne Grundlage im Briefing darin stand.`); }
   });
+  /* Die Abschlussfolie endet nie ohne Handlungsaufforderung: fehlt der Text, kommt sie aus dem Briefing */
+  const schlussText = inhaltsPlatzhalter(layout).find(ph => ph.id === 'body' && ph.typ === 'text');
+  const aufforderung = briefing.bitte || briefing.mitmachen || briefing.cta || briefing.empfehlung || briefing.naechste_schritte;
+  if (layout.typ === 'closing' && schlussText && !folie.inhalt.body && aufforderung) {
+    folie.inhalt.body = kuerze(String(aufforderung).split('\n')[0], schlussText.maxChars);
+    aenderungen.push(`Folie ${index + 1}, body: Handlungsaufforderung aus dem Briefing eingesetzt.`);
+  }
   /* Angaben, die nicht aus dem Briefing stammen, bleiben stehen, werden aber zur Prüfung gemeldet */
   const pruefen = [...stil(folie).map(f => `Folie ${index + 1}, ${f.split(' Schreibe')[0]} Bitte prüfen.`), ...fakten(folie).map(f => `Folie ${index + 1}, ${f.split(' Erfinde')[0]} Bitte prüfen.`)];
   return { folie, versuche: r.versuche, aenderungen, pruefen };
