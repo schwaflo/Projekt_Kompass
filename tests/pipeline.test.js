@@ -540,11 +540,12 @@ test('Richtlinien: Teile zusammenführen und als voice.md einsetzen', async () =
   gleich(r.regeln.regeln, ['Aktiv formulieren', 'Überschriften ohne Punkt']);
   gleich(r.regeln.verboten, ['quasi', 'eigentlich'], 'ein bevorzugter Begriff ist nie verboten');
   gleich([r.regeln.anrede, r.regeln.ersetzen.length, r.fehler.length], ['du', 1, 1]);
-  const alt = '# Formulierungsrichtlinien\n\n## Eigenes\n\n- Keine Ausrufezeichen\n';
+  const alt = '# Formulierungsrichtlinien\n\n## Anrede\n\n- Das Publikum wird mit **Sie** angesprochen.\n\n## Bevorzugte Begriffe\n\n| Statt | Lieber |\n|---|---|\n| Kunden | Kundinnen und Kunden |\n\n## Eigenes\n\n- Keine Ausrufezeichen\n';
   const v1 = R.setzeEin(alt, R.voiceAbschnitt(r.regeln, 'Wording.pptx'), 'Formulierungsrichtlinien: Nordlicht');
   const sr = R.leseSprachregeln(v1);
   gleich([sr.anrede, sr.verboten, sr.ersetzen], ['du', ['quasi', 'eigentlich'], [{ statt: 'Kunden', besser: 'Gäste' }]]);
   assert(v1.includes('## Weitere Richtlinien') && v1.includes('Keine Ausrufezeichen') && v1.includes('Nicht: „Es wird umgesetzt“'));
+  assert(!v1.includes('**Sie**') && !v1.includes('Kundinnen und Kunden'), 'widersprechende alte Abschnitte fallen weg');
   const v2 = R.setzeEin(v1, R.voiceAbschnitt({ ...r.regeln, verboten: ['zeitnah'] }, 'Neu.pptx'), 'Formulierungsrichtlinien: Nordlicht');
   gleich(R.leseSprachregeln(v2).verboten, ['zeitnah'], 'ein neuer Import ersetzt den alten');
   assert((v2.match(/aus-richtlinien:/g) || []).length === 1 && v2.includes('Keine Ausrufezeichen'));

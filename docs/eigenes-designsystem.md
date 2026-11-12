@@ -186,7 +186,7 @@ Drei Abschnitte prüft der Kompass bei jeder Folie automatisch und lässt die KI
 
 #### Aus eurem Brand-Guide
 
-Habt ihr Formulierungsrichtlinien als PowerPoint, Word, Text oder Markdown, zieh die Datei im Editor auf das Feld unter „Formulierungsrichtlinien“. Die KI liest sie Teil für Teil, auch bei 50 Folien. Sie übernimmt Tonalität, Anrede, Regeln, verbotene und bevorzugte Begriffe, Schreibweisen der Marke und Formulierungsbeispiele. Das Ergebnis steht oben in `voice.md` und lässt sich dort ändern. Ein neuer Import ersetzt diesen Abschnitt, eigene Ergänzungen darunter bleiben erhalten. PDF kann der Browser nicht lesen; speichere sie vorher als PowerPoint oder Text.
+Habt ihr Formulierungsrichtlinien als PowerPoint, Word, Text oder Markdown, zieh die Datei im Editor auf das Feld unter „Formulierungsrichtlinien“. Die KI liest sie Teil für Teil, auch bei 50 Folien. Sie übernimmt Tonalität, Anrede, Regeln, verbotene und bevorzugte Begriffe, Schreibweisen der Marke und Formulierungsbeispiele. Das Ergebnis steht oben in `voice.md` und lässt sich dort ändern. Ein neuer Import ersetzt diesen Abschnitt. Ältere Abschnitte, die dasselbe regeln (zum Beispiel Anrede oder bevorzugte Begriffe), fallen weg, damit sich nichts widerspricht; andere eigene Ergänzungen bleiben darunter erhalten. Bei mitgelieferten Designsystemen entsteht dafür automatisch eine Kopie, und die geöffnete Präsentation wechselt zu ihr. Bereits geschriebene Folien schreibt der Editor auf Wunsch nach den neuen Richtlinien neu. PDF kann der Browser nicht lesen; speichere sie vorher als PowerPoint oder Text.
 
 ## Prüfen
 

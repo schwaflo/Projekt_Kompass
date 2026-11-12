@@ -14,6 +14,8 @@ import { slideHTML, FOLIEN_CSS, fontUrl } from './render-html.js';
 import { exportPptx } from './render-pptx.js';
 import { ladeBild } from './bilder.js';
 import { waehleLayouts, rangliste, FORMEN, FORM_IDS, typName } from './analyse.js';
+import { leseSprachregeln } from './richtlinien.js';
+import { ladePaket } from './pakete.js';
 import { initSysteme, ladeGespeicherte, viewSysteme, klickSysteme, wechselSysteme, dragSysteme, SYSTEME_CSS } from './ui-systeme.js';
 
 const reg = createRegistry();
@@ -64,6 +66,8 @@ function starte() {
   const mitProjekt = ausProjekt();
   if (z.beschreibung.length < 10 && !mitProjekt) { ui.error = 'Beschreibe in ein, zwei Sätzen, worum es in der Präsentation geht.'; return render(); }
   run('Briefing wird vorbereitet …', async () => {
+    /* Eine neue Präsentation überschreibt nie die vorige: die liegt gespeichert in der Ablage */
+    if (z.spec) { if (!(await sichere(true))) return; Object.assign(z, { spec: null, gespeichertId: undefined, gespeichertStand: undefined, protokoll: [], pruefen: [], auswahl: 0 }); }
     await ladePrompts();
     const B = P.neuesBriefing(z.beschreibung || `Präsentation zum Projekt „${S.titel}“`);
     await P.briefingStart(ki(), prompts, B, mitProjekt ? projektKontext() : '', { ausProjekt: mitProjekt && !!S.ergebnis });
@@ -106,8 +110,10 @@ function erstelle() {
     await ladePrompts();
     const r = await P.erstellePraesentation(ki(), prompts, z.briefing, sys, { gestalten: !!z.kiLayout, fortschritt: s => { ui.praesFortschritt = s.schritt === 'outline' ? 'Gliederung wird erstellt' : s.schritt === 'gestalten' ? `Layout von Folie ${s.nr} von ${s.anzahl} wird angepasst` : `Folie ${s.nr} von ${s.anzahl} wird geschrieben`; const el = document.getElementById('pr-fort'); if (el) el.textContent = ui.praesFortschritt; } });
     r.spec.folien.forEach((f, i) => { f.kernaussage = r.outline.folien[i].kernaussage; f.abschnitt = r.outline.folien[i].abschnitt; });
+    r.spec.richtlinien = fingerabdruck(sys.voice);
     Object.assign(z, { spec: r.spec, protokoll: r.protokoll, pruefen: r.pruefen, auswahl: 0, schritt: 'vorschau' });
     ui.praesFortschritt = '';
+    await sichere(true);
   });
 }
 
@@ -152,19 +158,115 @@ function passtNicht() {
   if (!z.spec || !sys) return [];
   return z.spec.folien.map((f, i) => validateSpec({ titel: 'x', folien: [f] }, sys).errors.some(e => /Zeichen|Stichpunkte|Einträge|Pflichtinhalt/.test(e)) ? i : -1).filter(i => i >= 0);
 }
-function passeTexteAn() {
-  const z = Z(), sys = system(), liste = passtNicht();
+/* Mehrere Folien mit demselben Wunsch neu schreiben lassen; Form, Betonung und Anpassung bleiben */
+function schreibeFolienNeu(liste, wunsch, text, danach) {
+  const z = Z(), sys = system();
   if (!liste.length) return;
-  run(`${liste.length} Folien werden an die Layouts angepasst …`, async () => {
+  run(text, async () => {
     await ladePrompts();
-    for (const i of liste) {
+    for (const [n, i] of liste.entries()) {
+      ui.busyText = `${text.replace(/ …$/, '')}: Folie ${i + 1} (${n + 1} von ${liste.length})`;
       const f = z.spec.folien[i], titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
       const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: x.layoutId, form: x.form, betont: x.betont, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '' })) };
-      const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch: 'Übertrage den bisherigen Inhalt in die Felder dieses Layouts. Kürze, wo die Limits es verlangen, und lass nichts Wichtiges weg.' });
+      const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch });
       z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage, abschnitt: f.abschnitt, form: f.form, betont: f.betont, ...(f.anpassung ? { anpassung: f.anpassung } : {}) };
+      const nr = new RegExp(`^Folie ${i + 1}[,:]`);
+      z.pruefen = [...z.pruefen.filter(t => !nr.test(t)), ...r.pruefen];
     }
+    if (danach) danach();
   });
 }
+const passeTexteAn = () => schreibeFolienNeu(passtNicht(), 'Übertrage den bisherigen Inhalt in die Felder dieses Layouts. Kürze, wo die Limits es verlangen, und lass nichts Wichtiges weg.', 'Folien werden an die Layouts angepasst …');
+
+/* ---------- Formulierungsrichtlinien auf vorhandene Folien anwenden ---------- */
+const fingerabdruck = t => { let h = 7; for (const c of String(t)) h = (h * 31 + c.codePointAt(0)) | 0; return (h >>> 0).toString(36); };
+/* Verstöße der aktuellen Folien gegen die Richtlinien des gewählten Designsystems */
+function sprachVerstoesse() {
+  const z = Z(), sys = system();
+  if (!z.spec || !sys) return [];
+  const r = leseSprachregeln(sys.voice), out = [];
+  z.spec.folien.forEach((f, i) => { const l = sys.layout(f.layoutId); if (l) P.pruefeStil(f, l, r).filter(m => /Formulierungsrichtlinien/.test(m)).forEach(m => out.push({ i, text: `Folie ${i + 1}, ${m}` })); });
+  return out;
+}
+/* Wurden die Folien mit älteren Richtlinien geschrieben? */
+const richtlinienNeu = () => { const z = Z(), sys = system(); return !!(z.spec && sys && z.spec.richtlinien && z.spec.richtlinien !== fingerabdruck(sys.voice)); };
+function nachRichtlinien() {
+  const z = Z(), sys = system(), alle = richtlinienNeu();
+  const liste = alle ? z.spec.folien.map((_, i) => i) : [...new Set(sprachVerstoesse().map(v => v.i))];
+  schreibeFolienNeu(liste, `Schreibe die Folie nach den Formulierungsrichtlinien von „${sys.meta.name}“ neu: Tonalität, Anrede, Begriffe und Regeln genau einhalten. Aussage und Fakten bleiben gleich.`, 'Folien werden nach den Richtlinien neu geschrieben …', () => { z.spec.richtlinien = fingerabdruck(sys.voice); });
+}
+
+/* ---------- Präsentationen speichern ---------- */
+const ABLAGE = 'praesentationen';
+const specStand = z => fingerabdruck(JSON.stringify(z.spec || ''));
+const ungespeichert = () => { const z = Z(); return !!z.spec && z.gespeichertStand !== specStand(z); };
+async function gespeicherte(neuLaden) {
+  if (neuLaden || !ui.praesListe) { try { ui.praesListe = (await IDB.all(ABLAGE)).sort((a, b) => String(b.gespeichert).localeCompare(String(a.gespeichert))); } catch { ui.praesListe = []; } }
+  return ui.praesListe;
+}
+/* Aktuelle Präsentation in der Ablage des Browsers sichern (neu oder als Aktualisierung) */
+async function sichere(still) {
+  const z = Z(), sys = system();
+  if (!z.spec) return false;
+  z.gespeichertId = z.gespeichertId || 'p' + Date.now().toString(36);
+  z.gespeichertStand = specStand(z);
+  const { zurueck, nachAnalyse, ...zustand } = JSON.parse(JSON.stringify(z));
+  const eintrag = { id: z.gespeichertId, titel: z.spec.titel, gespeichert: new Date().toISOString(), systemId: z.systemId, systemName: sys ? sys.meta.name : '', projekt: S.titel || '', folien: z.spec.folien.length, zustand: { ...zustand, schritt: 'vorschau' } };
+  try { await IDB.put(eintrag.id, eintrag, ABLAGE); } catch (e) { ui.error = 'Die Präsentation konnte nicht gespeichert werden: ' + e.message; render(); return false; }
+  await gespeicherte(true); save();
+  if (!still) { toast('Präsentation gespeichert'); render(); }
+  else { const b = document.querySelector('[data-pr="sichern"]'); if (b) b.textContent = 'Gespeichert'; }
+  return true;
+}
+async function oeffneGespeicherte(id) {
+  const e = (await gespeicherte()).find(x => x.id === id);
+  if (!e) return;
+  if (ungespeichert()) await sichere(true);
+  S.praes = { ...neu(), ...e.zustand, zurueck: Z().zurueck, gespeichertId: e.id };
+  S.praes.gespeichertStand = specStand(S.praes);
+  if (!reg.get(S.praes.systemId)) ui.notice = `Das Designsystem „${e.systemName || e.systemId}“ gibt es in diesem Browser nicht. Die Folien werden im ersten verfügbaren Designsystem gezeigt.`;
+  ui.error = null; save(); render(); window.scrollTo({ top: 0 });
+}
+async function loescheGespeicherte(id) {
+  const e = (await gespeicherte()).find(x => x.id === id);
+  if (!e || !confirm(`Präsentation „${e.titel}“ löschen? Das lässt sich nicht rückgängig machen.`)) return;
+  await IDB.del(id, ABLAGE);
+  if (Z().gespeichertId === id) { delete Z().gespeichertId; delete Z().gespeichertStand; }
+  await gespeicherte(true); render();
+}
+async function neuePraesentation() {
+  const z = Z();
+  if (z.spec && ungespeichert()) { if (!(await sichere(true))) return; toast('Bisherige Präsentation gespeichert'); }
+  S.praes = { ...neu(), zurueck: z.zurueck, quelle: z.quelle };
+  ui.error = null; ui.notice = null; save(); render(); window.scrollTo({ top: 0 });
+}
+/* Als Datei: Präsentation samt eigenem Designsystem, damit sie auf einem anderen Rechner gleich aussieht */
+async function alsDatei(id) {
+  const e = (await gespeicherte()).find(x => x.id === id);
+  if (!e) return;
+  const sys = reg.get(e.systemId);
+  const inhalt = { format: 'kompass-praesentation', version: 1, ...e, ...(sys && sys.paket ? { designsystem: sys.paket } : {}) };
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([JSON.stringify(inhalt)], { type: 'application/json' })), download: (slug(e.titel) || 'praesentation') + '.kompass.json' });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function ausDatei(datei) {
+  try {
+    const d = JSON.parse(await datei.text());
+    if (d.format !== 'kompass-praesentation' || !d.zustand || !d.zustand.spec) throw new Error('Das ist keine gespeicherte Präsentation des Kompass.');
+    if (d.designsystem && !reg.get(d.systemId)) {
+      const r = await ladePaket(d.designsystem);
+      if (r.ok) { try { await IDB.put(r.system.id, d.designsystem, 'designsysteme'); } catch {} reg.add(r); }
+    }
+    const { designsystem, format, version, ...eintrag } = d;
+    eintrag.id = 'p' + Date.now().toString(36);
+    await IDB.put(eintrag.id, eintrag, ABLAGE);
+    await gespeicherte(true);
+    toast(`„${eintrag.titel}“ geöffnet`);
+    return oeffneGespeicherte(eintrag.id);
+  } catch (e) { ui.error = 'Die Datei konnte nicht geöffnet werden: ' + e.message; render(); }
+}
+/* Gespeicherte Präsentationen nach Änderungen still aktualisieren */
+setInterval(() => { const z = S.praes; if (S.screen === 'praes' && z && z.gespeichertId && !ui.busy && ungespeichert()) sichere(true); }, 4000);
 
 /* Wirkung einer Folie ändern: passendes Layout dazu wählen */
 function setzeForm(form, betont) {
@@ -258,6 +360,20 @@ function pfad() {
   return `<nav class="pr-pfad" aria-label="Schritte">${SCHRITTE.map(([id, name], i) => `<button data-pr="geh" data-s="${id}" ${erreichbar[id] && !ui.busy ? '' : 'disabled'} aria-current="${z.schritt === id ? 'step' : 'false'}"><b>${i + 1}</b> ${name}</button>`).join('')}</nav>`;
 }
 
+/* Gespeicherte Präsentationen auf der Startseite */
+function ablage() {
+  if (!ui.praesListe) { gespeicherte().then(() => { if (an() && Z().schritt === 'start') render(); }); return ''; }
+  const liste = ui.praesListe, datum = d => new Date(d).toLocaleString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const bild = e => { const sys = reg.get(e.systemId) || reg.list()[0]; if (!sys) return ''; try { return slideHTML(buildSlides({ titel: e.titel, folien: e.zustand.spec.folien.slice(0, 1) }, sys, { anpassen: !!e.zustand.kiLayout })[0]); } catch { return ''; } };
+  return `<section class="pr-ablage"><div class="side-head"><h3>Gespeicherte Präsentationen</h3><label class="linkbtn">Datei öffnen<input type="file" id="pr-datei" accept=".json" hidden></label></div>
+    ${liste.length ? `<div class="pr-ablage-liste">${liste.map(e => `<div class="pr-karte ${e.id === Z().gespeichertId ? 'aktiv' : ''}">
+      <button class="pr-karte-bild" data-pr="oeffnen" data-id="${e.id}" aria-label="${esc(e.titel)} öffnen">${bild(e)}</button>
+      <b>${esc(e.titel)}</b><span class="small muted">${e.folien} Folien · ${esc(e.systemName || e.systemId)}${e.projekt ? ` · ${esc(e.projekt)}` : ''}<br>${datum(e.gespeichert)}</span>
+      <span class="pr-karte-tools"><button class="linkbtn" data-pr="oeffnen" data-id="${e.id}">Öffnen</button><button class="linkbtn" data-pr="datei" data-id="${e.id}">Als Datei</button><button class="linkbtn" data-pr="wegspeicher" data-id="${e.id}">Löschen</button></span>
+    </div>`).join('')}</div>` : '<p class="small muted">Noch keine. Jede Präsentation wird gespeichert, sobald die Folien geschrieben sind, und danach bei jeder Änderung.</p>'}
+  </section>`;
+}
+
 function viewStart() {
   const z = Z(), stand = projektStand(), mitProjekt = ausProjekt();
   const quelle = (id, titel, text, extra = '') => `<button class="pr-quelle" data-pr="quelle" data-q="${id}" aria-pressed="${(id === 'projekt') === mitProjekt}"><b>${titel}</b><span>${text}</span>${extra}</button>`;
@@ -283,6 +399,7 @@ function viewStart() {
         <span class="spacer"></span><button class="btn ghost" data-pr="beispiel" ${bereit ? '' : 'disabled'}>Beispiel ansehen, ohne KI</button></div>
       ${live()}${!ui.busy && ui.error ? statLine() : ''}
     </div>
+    ${ablage()}
     <aside class="panel"><h3>So läuft es ab</h3>
       <ol class="pr-ablauf"><li><b>Briefing.</b> Art der Präsentation, Ziel, Publikum, Kernbotschaft. Aus einer Projektanalyse ist vieles schon da.</li><li><b>Designsystem.</b> Eine Vorlage wählen oder deine PowerPoint-Vorlage importieren.</li><li><b>Folien.</b> Die KI schreibt Gliederung und Texte und entscheidet, wie jede Aussage wirken soll. Das passende Layout wählt der Kompass.</li><li><b>Bearbeiten und speichern.</b> Texte ändern, Wirkung umstellen, als PowerPoint speichern.</li></ol>
       <p class="small muted" style="margin:10px 0 8px">${bereit ? `${reg.list().length} Designsysteme gefunden: ${reg.list().map(s => esc(s.meta.name)).join(', ')}.` : 'Designsysteme werden geladen …'}</p>
@@ -378,6 +495,7 @@ function hinweise(m) {
   const z = Z(), l = [];
   validateSpec(z.spec, system()).errors.filter(e => !e.includes('gibt es in diesem Layout nicht')).forEach(e => l.push(['zuviel', e]));
   m.forEach(f => f.elemente.filter(e => e.gekuerzt).forEach(e => l.push(['zuviel', `Folie ${f.nr}, ${e.ph}: Der Text passt nicht in die Fläche und wird abgeschnitten.`])));
+  sprachVerstoesse().forEach(v => { if (!z.pruefen.some(t => t.startsWith(v.text))) l.push(['pruefen', v.text]); });
   z.pruefen.forEach(t => l.push(['pruefen', t]));
   z.protokoll.forEach(t => l.push(['info', t]));
   return l.length ? `<details ${l.some(x => x[0] !== 'info') ? 'open' : ''}><summary>${l.length} ${l.length === 1 ? 'Hinweis' : 'Hinweise'}</summary><ul>${l.map(([art, t]) => `<li class="${art}">${esc(t)}</li>`).join('')}</ul></details>` : '';
@@ -410,10 +528,14 @@ function viewVorschau() {
     <label>Designsystem <select class="input" id="pr-system">${reg.list().map(s => `<option value="${s.id}" ${s.id === sys.id ? 'selected' : ''}>${esc(s.meta.name)}</option>`).join('')}</select></label>
     <label>Schrift <select class="input" id="pr-schrift"><option value="system" ${z.schrift !== 'marke' ? 'selected' : ''}>Systemschrift (überall gleich)</option><option value="marke" ${z.schrift === 'marke' ? 'selected' : ''}>${esc(sys.tokens.typography.headingFont)} (muss installiert sein)</option></select></label>
     <span class="spacer"></span>${schalter()}
+    <button class="btn" data-pr="sichern" ${ui.busy ? 'disabled' : ''}>${ungespeichert() ? 'Speichern' : 'Gespeichert'}</button>
+    <button class="btn ghost" data-pr="neuepraes" ${ui.busy ? 'disabled' : ''}>Neue Präsentation</button>
     <button class="btn" data-pr="pdf" ${ui.busy ? 'disabled' : ''}>Als PDF drucken</button>
     <button class="btn primary" data-pr="pptx" ${ui.busy || ui.praesExport ? 'disabled' : ''}>${ui.praesExport ? 'Datei wird erstellt …' : 'Als PowerPoint speichern'}</button>
   </div>
   ${errorBox()}${ui.notice ? `<div class="notice" role="status">${esc(ui.notice)}</div>` : ''}
+  ${(() => { const v = sprachVerstoesse(), neuR = richtlinienNeu(); if (ui.busy || (!v.length && !neuR)) return ''; const folien = [...new Set(v.map(x => x.i + 1))];
+    return `<div class="notice pr-passt"><span>${neuR ? `Die Formulierungsrichtlinien von „${esc(sys.meta.name)}“ wurden geändert, nachdem diese Folien geschrieben wurden. ` : ''}${v.length ? `${v.length === 1 ? 'Eine Stelle verstößt' : `${v.length} Stellen verstoßen`} gegen die Richtlinien (Folie ${folien.join(', ')}).` : ''}</span><button class="btn tiny primary" data-pr="sprache">${neuR ? 'Alle Folien nach den Richtlinien neu schreiben' : 'Diese Folien nachbessern lassen'}</button></div>`; })()}
   ${(() => { const n = passtNicht(); return n.length && !ui.busy ? `<div class="notice pr-passt"><span>${n.length === 1 ? 'Eine Folie passt' : `${n.length} Folien passen`} nicht ganz in ${n.length === 1 ? 'ihr Layout' : 'ihre Layouts'} (Folie ${n.map(i => i + 1).join(', ')}).</span><button class="btn tiny primary" data-pr="anpassen">Texte von der KI anpassen lassen</button></div>` : ''; })()}
   <div id="pr-hinweise" class="pr-hinweise">${hinweise(m)}</div>
   <section class="pr-editor">
@@ -471,6 +593,12 @@ function klick(e) {
     case 'geh': return geh(d.s);
     case 'systeme': Z().vorSystemen = Z().schritt; return geh('systeme');
     case 'start': return starte();
+    case 'sichern': return sichere(false);
+    case 'neuepraes': return neuePraesentation();
+    case 'oeffnen': return oeffneGespeicherte(d.id);
+    case 'wegspeicher': return loescheGespeicherte(d.id);
+    case 'datei': return alsDatei(d.id);
+    case 'sprache': return nachRichtlinien();
     case 'quelle': z.quelle = d.q; save(); return render();
     case 'analyse': return erstAnalysieren();
     case 'anpassen': return passeTexteAn();
@@ -510,6 +638,7 @@ function wechsel(e) {
   if (!an()) return;
   if (Z().schritt === 'systeme') { wechselSysteme(e); return; }
   const t = e.target, z = Z();
+  if (t.id === 'pr-datei' && t.files[0]) { ausDatei(t.files[0]); t.value = ''; return; }
   if (t.id === 'pr-kilayout') { z.kiLayout = t.checked; save(); return render(); }
   if (t.id === 'pr-form') { if (t.value) return setzeForm(t.value, !!folie().betont); delete folie().form; save(); return render(); }
   if (t.id === 'pr-betont') { const f = folie(); if (f.form) return setzeForm(f.form, t.checked); f.betont = t.checked; save(); return render(); }
@@ -580,6 +709,13 @@ const CSS = FOLIEN_CSS + SYSTEME_CSS + `
 .pr-schalter input:focus-visible+.pr-schiene{outline:2px solid var(--accent);outline-offset:2px}
 .pr-wirkung{display:flex;gap:10px;align-items:flex-end}.pr-wirkung .pr-feld{flex:1}
 .pr-betont{display:flex;gap:6px;align-items:center;font-size:.82rem;margin-bottom:20px;white-space:nowrap}
+.pr-ablage{grid-column:1 / -1;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);padding:16px 18px}
+.pr-ablage .side-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.pr-ablage-liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.pr-karte{display:flex;flex-direction:column;gap:4px;font-size:.9rem}
+.pr-karte-bild{border:1px solid var(--line);border-radius:6px;padding:0;background:none;overflow:hidden;min-height:40px}
+.pr-karte.aktiv .pr-karte-bild{outline:2px solid var(--accent)}
+.pr-karte-tools{display:flex;gap:12px}
 .pr-passt{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .pr-weiter{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;border:2px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius-l);padding:14px 18px;margin:0 0 18px}
 .pr-weiter div{display:flex;flex-direction:column;gap:3px}.pr-weiter span{color:var(--muted);font-size:.92rem}

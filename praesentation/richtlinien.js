@@ -149,7 +149,10 @@ export function setzeEin(voice, abschnitt, titel = 'Formulierungsrichtlinien') {
   let rest = String(voice || '');
   const a = rest.indexOf(START), b = rest.indexOf(ENDE);
   if (a >= 0 && b > a) rest = (rest.slice(0, a) + rest.slice(b + ENDE.length));
-  rest = rest.replace(/^# .*\n+/, '').replace(/^Diese Datei wird beim Schreiben[^\n]*\n+/m, '').trim();
+  rest = rest.replace(/^# .*\n+/, '').replace(/^Diese Datei wird beim Schreiben[^\n]*\n+/m, '').replace(/^## Weitere Richtlinien\n+/m, '').trim();
+  /* Alte Abschnitte, die der neue Import selbst regelt, würden ihm widersprechen (zum Beispiel Sie statt Du): sie fallen weg */
+  const neu = new Set([...abschnitt.matchAll(/^##\s+(\S+)/gm)].map(m => m[1].toLowerCase().slice(0, 6)));
+  rest = rest.split(/(?=^##\s)/m).filter(t => { const m = /^##\s+(\S+)/.exec(t); return !m || !neu.has(m[1].toLowerCase().slice(0, 6)); }).join('').trim();
   const vorlage = /Passe sie an eure Organisation an|Sachlich, klar und freundlich\.\n- Aussagen statt Themen als Überschrift\./.test(String(voice || '')) && !/aus-richtlinien/.test(String(voice || ''));
   return `# ${titel}\n\n${abschnitt}\n${rest && !vorlage ? `\n## Weitere Richtlinien\n\n${rest.replace(/^## Weitere Richtlinien\n+/, '')}\n` : ''}`;
 }

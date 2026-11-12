@@ -2840,8 +2840,8 @@ const IDB = {
   open() {
     if (this.db) return Promise.resolve(this.db);
     return new Promise((res, rej) => {
-      const r = indexedDB.open('projektkompass', 3);
-      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); if (!db.objectStoreNames.contains('designsysteme')) db.createObjectStore('designsysteme'); };
+      const r = indexedDB.open('projektkompass', 4);
+      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); if (!db.objectStoreNames.contains('designsysteme')) db.createObjectStore('designsysteme'); if (!db.objectStoreNames.contains('praesentationen')) db.createObjectStore('praesentationen'); };
       r.onsuccess = () => { this.db = r.result; res(this.db); };
       r.onerror = () => rej(r.error);
     });

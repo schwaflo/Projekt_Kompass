@@ -76,6 +76,10 @@ Die Projektanalyse selbst bleibt unverändert. Startet eine Präsentation aus ei
 
 Der Zustand einer Präsentation liegt in `S.praes` und wird deshalb mit dem Projekt gespeichert, exportiert und importiert.
 
+Zusätzlich landet jede Präsentation in der Ablage `praesentationen` der IndexedDB, sobald ihre Folien geschrieben sind, und wird danach bei jeder Änderung aktualisiert. Die Startseite des Moduls listet sie zum Öffnen, Löschen und Herunterladen. Die Datei (`.kompass.json`) enthält ein eigenes oder importiertes Designsystem mit, damit die Präsentation in einem anderen Browser gleich aussieht. Eine neue Präsentation überschreibt nie die vorige.
+
+Ändern sich die Formulierungsrichtlinien eines Designsystems, nachdem Folien geschrieben wurden (Fingerabdruck von voice.md in der Slide-Spec), oder verstoßen Folien gegen die prüfbaren Regeln, bietet der Editor an, die betroffenen Folien neu schreiben zu lassen.
+
 Wird `index.html` per Doppelklick geöffnet (`file://`), lädt der Browser keine Module. Die App funktioniert dann wie bisher, und der Bildschirm „Präsentation“ erklärt, dass ein Webserver nötig ist.
 
 ## KI-Anbindung
