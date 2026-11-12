@@ -12,7 +12,7 @@ export const SCHEMA_VERSION = '1.0';
 export const SLIDE = { w: 13.333, h: 7.5 };
 
 /* Standard-Layouttypen. Über den Typ werden Folien beim Wechsel des Designsystems zugeordnet. */
-export const LAYOUT_TYPEN = ['title', 'section', 'content-bullets', 'two-column', 'image-left', 'image-full', 'kpi-grid', 'timeline', 'quote', 'comparison', 'closing'];
+export const LAYOUT_TYPEN = ['title', 'section', 'statement', 'content-bullets', 'cards', 'two-column', 'image-left', 'image-right', 'image-full', 'big-number', 'kpi-grid', 'timeline', 'quote', 'comparison', 'closing'];
 
 /* Was ein Platzhalter aufnehmen kann. „items“ ist eine Reihe gleich aufgebauter Kacheln (Kennzahlen, Zeitstrahl). */
 export const PLATZHALTER_TYPEN = ['text', 'bullets', 'image', 'logo', 'items', 'chart', 'table'];

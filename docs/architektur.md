@@ -8,12 +8,14 @@ Der Präsentationsgenerator ist ein Modul von Projekt-Kompass. Er läuft wie die
 
 ```
 Beschreibung
-   │  Briefing-Gespräch (KI fragt, Person antwortet)
+   │  Art der Präsentation erkennen (Pitch, Entscheidung, Bericht, Schulung, Vorstellung)
+   │  Briefing-Gespräch: Punkte der Art, Schwerpunkte vertiefen, höchstens 6 Fragen
    ▼
 Briefing (JSON)
-   │  1 KI-Aufruf
+   │  1 KI-Aufruf mit Dramaturgie und Stil der Art
    ▼
-Outline (JSON): Titel, Storyline, je Folie Layout und Kernaussage
+Outline (JSON): Titel, Storyline, je Folie Abschnitt, Layout und Kernaussage
+   │  Abwechslung (ohne KI): Bildseiten wechseln, keine Wiederholung, wenige Aufzählungen
    │  je Folie 1 KI-Aufruf, Antwortformat = Felder und Limits des Layouts
    ▼
 Slide-Spec (JSON, geprüft)            ◄── Designsystem (Tokens, Layouts, Assets, voice.md)
@@ -81,10 +83,21 @@ In der App erfüllt `llm()` aus `index.html` diese Schnittstelle. Sie spricht Ol
 
 Für Tests genügt ein Objekt mit einer `frage`-Funktion, siehe `tests/pipeline.test.js`.
 
+## Präsentationsarten
+
+[`prompts/arten.json`](../prompts/arten.json) beschreibt je Art, welche Punkte im Briefing geklärt werden (mit Priorität), welche davon vertieft werden können, die Dramaturgie, den Stil, passende Layouts und die Höchstzahl an Stichpunkten.
+
+Das Briefing ist ein gesteuertes Gespräch: Die App entscheidet in jeder Runde, was als Nächstes dran ist (nächster Punkt, Vertiefung eines Schwerpunkts, Nachfrage oder fertig), und gibt der KI genau diesen Auftrag. Die KI formuliert die Frage passend zum Gesagten. So bleiben die Fragen relevant, auch mit kleinen Modellen. Regeln:
+
+- Kernpunkte werden immer einmal geklärt, auch wenn die KI sie aus der Beschreibung ableiten konnte.
+- Wer ankündigt, dass es Zahlen gibt, ohne eine zu nennen, wird nach der Zahl gefragt.
+- Nachfragen höchstens einmal je Punkt, Vertiefung höchstens einmal je Schwerpunkt.
+- Höchstens sechs Fragen; danach nur noch fehlende Kernpunkte.
+
 ## Prüfung in vier Stufen
 
-1. **Antwortformat.** Jede Folie bekommt ein eigenes JSON-Schema: nur die Felder ihres Layouts, mit Zeichenlimits, und Bild-IDs als feste Auswahl. Layout-IDs in der Outline sind ebenfalls eine feste Auswahl.
-2. **Prüfung der Antwort.** `validateSpec` prüft Layout-IDs, Platzhalter, Limits und Bild-IDs. `pruefeFakten` prüft, ob Zahlen, E-Mail- und Webadressen im Briefing stehen.
+1. **Antwortformat.** Jede Folie bekommt ein eigenes JSON-Schema: nur die Felder ihres Layouts und Bild-IDs als feste Auswahl. Layout-IDs in der Outline sind ebenfalls eine feste Auswahl. Zeichenlimits stehen bewusst nicht im Schema, weil Server mit Grammatik (Ollama, llama.cpp) den Text sonst mitten im Wort abschneiden; sie stehen im Prompt und werden in Stufe 2 geprüft.
+2. **Prüfung der Antwort.** `validateSpec` prüft Layout-IDs, Platzhalter, Limits und Bild-IDs. `pruefeFakten` prüft, ob Zahlen, E-Mail- und Webadressen im Briefing stehen. `pruefeStil` erkennt Überschriften, die über die Präsentation statt über die Sache sprechen („Willkommen“, „… im Pitch“), und zu viele Stichpunkte für die Art.
 3. **Wiederholung.** Bei Fehlern geht derselbe Prompt mit den konkreten Meldungen erneut an die KI, höchstens drei Versuche.
 4. **Fallback.** `kuerzeSpec` bringt jede Antwort in einen gültigen Zustand: kürzt an der Wortgrenze, streicht überzählige Punkte, markiert fehlende Pflichtinhalte als `[…]`. Angaben, die nicht aus dem Briefing stammen, bleiben stehen und werden als „Bitte prüfen“ gemeldet.
 

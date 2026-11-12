@@ -1439,7 +1439,7 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   const L = ui.live = { kind, attempt, model: S.model, think, phase: 'senden', t0: now(), tResp: null, tThink: null, tWrite: null, tEnd: null, thinking: '', content: '', tokens: 0, thinkTokens: 0, stats: null };
   updateLive();
   const oa = isOpenAI(), rf = ui.rfStufe || 'json_schema';
-  const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : 0.4;
+  const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : kind === 'praes_outline' || kind === 'praes_folie' ? 0.65 : 0.4;
   const msgs = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
   /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
   if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }

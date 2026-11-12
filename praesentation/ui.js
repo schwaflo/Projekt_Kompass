@@ -61,7 +61,7 @@ function antworte(text, annahme) {
 }
 
 function briefingWeiter() {
-  const z = Z(), r = P.briefingFertig(z.B);
+  const z = Z(), r = P.briefingFertig(z.B, prompts && prompts.arten);
   if (!r.ok) { ui.error = r.errors.join(' '); return render(); }
   z.briefing = r.briefing; z.schritt = 'system'; ui.error = null; save(); render(); window.scrollTo({ top: 0 });
   if (!z.vorschlag && reg.list().length > 1) run('Passendes Designsystem wird gesucht …', async () => {
@@ -78,7 +78,7 @@ function erstelle() {
   run('Präsentation wird geschrieben …', async () => {
     await ladePrompts();
     const r = await P.erstellePraesentation(ki(), prompts, z.briefing, sys, { fortschritt: s => { ui.praesFortschritt = s.schritt === 'outline' ? 'Gliederung wird erstellt' : `Folie ${s.nr} von ${s.anzahl} wird geschrieben`; const el = document.getElementById('pr-fort'); if (el) el.textContent = ui.praesFortschritt; } });
-    r.spec.folien.forEach((f, i) => { f.kernaussage = r.outline.folien[i].kernaussage; });
+    r.spec.folien.forEach((f, i) => { f.kernaussage = r.outline.folien[i].kernaussage; f.abschnitt = r.outline.folien[i].abschnitt; });
     Object.assign(z, { spec: r.spec, protokoll: r.protokoll, pruefen: r.pruefen, auswahl: 0, schritt: 'vorschau' });
     ui.praesFortschritt = '';
   });
@@ -96,9 +96,9 @@ function schreibeNeu() {
   run(`Folie ${i + 1} wird neu geschrieben …`, async () => {
     await ladePrompts();
     const titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
-    const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: (sys.layout(x.layoutId) || sys.layoutForTyp('content-bullets')).id, kernaussage: titelVon(x), inhalt: '' })) };
+    const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: (sys.layout(x.layoutId) || sys.layoutForTyp('content-bullets')).id, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '' })) };
     const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch });
-    z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage };
+    z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage, abschnitt: f.abschnitt };
     const nr = new RegExp(`^Folie ${i + 1}[,:]`);
     z.protokoll = [...z.protokoll.filter(t => !nr.test(t)), ...r.aenderungen];
     z.pruefen = [...z.pruefen.filter(t => !nr.test(t)), ...r.pruefen];
@@ -206,13 +206,17 @@ function viewStart() {
 }
 
 function viewBriefing() {
-  const z = Z(), B = z.B, a = B.aktuell, f = a && B.felder.find(x => x.id === a.feld), fertig = P.briefingFertig(B);
-  const fehlt = B.felder.filter(x => x.kern && (!x.wert || x.status === 'uebersprungen')).map(x => esc(x.label)).join(', ');
+  const z = Z(), B = z.B, a = B.aktuell, f = a && B.felder.find(x => x.id === a.feld), arten = prompts && prompts.arten, fertig = P.briefingFertig(B, arten);
+  const fehlt = B.felder.filter(x => x.prio === 'kern' && (!x.wert || x.status === 'uebersprungen')).map(x => esc(x.label)).join(', ');
+  const nr = Math.min(B.gefragt + 1, B.max), kopfzeile = `<div class="pr-art">
+      <label>Art der Präsentation <select class="input" id="pr-art" ${ui.busy ? 'disabled' : ''}>${arten ? arten.arten.map(x => `<option value="${x.id}" ${x.id === B.art ? 'selected' : ''}>${esc(x.name)}</option>`).join('') : ''}</select></label>
+      <span class="small muted">${arten ? esc(P.art(arten, B.art).kurz) : ''}</span></div>`;
+  const ART_TAG = { nachfrage: '<span class="tag follow">Nachfrage</span>', vertiefung: '<span class="tag moved">Vertiefung</span>' };
   const frage = ui.busy ? `<div class="qcard">${live()}</div>` : !a ? `<div class="qcard done">
-      <h2>${fertig.ok ? 'Das Briefing ist vollständig.' : 'Fast fertig.'}</h2>
-      <p class="muted">${fertig.ok ? 'Rechts kannst du jeden Eintrag noch ändern. Annahmen der KI sind markiert.' : `Es fehlt noch: ${fehlt}. Trage es rechts über „Selbst eintragen“ ein.`}</p>
+      <h2>${fertig.ok ? 'Das reicht für eine gute Präsentation.' : 'Fast fertig.'}</h2>
+      <p class="muted">${fertig.ok ? 'Rechts kannst du jeden Punkt noch ändern. Annahmen der KI sind markiert, die Kernbotschaft leitet die KI selbst ab.' : `Es fehlt noch: ${fehlt}. Trage es rechts über „Selbst eintragen“ ein.`}</p>
       <div class="actions"><button class="btn primary" data-pr="weiter" ${fertig.ok ? '' : 'disabled'}>Weiter zum Designsystem</button></div></div>` : `<div class="qcard">
-      <div class="qmeta"><span class="tag">Briefing · ${esc(f ? f.label : '')}</span>${a.nachfrage ? '<span class="tag follow">Nachfrage</span>' : ''}</div>
+      <div class="qmeta"><span class="tag">${esc(f ? f.label : '')}</span>${ART_TAG[a.art] || ''}${f && f.schwerpunkt && a.art === 'neu' ? '<span class="tag moved">Schwerpunkt</span>' : ''}<span class="spacer"></span><span class="small muted">Frage ${nr} von höchstens ${B.max}</span></div>
       <p class="question">${esc(a.frage)}</p>
       ${a.vorschlaege.length ? `<div class="chips">${a.vorschlaege.map((v, i) => `<button class="chip" data-pr="chip" data-i="${i}">${esc(v)}</button>`).join('')}</div>` : ''}
       <label class="small muted" for="pr-answer">Deine Antwort (Vorschlag anklicken, anpassen oder frei schreiben)</label>
@@ -220,23 +224,24 @@ function viewBriefing() {
       <div class="actions">
         <button class="btn primary" data-pr="send">Antworten</button>
         <button class="btn" data-pr="unknown">Weiß ich nicht, nimm etwas an</button>
-        ${f && !f.kern ? '<button class="btn ghost" data-pr="skip">Überspringen</button>' : ''}
+        ${f && f.prio !== 'kern' ? '<button class="btn ghost" data-pr="skip">Überspringen</button>' : ''}
         <span class="spacer"></span><span class="kbd">⌘ + Enter sendet</span>
       </div>
       <div class="actions" style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px">
-        <span class="small muted">${fertig.ok ? 'Schon genug? Offene Punkte bleiben einfach leer.' : 'Noch nötig: ' + fehlt + '.'}</span>
-        <span class="spacer"></span><button class="btn tiny" data-pr="weiter" ${fertig.ok ? '' : 'disabled'}>Weiter zum Designsystem</button>
+        <span class="small muted">${fertig.ok ? 'Schon genug? Offene Punkte leitet die KI ab oder lässt sie weg.' : 'Noch nötig: ' + fehlt + '.'}</span>
+        <span class="spacer"></span><button class="btn tiny" data-pr="weiter" ${fertig.ok ? '' : 'disabled'}>Genug gefragt, weiter</button>
       </div></div>`;
-  const status = x => x.status === 'uebersprungen' ? '<span class="status leer">übersprungen</span>' : `<span class="status ${x.status}">${STATUS_TEXT[x.status] || x.status}</span>`;
+  const status = x => x.unwichtig ? '<span class="status leer">nicht nötig</span>' : x.status === 'uebersprungen' ? '<span class="status leer">übersprungen</span>' : !x.wert && x.prio === 'auto' ? '<span class="status leer">leitet die KI ab</span>' : `<span class="status ${x.status}">${STATUS_TEXT[x.status] || x.status}</span>`;
+  const sichtbar = B.felder.filter(x => !x.unwichtig), wichtig = x => x.prio === 'kern' ? ' <span class="pr-pflicht" title="muss geklärt sein">•</span>' : '';
   return `${kopf('Briefing', '')}${pfad()}
   <section class="work">
-    <div>${errorBox()}${frage}${ui.busy ? '' : statLine()}</div>
+    <div>${errorBox()}${kopfzeile}${frage}${ui.busy ? '' : statLine()}</div>
     <aside class="side" aria-label="Briefing">
-      <div class="side-head"><h3>Briefing</h3><span class="small muted">${B.felder.filter(x => x.wert && x.status !== 'uebersprungen').length}/${B.felder.length}</span></div>
-      ${B.felder.map(x => `<div class="fact"><div class="fact-top"><span class="fact-label">${esc(x.label)}</span>${status(x)}</div>
+      <div class="side-head"><h3>Briefing</h3><span class="small muted">${sichtbar.filter(x => x.wert && x.status !== 'uebersprungen').length}/${sichtbar.length}</span></div>
+      ${B.felder.map(x => `<div class="fact ${x.unwichtig ? 'pr-unwichtig' : ''}"><div class="fact-top"><span class="fact-label">${esc(x.label)}${wichtig(x)}${x.schwerpunkt ? ' <span class="tag moved" style="font-size:.66rem">Schwerpunkt</span>' : ''}</span>${status(x)}</div>
         ${ui.praesEdit === x.id
           ? `<textarea id="pr-edit">${esc(x.status === 'uebersprungen' ? '' : x.wert)}</textarea><div class="fact-tools"><button class="linkbtn" data-pr="feldsave" data-id="${x.id}">Speichern</button><button class="linkbtn" data-pr="feldcancel">Abbrechen</button></div>`
-          : `<div class="fact-val ${x.wert && x.status !== 'uebersprungen' ? '' : 'empty'}">${x.wert && x.status !== 'uebersprungen' ? esc(x.wert) : 'noch offen'}</div>
+          : `<div class="fact-val ${x.wert && x.status !== 'uebersprungen' ? '' : 'empty'}">${x.wert && x.status !== 'uebersprungen' ? esc(x.wert) : esc(x.beschreibung)}</div>
              <div class="fact-tools"><button class="linkbtn" data-pr="feldedit" data-id="${x.id}">${x.wert && x.status !== 'uebersprungen' ? 'Ändern' : 'Selbst eintragen'}</button>${x.status === 'annahme' ? `<button class="linkbtn" data-pr="feldok" data-id="${x.id}">Bestätigen</button>` : ''}</div>`}
       </div>`).join('')}
     </aside>
@@ -245,9 +250,11 @@ function viewBriefing() {
 
 /* Zwei Musterfolien eines Designsystems mit den Angaben aus dem Briefing */
 function muster(sys) {
-  const b = Z().briefing || {}, roh = { titel: b.thema || 'Präsentation', folien: [
-    { layoutId: sys.layoutForTyp('title').id, inhalt: { title: b.thema || 'Titel der Präsentation', subtitle: b.kernbotschaft || '' } },
-    { layoutId: sys.layoutForTyp('content-bullets').id, inhalt: { title: b.kernbotschaft || 'Eine Aussage als Überschrift', bullets: [b.ziel || 'Erster Punkt', b.zielgruppe || 'Zweiter Punkt', b.cta || 'Dritter Punkt'].filter(Boolean) } }] };
+  const b = Z().briefing || {}, fest = ['schemaVersion', 'art', 'art_name', 'thema', 'umfang', 'kernbotschaft', 'folienzahl', 'annahmen'];
+  const werte = Object.entries(b).filter(([k, v]) => typeof v === 'string' && v && !fest.includes(k)).map(([, v]) => v.split(/[.\n]/)[0]);
+  const roh = { titel: b.thema || 'Präsentation', folien: [
+    { layoutId: sys.layoutForTyp('title').id, inhalt: { title: b.thema || 'Titel der Präsentation', subtitle: b.kernbotschaft || werte[0] || '' } },
+    { layoutId: (sys.layouts.find(l => l.typ === 'statement') || sys.layoutForTyp('content-bullets')).id, inhalt: { statement: b.kernbotschaft || werte[0] || 'Eine starke Aussage', title: b.kernbotschaft || 'Eine Aussage als Überschrift', bullets: werte.slice(0, 3) } }] };
   return buildSlides(kuerzeSpec(roh, sys).spec, sys, { schrift: Z().schrift }).map(slideHTML).join('');
 }
 
@@ -343,6 +350,7 @@ function viewVorschau() {
 
 function view() {
   const z = Z();
+  if (z.B && !z.B.art) { z.B = null; z.briefing = null; } /* Briefing aus einer älteren Version */
   if (z.schritt === 'briefing' && !z.B) z.schritt = 'start';
   if (z.schritt === 'system' && !z.briefing) z.schritt = z.B ? 'briefing' : 'start';
   if (z.schritt === 'vorschau' && !z.spec) z.schritt = 'start';
@@ -399,6 +407,7 @@ function wechsel(e) {
   if (Z().schritt === 'systeme') { wechselSysteme(e); return; }
   const t = e.target, z = Z();
   if (t.id === 'pr-proj') { z.mitProjekt = t.checked; return save(); }
+  if (t.id === 'pr-art' && z.B && prompts) { P.setzeArt(z.B, t.value, prompts.arten); z.briefing = null; z.vorschlag = null; save(); return render(); }
   if (t.id === 'pr-system') return wechsleSystem(t.value);
   if (t.id === 'pr-schrift') { z.schrift = t.value; save(); return render(); }
   if (t.id === 'pr-layout') { folie().layoutId = t.value; save(); return render(); }
@@ -442,6 +451,13 @@ const CSS = FOLIEN_CSS + SYSTEME_CSS + `
 .pr-pfad button[aria-current="step"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
 .pr-pfad button[aria-current="step"] b{background:var(--accent);color:var(--on-accent)}
 .pr-pfad button:disabled{opacity:.5;cursor:default}
+.pr-art{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:flex-end;margin:0 0 12px}
+.pr-art label{display:flex;flex-direction:column;gap:3px;font-size:.8rem;color:var(--muted)}
+.pr-art .input{width:auto;min-width:220px;color:var(--ink);background:var(--surface)}
+.pr-art .small{padding-bottom:9px}
+.qmeta .spacer{flex:1}
+.pr-pflicht{color:var(--accent);font-weight:700}
+.pr-unwichtig{opacity:.55}
 .pr-start{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:22px;align-items:start}
 .pr-ablauf{margin:0;padding-left:20px;font-size:.92rem}.pr-ablauf li{margin:0 0 8px}
 .pr-systeme{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;margin:6px 0 20px}

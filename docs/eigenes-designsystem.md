@@ -101,7 +101,9 @@ Jedes Layout hat:
 | `deko` | Flächen ohne Inhalt: `rect` oder `ellipse` mit Position, Farbe und optional `opacity` |
 | `placeholders` | die Felder der Folie |
 
-Standardtypen: `title`, `section`, `content-bullets`, `two-column`, `image-left`, `image-full`, `kpi-grid`, `timeline`, `quote`, `comparison`, `closing`.
+Standardtypen: `title`, `section`, `statement`, `content-bullets`, `cards`, `two-column`, `image-left`, `image-right`, `image-full`, `big-number`, `kpi-grid`, `timeline`, `quote`, `comparison`, `closing`.
+
+Je mehr dieser Typen ein Designsystem hat, desto abwechslungsreicher werden die Präsentationen: Die App wechselt Bildseiten, vermeidet zwei gleiche Layouts hintereinander und begrenzt reine Aufzählungen. Fehlt ein Typ, wird auf einen vorhandenen ausgewichen.
 
 #### placeholders
 
@@ -124,7 +126,7 @@ Weitere Angaben:
 - `on`: Farbe der Fläche hinter dem Text, falls sie vom Folienhintergrund abweicht (für die Kontrastprüfung und für Karten)
 - `variante` bei `items`: `karten`, `zeitstrahl` oder `schlicht`
 
-**Gleiche Platzhalter-IDs wie in den Demo-Systemen verwenden** (`title`, `subtitle`, `bullets`, `leftBullets`, `kpis`, `steps`, `quote` …). Dann bleibt der Inhalt beim Wechsel zwischen Designsystemen vollständig erhalten.
+**Gleiche Platzhalter-IDs wie in den Demo-Systemen verwenden** (`title`, `subtitle`, `statement`, `bullets`, `leftBullets`, `cards`, `kpis`, `value`, `label`, `steps`, `quote` …). Dann bleibt der Inhalt beim Wechsel zwischen Designsystemen vollständig erhalten.
 
 **Zeichenlimits:** Wähle sie so, dass der Text bei voller Länge noch in die Fläche passt. Die Layout-Vorschau im Editor füllt jedes Feld nahe ans Limit. Wird dort Text abgeschnitten oder sehr klein, ist das Limit zu hoch.
 
