@@ -62,7 +62,7 @@ Mögliche Werte für `anbieter`: `ollama`, `lmstudio`, `openai`. Einen Schlüsse
 
 ## Veröffentlichen auf GitHub Pages
 
-1. Neues Repository anlegen und den gesamten Inhalt dieses Ordners hochladen. Die App selbst ist `index.html`; der Präsentationsgenerator braucht zusätzlich die Ordner `praesentation/`, `prompts/`, `design-systems/`, `examples/` und `vendor/`.
+1. Neues Repository anlegen und den gesamten Inhalt dieses Ordners hochladen. Die App selbst ist `index.html`; der Präsentationsgenerator braucht zusätzlich die Ordner `praesentation/`, `prompts/`, `design-systems/`, `examples/` und `vendor/`, das Bild-Design im Design-Studio den Ordner `bildanalyse/`.
 2. **Settings → Pages**: unter „Build and deployment“ als Quelle „Deploy from a branch“, Branch `main`, Ordner `/ (root)` wählen.
 3. Nach ein, zwei Minuten ist die Seite unter `https://<dein-name>.github.io/<repo-name>/` erreichbar.
 
@@ -108,6 +108,18 @@ Die KI liefert nur Inhalt und Struktur. Farben, Schriften, Layouts und Logos kom
 ### Tests
 
 `http://localhost:8765/tests/` öffnen, oder ohne Browser `node tests/run.mjs`.
+
+## Bild-Design im Design-Studio
+
+Im Design-Studio (Projekt-Analyse → **Design entwickeln**) gibt es neben dem Entwurf den Bereich **Bild-Design**:
+
+1. **Bild** hochladen und **Raster** wählen (2 × 2, 4 × 2, 4 × 4 oder eigene).
+2. **Bild analysieren:** Die App misst je Kachel dominante Farben, Helligkeit, Kontrast, Schärfe und Freiraum für Text. Ein Vision-Modell beschreibt das Gesamtbild und jede Kachel.
+3. **Debug-Vorschau** ansehen: Raster über dem Bild, Freiraum für Text grün, unscharfe Bereiche rot.
+4. **Design vorschlagen:** Ein zweites Modell legt fest, wo Headline, Subline und CTA stehen. Die App lässt Text nur in Kacheln mit Freiraum zu und ersetzt Schriftfarben mit zu wenig Kontrast.
+5. Als JSON, PNG oder HTML speichern oder **in den Flyer übernehmen**.
+
+Die Modelle wählst du im Bereich „Modelle“, alle Schwellwerte unter „Schwellwerte“. Einzelheiten, das JSON-Format und die Regeln stehen in [docs/bildanalyse.md](docs/bildanalyse.md).
 
 ## Gut zu wissen
 

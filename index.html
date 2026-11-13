@@ -1438,7 +1438,8 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   if (!S.model) throw new Error(isOpenAI() ? 'Kein Modell ausgewählt. Lade in deinem KI-Server ein Modell und klicke auf der Startseite auf „Verbinden“.' : 'Kein Modell ausgewählt. Lade zuerst ein Modell in Ollama (z. B. „ollama pull …“).');
   if (mixedBlocked()) throw new Error('Diese Seite läuft über HTTPS und darf deshalb keine unverschlüsselte Adresse eines anderen Rechners aufrufen. Nutze http://localhost oder eine HTTPS-Adresse.');
   const think = ui.thinkUnsupported ? undefined : (opts.think !== undefined ? opts.think : (S.think === false || ui.sessionNoThink ? false : undefined));
-  const L = ui.live = { kind, attempt, model: S.model, think, phase: 'senden', t0: now(), tResp: null, tThink: null, tWrite: null, tEnd: null, thinking: '', content: '', tokens: 0, thinkTokens: 0, stats: null };
+  const model = opts.model || S.model;
+  const L = ui.live = { kind, attempt, model, think, phase: 'senden', t0: now(), tResp: null, tThink: null, tWrite: null, tEnd: null, thinking: '', content: '', tokens: 0, thinkTokens: 0, stats: null };
   updateLive();
   const oa = isOpenAI(), rf = ui.rfStufe || 'json_schema';
   const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : kind === 'praes_outline' || kind === 'praes_folie' ? 0.65 : 0.4;
@@ -1446,9 +1447,9 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
   if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }
   const body = oa
-    ? { model: S.model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
+    ? { model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
         ...(rf === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'antwort', schema, strict: false } } } : rf === 'json_object' ? { response_format: { type: 'json_object' } } : {}) }
-    : { model: S.model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: tokLimit(kind, think) }, messages: msgs };
+    : { model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: tokLimit(kind, think) }, messages: msgs };
   if (think === false && !oa) body.think = false;
   const ctrl = new AbortController();
   let abortWhy = null;
@@ -1566,7 +1567,7 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
 
 /* Schnittstelle für den Präsentationsgenerator (praesentation/pipeline.js): derselbe Ablauf läuft
    über jeden hier eingestellten KI-Server, lokal oder in der Cloud. */
-window.KompassKI = { frage: ({ system, prompt, schema, art, bilder }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder }) };
+window.KompassKI = { frage: ({ system, prompt, schema, art, bilder, modell, denken }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder, ...(modell ? { model: modell } : {}), ...(denken !== undefined ? { think: denken } : {}) }) };
 
 async function run(text, fn) {
   ui.busy = true; ui.busyText = text; ui.error = null; ui.live = null; render();
@@ -3364,6 +3365,8 @@ function viewDesign() {
   const D = designState(), f = FORMATE[D.format], web = !!f.web, sp = D.spec;
   const sp2 = sp && (sp.typ === 'web') === web ? sp : null;
   const b = D.briefing, t = D.texte;
+  /* Bild-Design (bildanalyse/ui.js): eigener Bereich neben dem Entwurf */
+  const bild = !web && D.modus === 'bild' && !!window.BildDesign;
   const assetRow = (a, i) => `<div class="ds-asset">
       <div class="ds-thumb">${ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : '<span>?</span>'}</div>
       <div class="ds-asset-f">
@@ -3372,7 +3375,7 @@ function viewDesign() {
         <button class="linkbtn" data-assetdel="${i}" aria-label="Entfernen">Entfernen</button></div>
         <textarea class="input" rows="2" data-d="assets.${i}.beschreibung" placeholder="${a.rolle === 'logo' ? 'Wessen Logo? z. B. Gemeindelogo, weiß auf transparent' : 'Was ist zu sehen? z. B. Kirche bei Nacht, warmes Licht'}">${esc(a.beschreibung)}</textarea>
       </div></div>`;
-  const panel = `<aside class="ds-panel">
+  const panel = bild ? BildDesign.panel() : `<aside class="ds-panel">
     ${web && sp2 ? viewSitePanel(D, sp2) : ''}
     ${web ? '' : `<details open><summary>Format</summary>
       <div class="ds-formats">${formatsFor().map(k => `<button class="ds-fmt ${D.format === k ? 'on' : ''}" data-fmt="${k}"><b>${FORMATE[k].name}</b><span>${FORMATE[k].info}</span></button>`).join('')}</div>
@@ -3421,7 +3424,8 @@ function viewDesign() {
     <button class="btn primary ds-go" data-act="dsgo" ${ui.busy ? 'disabled' : ''}>${sp2 ? 'Komplett neu gestalten' : 'Entwurf erstellen'}</button>
   </aside>`;
   let main;
-  if (ui.busy) main = `<div class="live" id="live">${liveInner()}</div>`;
+  if (bild) main = BildDesign.main();
+  else if (ui.busy) main = `<div class="live" id="live">${liveInner()}</div>`;
   else if (!sp2) main = `<div class="ds-empty">
       <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="28" y="12" width="64" height="92" rx="4" fill="var(--surface)" stroke="var(--line)" stroke-width="2"/><rect x="28" y="12" width="64" height="34" rx="4" fill="var(--accent)" opacity=".25"/><rect x="38" y="54" width="36" height="5" rx="2" fill="var(--accent)"/><rect x="38" y="65" width="44" height="3" rx="1.5" fill="var(--line)"/><rect x="38" y="72" width="38" height="3" rx="1.5" fill="var(--line)"/><rect x="38" y="88" width="24" height="7" rx="3.5" fill="var(--accent)"/></svg>
       <h2>${web ? 'Wie soll die Website aussehen?' : 'Wie soll dein ' + esc(f.name) + ' aussehen?'}</h2>
@@ -3446,8 +3450,9 @@ function viewDesign() {
     </div>`;
   return `<section class="studio-page">
     <div class="result-actions"><button class="btn" data-act="closedesign">${S.prevScreen === 'result' ? 'Zurück zum Steckbrief' : S.prevScreen === 'modul' ? 'Zurück' : 'Zurück zum Interview'}</button>
-      <span class="spacer"></span>${sp2 ? `<button class="btn" data-act="printdesign">${web ? 'Wireframe drucken / PDF' : 'Drucken / PDF in Originalgröße'}</button>` : ''}</div>
+      <span class="spacer"></span>${sp2 && !bild ? `<button class="btn" data-act="printdesign">${web ? 'Wireframe drucken / PDF' : 'Drucken / PDF in Originalgröße'}</button>` : ''}</div>
     <header class="m-hero"><span class="m-icon">${DESIGN_ICON}</span><div><h1>Design-Studio</h1><p>Hier geht es ums Aussehen: Format, Layout, Bilder und Farben. Die Strategie bleibt im Steckbrief.</p></div></header>
+    ${!web && window.BildDesign ? BildDesign.umschalter() : ''}
     ${errorBox()}
     <div class="ds-grid">${panel}<div class="ds-main">${main}</div></div>
   </section>`;
@@ -4512,5 +4517,6 @@ loadAssets().then(() => { if (['design', 'result'].includes(S.screen)) render();
 loadProjectList().then(() => { if (S.screen === 'start') render(); });
 </script>
 <script type="module" src="praesentation/ui.js"></script>
+<script type="module" src="bildanalyse/ui.js"></script>
 </body>
 </html>
