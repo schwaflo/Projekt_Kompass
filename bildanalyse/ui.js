@@ -47,11 +47,32 @@ const messFlaeche = document.createElement('canvas').getContext('2d');
 const messe = (text, fett) => { messFlaeche.font = `${fett ? 700 : 500} 100px "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif`; return messFlaeche.measureText(text).width / 100 * 1.02; };
 /* Der Vorschlag wird bei jedem Zeichnen neu gerechnet, damit geänderte Texte und Schwellwerte sofort gelten.
    Die Varianten kommen von der App; von der KI stammen nur Wahl, Palette und Begründung. */
-function vorschlag(id) {
+const regel = () => (G.REGELN[Z().regel] ? Z().regel : 'auto');
+const merk = new Map();
+/* Wunsch für die aktuelle Regel: erst die eigene Wahl, sonst die der KI, wenn sie für diese Regel gilt */
+function wunsch(v, r) {
+  const eigene = v.wahl && typeof v.wahl === 'object' ? v.wahl[r] : '';
+  return eigene || ((v.kiRegel || 'auto') === r ? v.key || '' : '');
+}
+function vorschlag(id, r = regel()) {
   const z = Z(), A = z.analysen[id], v = z.vorschlaege[id] || {};
   if (!A || !A.free_map) return null;
-  const roh = v.roh || {};
-  return G.pruefeVorschlag(A, { variant: v.wahl || v.key || '', palette: roh.palette, reasoning: roh.reasoning }, texte(), { messe });
+  const ki = (v.kiRegel || 'auto') === r ? v.roh || {} : {};
+  /* Die Kompositionen ändern sich nur mit Bild, Texten, Schwellwerten oder Schrift: so lange merken */
+  const marke = [id, r, JSON.stringify(texte()), JSON.stringify(A.config), A.image.measured_width, A.free_map.free.join(''), document.fonts ? document.fonts.status : ''].join('|');
+  if (!merk.has(marke)) { if (merk.size > 60) merk.clear(); merk.set(marke, G.komponiere(A, texte(), { messe, regel: r })); }
+  return G.pruefeVorschlag(A, { variant: wunsch(v, r), palette: (v.roh || {}).palette, reasoning: ki.reasoning }, texte(), { fertig: merk.get(marke) });
+}
+/* Durch alle Kompositionen aller Regeln blättern */
+function blaettere(schritt) {
+  const z = Z(), a = asset(); if (!a) return;
+  const alle = Object.keys(G.REGELN).flatMap(r => { const v = vorschlag(a.id, r); return v ? v.variants.map(x => [r, x.key]) : []; });
+  if (!alle.length) return;
+  const jetzt = vorschlag(a.id), i = alle.findIndex(([r, k]) => r === regel() && jetzt.variant && k === jetzt.variant.key);
+  const [r, k] = alle[((i < 0 ? 0 : i + schritt) % alle.length + alle.length) % alle.length];
+  const v = z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}) };
+  v.wahl = { ...(v.wahl && typeof v.wahl === 'object' ? v.wahl : {}), [r]: k };
+  z.regel = r; save(); render();
 }
 
 /* ---------- Bilder laden und zuschneiden ---------- */
@@ -128,10 +149,12 @@ function schlageVor() {
   run('Design-Vorschlag entsteht …', async () => {
     const modell = designName();
     fortschritt('Analyse wird zu einem Design-Vorschlag zusammengeführt');
-    const K = G.komponiere(A, texte(), { messe });
+    const K = vorschlag(a.id) ? { regel: regel(), varianten: vorschlag(a.id).variants, texte: vorschlag(a.id).texts } : G.komponiere(A, texte(), { messe, regel: regel() });
     const roh = await frage({ system: G.DESIGN_SYSTEM, prompt: G.designPrompt(A, texte(), K), schema: G.designSchema(A, K), art: 'bild_design', modell, denken: false });   /* ohne Denkphase: die Varianten sind schon geprüft */
     const wahl = K.varianten.find(v => v.id === roh.variant);
-    z.vorschlaege[a.id] = { roh, key: wahl ? wahl.key : '', wahl: '', modell };
+    const alt = z.vorschlaege[a.id] || {}, eigene = { ...(alt.wahl && typeof alt.wahl === 'object' ? alt.wahl : {}) };
+    delete eigene[regel()];   /* die Wahl der KI gilt, bis du selbst eine andere anklickst */
+    z.vorschlaege[a.id] = { roh, key: wahl ? wahl.key : '', kiRegel: regel(), wahl: eigene, modell };
     z.tab = 'vorschlag';
     addLog('Design für Bild vorgeschlagen', a.name);
   });
@@ -147,11 +170,11 @@ const stamm = a => slug(a.name.replace(/\.[a-z0-9]+$/i, '')) || 'bild';
 const analyseJSON = A => JSON.stringify({ version: A.version, image: A.image, vlm: A.vlm || '', config: A.config, overall: A.overall, palette: A.palette, grids: A.grids }, null, 2);
 function vorschlagJSON(a) {
   const z = Z(), v = vorschlag(a.id), ki = z.vorschlaege[a.id] || {};
-  return JSON.stringify({ image: z.analysen[a.id].image, model: ki.modell || '', chosen_by: ki.wahl ? 'person' : ki.key ? 'model' : 'app', ...v, model_answer: ki.roh || null }, null, 2);
+  return JSON.stringify({ image: z.analysen[a.id].image, model: ki.modell || '', chosen_by: ki.wahl && typeof ki.wahl === 'object' && ki.wahl[regel()] ? 'person' : wunsch(ki, regel()) ? 'model' : 'app', ...v, model_answer: ki.roh || null }, null, 2);
 }
 async function debugPNG(a) {
   const z = Z(), A = z.analysen[a.id], v = z.grid === 'flaechen' && vorschlag(a.id);
-  const svg = v ? G.flaechenSVG(A, v.variants, ui.assetURL[a.id], v.variant && v.variant.key) : G.debugSVG(A, gridName(A), ui.assetURL[a.id]);
+  const svg = v ? G.flaechenSVG(A, v.variants, ui.assetURL[a.id], v.variant && v.variant.key, v.lines) : G.debugSVG(A, gridName(A), ui.assetURL[a.id]);
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {
     const img = await ladeBild(url), c = document.createElement('canvas'); c.width = A.image.width; c.height = A.image.height;
@@ -249,11 +272,11 @@ function viewAnalyse(a, A) {
   return `
     <div class="ds-toolbar">
       <div class="seg2">${Object.keys(A.grids).map(n => `<button data-bdgrid="${n}" aria-pressed="${!fl && n === g}">${n.replace('x', ' × ')}</button>`).join('')}${A.free_map ? `<button data-bdgrid="flaechen" aria-pressed="${!!fl}">Textflächen</button>` : ''}</div>
-      <span class="small muted">${fl ? `Freiraum-Karte ${A.free_map.cols} × ${A.free_map.rows} · ${v.variants.length} geprüfte Kompositionen` : `${sum.frei} von ${sum.kacheln} Kacheln mit Freiraum · ${sum.unscharf} unscharf`}</span>
+      <span class="small muted">${fl ? `Freiraum-Karte ${A.free_map.cols} × ${A.free_map.rows} · Regel „${G.REGELN[regel()].name}“ · ${v.variants.length} Kompositionen` : `${sum.frei} von ${sum.kacheln} Kacheln mit Freiraum · ${sum.unscharf} unscharf`}</span>
       <span class="spacer"></span>
       <button class="btn tiny" data-bd="debugpng">Vorschau als PNG</button><button class="btn tiny" data-bd="json">JSON speichern</button>
     </div>
-    <div class="bd-debug">${fl ? G.flaechenSVG(A, v.variants, ui.assetURL[a.id], v.variant && v.variant.key) : G.debugSVG(A, g, ui.assetURL[a.id])}</div>
+    <div class="bd-debug">${fl ? G.flaechenSVG(A, v.variants, ui.assetURL[a.id], v.variant && v.variant.key, v.lines) : G.debugSVG(A, g, ui.assetURL[a.id])}</div>
     ${fl ? '<p class="bd-legende small"><span><i class="gruen"></i>ruhige Zelle</span><span><i class="strich"></i>zusammenhängende Fläche</span><span><i class="rahmen"></i>Textblock einer Komposition (A–D)</span></p>'
       : '<p class="bd-legende small"><span><i class="gruen"></i>Freiraum für Text</span><span><i class="rot"></i>blurry</span><span><i class="rot2"></i>leicht unscharf</span><span class="muted">Flächen fast ohne Struktur (Himmel, Wand) bekommen kein Schärfe-Urteil.</span></p>'}
     ${offen ? `<p class="bd-hinweis small">${offen} Kacheln haben noch keine Beschreibung. <button class="linkbtn" data-bd="fehlende">Fehlende Beschreibungen ergänzen</button></p>` : ''}
@@ -265,19 +288,28 @@ function viewAnalyse(a, A) {
     <div class="bd-tabelle"><table><thead><tr><th>Kachel</th><th>Farben</th><th>Helligkeit</th><th>Schärfe</th><th>Freiraum</th><th>Schrift</th><th>Inhalt</th></tr></thead><tbody>${A.grids[g].map(zeile).join('')}</tbody></table></div>`;
 }
 function viewVorschlag(a, A) {
-  const z = Z(), v = vorschlag(a.id), ki = z.vorschlaege[a.id] || {};
-  if (!v || !v.variant) return `<div class="ds-empty"><h2>Analyse erneuern</h2><p class="muted">Für dieses Bild fehlt die Freiraum-Karte. Starte die Analyse noch einmal.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
-  const e = v.variant, p = v.palette;
-  const quelle = x => (ki.wahl ? (x.key === ki.wahl ? 'deine Wahl' : x.key === ki.key ? 'Wahl der KI' : '') : ki.key ? (x.key === ki.key ? 'Wahl der KI' : '') : x.id === 'A' ? 'Empfehlung der App' : '');
+  const z = Z(), v = vorschlag(a.id), ki = z.vorschlaege[a.id] || {}, r = regel(), R = G.REGELN;
+  if (!v) return `<div class="ds-empty"><h2>Analyse erneuern</h2><p class="muted">Für dieses Bild fehlt die Freiraum-Karte. Starte die Analyse noch einmal.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
+  const e = v.variant, p = v.palette, kiHier = ki.modell && (ki.kiRegel || 'auto') === r;
+  const eigene = ki.wahl && typeof ki.wahl === 'object' ? ki.wahl[r] : '';
+  const quelle = x => (eigene ? (x.key === eigene ? 'deine Wahl' : kiHier && x.key === ki.key ? 'Wahl der KI' : '') : kiHier && ki.key ? (x.key === ki.key ? 'Wahl der KI' : '') : x.id === 'A' ? 'Empfehlung der App' : '');
+  const chip = k => `<button class="bd-chip" data-bdregel="${k}" aria-pressed="${k === r}" title="${esc(R[k].info)}">${R[k].name}</button>`;
+  const regeln = Object.keys(R);
   return `
-    <div class="ds-toolbar">
-      <span class="small muted">${ki.modell ? `Gewählt und begründet von ${esc(ki.modell)}` : 'Komposition von der App berechnet, noch ohne KI'}</span><span class="spacer"></span>
-      <button class="btn tiny" data-bd="vorschlag">${ki.modell ? 'KI neu wählen lassen' : 'KI wählen und begründen lassen'}</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
+    <div class="bd-regeln">
+      <div><span class="small muted">Nach Regeln</span><div class="bd-chips">${regeln.filter(k => !R[k].bruch).map(chip).join('')}</div></div>
+      <div><span class="small muted">Regeln brechen</span><div class="bd-chips">${regeln.filter(k => R[k].bruch).map(chip).join('')}</div></div>
+      <div class="bd-blaettern"><button class="btn tiny" data-bd="zurueck" aria-label="Vorherige Komposition">‹</button><button class="btn tiny" data-bd="weiter" aria-label="Nächste Komposition">Nächste ›</button></div>
+    </div>
+    <p class="small muted bd-regelinfo">${esc(R[r].info)}${v.lines.length ? ` <label class="bd-check inline"><input type="checkbox" data-bdf="linien" ${z.linien ? 'checked' : ''}> Hilfslinien zeigen</label>` : ''}</p>
+    ${e ? `<div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, e, v.texts, ui.assetURL[a.id], z.linien ? v.lines : [])}</div>
+    <div class="bd-varianten" role="group" aria-label="Komposition">${v.variants.map(x => `<button class="bd-var" data-bdvar="${esc(x.key)}" aria-pressed="${x.key === e.key}"><b>${x.id}</b><span>${esc(x.label)}${quelle(x) ? `<small>${quelle(x)}</small>` : ''}</span></button>`).join('')}</div>` : `<div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, null, v.texts, ui.assetURL[a.id], z.linien ? v.lines : [])}</div>`}
+    ${v.corrections.length ? `<div class="m-box warn"><h4>Hinweis der App</h4><ul class="mlist">${v.corrections.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+    ${e ? `<div class="ds-toolbar bd-aktionen">
+      <span class="small muted">${kiHier ? `Gewählt und begründet von ${esc(ki.modell)}` : 'Von der App berechnet, noch ohne KI'}</span><span class="spacer"></span>
+      <button class="btn tiny" data-bd="vorschlag">${kiHier ? 'KI neu wählen lassen' : 'KI wählen und begründen lassen'}</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
       ${ohneProjekt() || FORMATE[designState().format].web ? '' : '<button class="btn tiny primary" data-bd="flyer">In den Flyer übernehmen</button>'}
     </div>
-    <div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, e, v.texts, ui.assetURL[a.id])}</div>
-    <div class="bd-varianten" role="group" aria-label="Komposition">${v.variants.map(x => `<button class="bd-var" data-bdvar="${esc(x.key)}" aria-pressed="${x.key === e.key}"><b>${x.id}</b><span>${esc(x.label)}${quelle(x) ? `<small>${quelle(x)}</small>` : ''}</span></button>`).join('')}</div>
-    ${v.corrections.length ? `<div class="m-box warn"><h4>Hinweis der App</h4><ul class="mlist">${v.corrections.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     <div class="ds-info">
       <div class="m-box"><h4>Typografie und Kontrast</h4>
         <table class="bd-mini"><tbody>
@@ -285,10 +317,10 @@ function viewVorschlag(a, A) {
           ${v.texts.subline ? `<tr><th>Subline</th><td>${zahl(e.sizes.subline)} % · Verhältnis 1 : ${zahl(e.sizes.headline / e.sizes.subline)}</td><td>${e.colors.text}</td><td>${zahl(e.contrast.text)} : 1</td></tr>` : ''}
           ${v.texts.cta ? `<tr><th>CTA</th><td>${zahl(e.sizes.cta)} %</td><td><span class="bd-probe" style="background:${e.colors.cta_background};color:${e.colors.cta_text}">Aa</span> ${e.colors.cta_background}</td><td>${zahl(e.contrast.cta_text)} : 1</td></tr>` : ''}
         </tbody></table>
-        <p class="small muted" style="margin-top:8px">Ein Block, eine Kante, ${e.align === 'mitte' ? 'zentriert' : 'linksbündig'}. Kontrast = kleinster Wert gegenüber allen Bildstellen unter dem Block, mindestens ${zahl(v.min_contrast)} : 1.${e.veil ? ` Dafür liegt ein weicher Schleier (${Math.round(e.veil.opacity * 100)} % ${e.veil.color}) hinter dem Block.` : ''} Rand zum Bild: 6 % der kurzen Seite.</p></div>
+        <p class="small muted" style="margin-top:8px">Ein Block, eine Kante, ${e.align === 'mitte' ? 'zentriert' : 'linksbündig'}. Kontrast = kleinster Wert gegenüber allen Bildstellen unter dem Block, Ziel ${zahl(v.min_contrast)} : 1.${e.overlap ? ` ${Math.round(e.overlap * 100)} % des Blocks liegen über dem Motiv.` : ''}${e.veil ? ` Ein weicher Schleier (${Math.round(e.veil.opacity * 100)} % ${e.veil.color}) liegt hinter dem Block.` : ''}</p></div>
       <div class="m-box"><h4>Farbpalette</h4><div class="bd-palette">${[['Hintergrund', p.background], ['Fläche', p.surface], ['Akzent', p.accent], ['Schrift', p.text]].map(([n, h]) => `<div>${farbfeld({ hex: h })}<b>${h}</b><span class="muted">${n}</span></div>`).join('')}</div>
         ${v.reasoning ? `<h4 style="margin-top:14px">Begründung</h4><p>${esc(v.reasoning)}</p>` : ''}</div>
-    </div>`;
+    </div>` : ''}`;
 }
 function main() {
   const z = Z(), a = asset(), A = a && z.analysen[a.id];
@@ -326,7 +358,8 @@ function klick(e) {
   if (d.bdbild) { z.asset = d.bdbild; save(); return render(); }
   if (d.bdtab) { z.tab = d.bdtab; save(); return render(); }
   if (d.bdgrid) { z.grid = d.bdgrid; save(); return render(); }
-  if (d.bdvar && a) { z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}), wahl: d.bdvar }; save(); return render(); }
+  if (d.bdvar && a) { const v = z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}) }; v.wahl = { ...(v.wahl && typeof v.wahl === 'object' ? v.wahl : {}), [regel()]: d.bdvar }; save(); return render(); }
+  if (d.bdregel) { z.regel = d.bdregel; save(); return render(); }
   if (d.bdraster) {
     z.raster = z.raster.includes(d.bdraster) ? z.raster.filter(r => r !== d.bdraster) : [...z.raster, d.bdraster];
     z.raster = [...RASTER_FEST, ...z.eigene].filter(r => z.raster.includes(r));
@@ -352,6 +385,8 @@ function klick(e) {
     case 'debugpng': return debugPNG(a);
     case 'kopieren': return navigator.clipboard.writeText(analyseJSON(z.analysen[a.id])).then(() => toast('JSON kopiert'), () => toast('Kopieren hat nicht geklappt'));
     case 'flyer': return uebernehmen();
+    case 'weiter': return blaettere(1);
+    case 'zurueck': return blaettere(-1);
   }
 }
 function wechsel(e) {
@@ -371,7 +406,7 @@ function wechsel(e) {
 function eingabe(e) {
   if (!an() || !e.target.dataset || !/^texte\./.test(e.target.dataset.d || '')) return;
   const st = document.getElementById('bd-stage'), a = asset(), v = a && vorschlag(a.id);
-  if (st && v && v.variant) st.innerHTML = G.ansichtHTML(Z().analysen[a.id], v.variant, v.texts, ui.assetURL[a.id]);
+  if (st && v) st.innerHTML = G.ansichtHTML(Z().analysen[a.id], v.variant, v.texts, ui.assetURL[a.id], Z().linien ? v.lines : []);
 }
 
 /* ---------- Stile ---------- */
@@ -406,6 +441,12 @@ const CSS = `${G.ANSICHT_CSS}
 
 .bd-legende i.strich{background:none;border:2px dashed var(--ink)}
 .bd-legende i.rahmen{background:none;border:2px solid var(--ink)}
+.bd-regeln{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:flex-end;margin-bottom:6px}
+.bd-regeln .bd-chips{margin:3px 0 0}
+.bd-blaettern{margin-left:auto;display:flex;gap:6px}
+.bd-regelinfo{margin:0 0 10px;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center}
+.bd-check.inline{margin:0;font-size:inherit;align-items:center}
+.bd-aktionen{margin-top:14px}
 .bd-varianten{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:12px}
 .bd-var{display:flex;gap:10px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 12px;font-size:.86rem}
 .bd-var b{font-family:var(--display);font-size:1.1rem;width:1.2em}

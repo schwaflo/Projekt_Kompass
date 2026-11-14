@@ -107,6 +107,23 @@ Die Gestaltung rechnet die App selbst. Die KI wählt am Ende nur zwischen fertig
 
 Die Ansicht „Textflächen“ in der Analyse zeigt die Freiraum-Karte, die gefundenen Flächen und die Blöcke aller Varianten.
 
+### Layout-Regeln zum Durchklicken
+
+Über der Ansicht wählst du die Regel; jede liefert bis zu vier Kompositionen (A–D). **‹** und **Nächste ›** blättern durch alle Kompositionen aller Regeln. Typografie, Ränder, Farbwahl und Kontrastprüfung bleiben bei jeder Regel gleich.
+
+| Regel | Was sie tut |
+|---|---|
+| **Automatisch** | Die App entscheidet wie oben beschrieben: größte ruhige Fläche, Block am Motiv ausgerichtet. |
+| **Drittel** | Eine senkrechte Kante des Blocks liegt auf einer Drittellinie, Ober- oder Unterkante auf einer waagerechten. Zulässig ist nur, was kein Bildelement trifft. |
+| **Goldener Schnitt** | Dasselbe mit den Linien bei 38 % und 62 %. |
+| **Viertel** | Dasselbe mit den Linien bei 1/4, 1/2 und 3/4. |
+| **Überlappen** (Regelbruch) | Der Block schiebt sich mit Absicht über die Kante des Motivs: 22 bis 60 % liegen darauf, die Headline ist bis zu 30 % größer. |
+| **Übergroß** (Regelbruch) | Die Headline läuft in Plakatgröße über die ganze Breite, ohne Rücksicht auf das Motiv, mit halbem Rand. |
+
+Bei den Rasterregeln blendet „Hilfslinien zeigen“ die Linien über dem Bild ein. Liegt auf den Linien keine Stelle ganz frei, zeigt die App die am wenigsten störende und sagt das dazu. Bei den Regelbrüchen gibt es nie einen Kasten: Die App nimmt einen stärkeren Schleier (bis 60 %) und meldet, wenn die Schrift den Mindestkontrast trotzdem nicht überall erreicht.
+
+Die KI wählt immer innerhalb der gerade aktiven Regel. Neue Regeln kommen als Eintrag in `REGELN` in [`bildanalyse/design.js`](../bildanalyse/design.js) dazu.
+
 Hat ein Bild keine ruhige Fläche, in die der Block passt, steht er unten links auf einer Fläche; die App sagt das dazu.
 
 ## Aufbau

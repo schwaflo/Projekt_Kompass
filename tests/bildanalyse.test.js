@@ -210,6 +210,46 @@ test('Design: Bild ohne ruhige Fläche bekommt einen Block auf einer Fläche', (
   assert(v.variant.panel && v.variant.contrast.text >= 4.5, `Fläche mit Kontrast ${v.variant.contrast.text}`);
   assert(v.corrections[0].includes('keine ruhige Fläche'), 'Hinweis');
 });
+/* Motiv links (kleinteilig), ruhige Fläche rechts: wie ein Porträt vor einer Wand */
+const MOTIV = K.analysiereBild(bild(640, 400, (x, y) => (x < 240 ? schach(x, y, 3) : [30, 45, 80])), { raster: ['2x2'] });
+test('Design: Rasterregeln legen die Kanten des Blocks auf die Linien und treffen kein Bildelement', () => {
+  for (const [regel, linien] of [['drittel', [100 / 3, 200 / 3]], ['golden', [38.2, 61.8]], ['viertel', [25, 50, 75]]]) {
+    const k = G.komponiere(MOTIV, TEXTE, { regel });
+    assert(k.varianten.length >= 1 && k.varianten.length <= 4 && !k.hinweis, `${regel}: ${k.varianten.length} Varianten`);
+    gleich(k.linien.map(f => Math.round(f * 1000)), linien.map(l => Math.round(l * 10)), `${regel}: Linien`);
+    for (const v of k.varianten) {
+      const b = v.block, nahe = w => linien.some(l => Math.abs(l - w) < 0.02);
+      assert(nahe(b.x) || nahe(b.x + b.width), `${regel} ${v.id}: senkrechte Kante auf einer Linie (${b.x} / ${b.x + b.width})`);
+      assert(nahe(b.y) || nahe(b.y + b.height), `${regel} ${v.id}: waagerechte Kante auf einer Linie (${b.y} / ${b.y + b.height})`);
+      gleich(v.overlap, 0, `${regel} ${v.id}: trifft nichts`);
+      assert(blockFrei(MOTIV, v) && v.contrast.text >= 4.5 && v.key.startsWith(regel + '|'), `${regel} ${v.id}: frei, lesbar, eigener Schlüssel`);
+    }
+  }
+});
+test('Design: Rasterregel ohne freie Stelle zeigt die am wenigsten störende und sagt es', () => {
+  const voll = K.analysiereBild(bild(240, 160, (x, y) => schach(x, y, 3)), { raster: ['2x2'] });
+  const k = G.komponiere(voll, TEXTE, { regel: 'drittel' });
+  assert(k.varianten.length >= 1 && k.hinweis.includes('keine Stelle ganz frei'), k.hinweis);
+});
+test('Design: Regelbruch „Überlappen“ schiebt den Block über die Kante des Motivs', () => {
+  const k = G.komponiere(MOTIV, TEXTE, { regel: 'ueberlappen' }), auto = G.komponiere(MOTIV, TEXTE);
+  assert(k.varianten.length >= 1, 'Varianten');
+  for (const v of k.varianten) { assert(v.overlap >= 0.22 && v.overlap <= 0.6, `${v.id}: ${v.overlap} über dem Motiv`); assert(!v.panel, 'kein Kasten'); }
+  assert(k.varianten[0].sizes.headline > auto.varianten[0].sizes.headline, 'größere Headline als im regelkonformen Layout');
+  gleich(auto.varianten.every(v => v.overlap === 0), true, 'automatisch trifft nichts');
+});
+test('Design: Regelbruch „Übergroß“ setzt die Headline in Plakatgröße über die Breite', () => {
+  const k = G.komponiere(MOTIV, TEXTE, { regel: 'uebergross' });
+  assert(k.varianten.length >= 2, 'mehrere Höhen');
+  for (const v of k.varianten) { assert(v.sizes.headline > G.headlineMax(400 / 640), `${v.id}: ${v.sizes.headline} über der normalen Obergrenze`); assert(v.block.x < 4 && v.overlap > 0, 'beginnt am Rand, läuft über das Motiv'); }
+});
+test('Design: Regel wird durchgereicht, unbekannte Regel fällt auf Automatisch', () => {
+  gleich(G.pruefeVorschlag(MOTIV, {}, TEXTE, { regel: 'golden' }).rule, 'golden');
+  gleich(G.pruefeVorschlag(MOTIV, {}, TEXTE, { regel: 'quatsch' }).rule, 'auto');
+  gleich(Object.keys(G.REGELN), ['auto', 'drittel', 'golden', 'viertel', 'ueberlappen', 'uebergross']);
+  const p = G.designPrompt(MOTIV, TEXTE, G.komponiere(MOTIV, TEXTE, { regel: 'drittel' }));
+  assert(p.includes('LAYOUT-REGEL: Drittel'), 'Prompt nennt die Regel');
+});
 test('Design: die KI wählt nur zwischen geprüften Varianten und gemessenen Farben', () => {
   const k = G.komponiere(ANALYSE, TEXTE), s = G.designSchema(ANALYSE, k);
   gleich(s.properties.variant.enum, k.varianten.map(v => v.id));

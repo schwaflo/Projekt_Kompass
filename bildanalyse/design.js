@@ -72,8 +72,8 @@ export function umbruch(text, n, messe = breiteEm) {
    Die Headline wird so groß, wie Fläche und Format es zulassen; Subline und CTA folgen in
    festem Verhältnis. Passt der Block nicht mit einer Mindestgröße, gibt es kein Ergebnis. */
 export const headlineMax = verh => klemme(7.6 * Math.sqrt(verh), 5, 10);
-export function setzeTypo(texte, maxB, maxH, verh, messe = breiteEm, locker = false) {
-  const Tmax = headlineMax(verh), Tmin = Tmax * (locker ? 0.3 : 0.5), k = klemme(Math.sqrt(verh) / 0.8, 1, 1.8);
+export function setzeTypo(texte, maxB, maxH, verh, messe = breiteEm, locker = false, faktor = 1) {
+  const Tmax = headlineMax(verh) * faktor, Tmin = Tmax * (locker ? 0.3 : 0.5), k = klemme(Math.sqrt(verh) / 0.8, 1, 1.8);
   const sub = String(texte.subline || '').trim(), cta = String(texte.cta || '').trim();
   let beste = null;
   for (let n = 1; n <= 4; n++) {
@@ -152,104 +152,190 @@ export function schriftToene(analyse, cfg = STANDARD) {
 const DECKKRAFT = 0.9;
 
 /* ---------- Komposition ---------- */
+/* Layout-Regeln zum Durchklicken. Die ersten halten die Regeln ein (ruhige Fläche, Abstand zum
+   Motiv, Raster), die letzten brechen sie mit Absicht. */
+export const REGELN = {
+  auto: { name: 'Automatisch', info: 'Die App entscheidet: größte ruhige Fläche, Block am Motiv ausgerichtet.' },
+  drittel: { name: 'Drittel', info: 'Kanten des Blocks liegen auf den Drittellinien, kein Bildelement wird getroffen.', linien: [1 / 3, 2 / 3], namen: ['1/3', '2/3'] },
+  golden: { name: 'Goldener Schnitt', info: 'Kanten des Blocks liegen auf den Linien des Goldenen Schnitts (38 % und 62 %).', linien: [0.382, 0.618], namen: ['38 %', '62 %'] },
+  viertel: { name: 'Viertel', info: 'Kanten des Blocks liegen auf den Viertellinien und der Mitte.', linien: [0.25, 0.5, 0.75], namen: ['1/4', '1/2', '3/4'] },
+  ueberlappen: { name: 'Überlappen', info: 'Regelbruch: Der Block schiebt sich mit Absicht über die Kante des Motivs.', bruch: true },
+  uebergross: { name: 'Übergroß', info: 'Regelbruch: Die Headline läuft in Plakatgröße quer über das Bild, auch über das Motiv.', bruch: true }
+};
 const ANKER = { motiv: 'auf Höhe des Motivs', mitte: 'mittig', unten: 'unten', oben: 'oben' };
 const ANKER_WERT = { motiv: 0.25, mitte: 0.16, unten: 0.12, oben: 0.04 };
-/* Baut alle geprüften Varianten für ein Bild und seine Texte. texte: { headline, subline, cta }.
-   opts.messe: Funktion (text, fett) → Breite in em. */
+/* Baut die geprüften Varianten für ein Bild, seine Texte und eine Layout-Regel.
+   texte: { headline, subline, cta }. opts.regel: Schlüssel aus REGELN. opts.messe: (text, fett) → Breite in em. */
 export function komponiere(analyse, texte = {}, opts = {}) {
   const cfg = konfig(analyse.config || {}), karte = analyse.free_map, messe = opts.messe || breiteEm;
+  const regel = REGELN[opts.regel] ? opts.regel : 'auto', R_ = REGELN[regel];
   const W = analyse.image.width, H = analyse.image.height, verh = H / W, kurz = Math.min(W, H);
   const t = { headline: String(texte.headline || '').trim() || 'Headline', subline: String(texte.subline || '').trim(), cta: String(texte.cta || '').trim() };
   const { cols: C, rows: R } = karte, zb = 100 / C, zh = 100 / R;
   const randX = 6 * kurz / W, randY = 6 * kurz / H;   /* Rand zum Bildrand: 6 % der kurzen Seite */
   const toene = schriftToene(analyse, cfg);
   const frei = (x, y) => x >= 0 && y >= 0 && x < C && y < R && karte.free[y * C + x] === 1;
+  const maxBlock = verh <= 1.05 ? 46 : 88;
 
-  const bau = (r, anker, notfall) => {
-    const innen = {
-      x: r.x0 * zb + (r.x0 === 0 ? randX : zb * 0.6), y: r.y0 * zh + (r.y0 === 0 ? randY : zh * 0.5),
-      x1: r.x1 * zb - (r.x1 === C ? randX : zb * 0.6), y1: r.y1 * zh - (r.y1 === R ? randY : zh * 0.5)
-    };
-    const ib = innen.x1 - innen.x, ih = innen.y1 - innen.y;
-    if (ib <= 0 || ih <= 0) return null;
-    const typo = setzeTypo(t, Math.min(ib, verh <= 1.05 ? 46 : 88), ih * verh, verh, messe, notfall);
-    if (!typo) return null;
+  /* Einen gesetzten Block an eine Stelle legen: Untergrund lesen, Farben wählen, Kontrast prüfen */
+  const stelle = (typo, x, y, o) => {
     const bh = typo.height / verh;   /* Blockhöhe in Prozent der Bildhöhe */
-    /* Motiv: unruhige Zellen direkt neben der Fläche. Ihre mittlere Höhe gibt dem Block Halt. */
-    const neben = spalten => { let n = 0, s = 0; for (const x of spalten) for (let y = r.y0; y < r.y1; y++) if (x >= 0 && x < C && !frei(x, y)) { n++; s += (y + 0.5) * zh; } return n ? s / n : null; };
-    const motivL = neben([r.x0 - 1, r.x0 - 2]), motivR = neben([r.x1, r.x1 + 1]);
-    const breit = !notfall && (r.x1 - r.x0) / C >= 0.8 && motivL === null && motivR === null;
-    const align = breit ? 'mitte' : 'links';
-    const x = breit ? innen.x + (ib - typo.width) / 2 : motivL === null && motivR !== null ? innen.x1 - typo.width : innen.x;
-    const motivY = motivL !== null ? motivL : motivR;
-    if (anker === 'motiv' && motivY === null) return null;
-    const y = anker === 'motiv' ? klemme(motivY - bh / 2, innen.y, innen.y1 - bh) : anker === 'mitte' ? innen.y + (ih - bh) * 0.45 : anker === 'unten' ? innen.y1 - bh : innen.y;
-    /* Farben unter dem Block */
-    const grund = [];
-    for (let cy = Math.floor(y / zh); cy <= Math.min(R - 1, Math.floor((y + bh - 0.01) / zh)); cy++) for (let cx = Math.floor(x / zb); cx <= Math.min(C - 1, Math.floor((x + typo.width - 0.01) / zb)); cx++) grund.push(karte.color[cy * C + cx]);
+    const grund = []; let belegt = 0, ruhe = 0;
+    for (let cy = Math.max(0, Math.floor(y / zh)); cy <= Math.min(R - 1, Math.floor((y + bh - 0.01) / zh)); cy++) for (let cx = Math.max(0, Math.floor(x / zb)); cx <= Math.min(C - 1, Math.floor((x + typo.width - 0.01) / zb)); cx++) {
+      grund.push(karte.color[cy * C + cx]); ruhe += karte.score[cy * C + cx]; if (!frei(cx, cy)) belegt++;
+    }
+    if (!grund.length) return null;
     const mk = (farbe, lage) => Math.min(...grund.map(g => kontrast(farbe, lage && lage.opacity ? mische(lage.color, g, lage.opacity) : g)));
     /* Wie viel Schleier braucht eine Schriftfarbe, bis sie überall den Mindestkontrast erreicht?
        Ein Schleier ist ein weicher, kaum sichtbarer Farbschein hinter dem Block, kein Kasten. */
-    const bedarf = (farbe, schein) => { for (let a = 0; a <= 0.44; a += 0.04) if (mk(farbe, { color: schein, opacity: a }) >= cfg.kontrast_min) return a; return null; };
-    const aD = notfall ? null : bedarf(toene.dunkel, toene.hell), aH = notfall ? null : bedarf(toene.hell, toene.dunkel);
+    const hoechst = o.schleier || 0.44;
+    const bedarf = (farbe, schein) => { for (let a = 0; a <= hoechst + 0.001; a += 0.04) if (mk(farbe, { color: schein, opacity: a }) >= cfg.kontrast_min) return a; return null; };
+    const aD = o.notfall ? null : bedarf(toene.dunkel, toene.hell), aH = o.notfall ? null : bedarf(toene.hell, toene.dunkel);
     let text, veil = null, panel = null;
     if (aD === null && aH === null) {
-      /* Auch ein Schleier reicht nicht: der ganze Block bekommt eine Fläche, nie einzelne Zeilen */
       const hellerGrund = grund.reduce((sum, g) => sum + luminanz(g), 0) / grund.length > 0.2;
-      panel = { color: hellerGrund ? toene.hell : toene.dunkel, opacity: DECKKRAFT };
-      text = hellerGrund ? toene.dunkel : toene.hell;
+      if (o.ohneFlaeche) {
+        /* Regelbruch ohne Kasten: stärkster Schleier, die Schrift mit dem besseren Kontrast */
+        const vD = { color: toene.hell, opacity: hoechst }, vH = { color: toene.dunkel, opacity: hoechst };
+        const dunkel = mk(toene.dunkel, vD) >= mk(toene.hell, vH);
+        text = dunkel ? toene.dunkel : toene.hell; veil = dunkel ? vD : vH;
+      } else {
+        /* Auch ein Schleier reicht nicht: der ganze Block bekommt eine Fläche, nie einzelne Zeilen */
+        panel = { color: hellerGrund ? toene.hell : toene.dunkel, opacity: DECKKRAFT };
+        text = hellerGrund ? toene.dunkel : toene.hell;
+      }
     } else {
       const dunkel = aH === null || (aD !== null && (aD < aH || (aD === aH && mk(toene.dunkel, { color: toene.hell, opacity: aD }) >= mk(toene.hell, { color: toene.dunkel, opacity: aH }))));
       text = dunkel ? toene.dunkel : toene.hell;
       const a = dunkel ? aD : aH;
       if (a > 0) veil = { color: dunkel ? toene.hell : toene.dunkel, opacity: runde(a) };
     }
-    const lage = panel || veil;
-    const kText = mk(text, lage);
+    const lage = panel || veil, kText = mk(text, lage);
     /* Knopf: kräftigste Bildfarbe, die sich vom Grund abhebt; sonst die Schriftfarbe */
     const ab = hex => mk(hex, lage);
     const knopf = (analyse.palette || []).map(c => c.hex).filter(h => saettigung(h) > 0.25 && ab(h) >= cfg.kontrast_flaeche_min).sort((a, b) => saettigung(b) * ab(b) - saettigung(a) * ab(a))[0] || text;
     let knopfText = kontrast(toene.hell, knopf) >= kontrast(toene.dunkel, knopf) ? toene.hell : toene.dunkel;
     if (kontrast(knopfText, knopf) < cfg.kontrast_min) knopfText = kontrast('#FFFFFF', knopf) >= kontrast('#000000', knopf) ? '#FFFFFF' : '#000000';
-    const cxm = (r.x0 + r.x1) / 2 / C, cym = (r.y0 + r.y1) / 2 / R, hoch = (r.y1 - r.y0) / R >= 0.7, weit = (r.x1 - r.x0) / C >= 0.7;
-    const ort = [hoch ? '' : cym < 0.4 ? 'oben' : cym > 0.6 ? 'unten' : '', weit ? '' : cxm < 0.4 ? 'links' : cxm > 0.6 ? 'rechts' : 'Mitte'].filter(Boolean).join(' ') || 'Mitte';
+    const ueber = belegt / grund.length;
     return {
-      key: `${r.x0}.${r.y0}.${r.x1}.${r.y1}:${anker}`, anchor: anker, align,
-      label: notfall ? 'Auf einer Fläche, unten links' : `${ort[0].toUpperCase()}${ort.slice(1)}, ${ANKER[anker]}`,
-      beside_subject: motivY !== null,
-      region: { x: runde(r.x0 * zb), y: runde(r.y0 * zh), width: runde((r.x1 - r.x0) * zb), height: runde((r.y1 - r.y0) * zh) },
+      key: `${regel}|${o.key}`, rule: regel, anchor: o.anchor, align: o.align || 'links', label: o.label, beside_subject: !!o.beside,
+      region: o.region || null,
       block: { x: runde(x), y: runde(y), width: runde(typo.width), height: runde(bh) },
       sizes: { headline: runde(typo.headline), subline: runde(typo.subline), cta: runde(typo.cta) },
       lines: typo.lines, sub_max: runde(typo.sub_max), gaps: { headline: runde(typo.gap1), cta: runde(typo.gap2) },
       ground: grund[Math.floor(grund.length / 2)],
       colors: { text, cta_background: knopf, cta_text: knopfText },
       contrast: { text: runde(kText), cta_text: runde(kontrast(knopfText, knopf)), cta_background: runde(ab(knopf)) },
-      veil, panel,
-      score: runde(typo.headline / typo.max * 0.4 + r.ruhe * 0.2 + ANKER_WERT[anker] + Math.min(0.5, r.zellen / (C * R)) * 0.3 - (panel ? 0.5 : veil ? veil.opacity * 0.3 : 0), 3)
+      veil, panel, overlap: runde(ueber),
+      score: runde(typo.headline / headlineMax(verh) * 0.4 + ruhe / grund.length * 0.2 + (o.wert || 0) - (panel ? 0.5 : veil ? veil.opacity * 0.3 : 0), 3)
     };
   };
+  /* Varianten, die fast an derselben Stelle landen, nicht doppelt anbieten */
+  const nah = (a, b, d) => Math.abs(a.block.x + a.block.width / 2 - b.block.x - b.block.width / 2) < d && Math.abs(a.block.y + a.block.height / 2 - b.block.y - b.block.height / 2) < d;
+  const beste = (liste, d) => { const out = []; for (const v of liste.sort((a, b) => b.score - a.score)) if (out.length < 4 && !out.some(o => nah(o, v, d))) out.push(v); return out; };
 
-  let varianten = [];
-  for (const r of flaechen(karte, verh)) {
-    const dieser = [];
-    for (const anker of ['motiv', 'mitte', 'unten', 'oben']) {
-      const v = bau(r, anker, false);
-      /* Varianten, die fast an derselben Stelle landen, nicht doppelt anbieten */
-      if (v && !dieser.some(o => Math.abs(o.block.y - v.block.y) < 7)) dieser.push(v);
+  /* Automatisch: Block in die größten ruhigen Flächen, am Motiv ausgerichtet */
+  const inFlaeche = (r, anker, notfall) => {
+    const innen = {
+      x: r.x0 * zb + (r.x0 === 0 ? randX : zb * 0.6), y: r.y0 * zh + (r.y0 === 0 ? randY : zh * 0.5),
+      x1: r.x1 * zb - (r.x1 === C ? randX : zb * 0.6), y1: r.y1 * zh - (r.y1 === R ? randY : zh * 0.5)
+    };
+    const ib = innen.x1 - innen.x, ih = innen.y1 - innen.y;
+    if (ib <= 0 || ih <= 0) return null;
+    const typo = setzeTypo(t, Math.min(ib, maxBlock), ih * verh, verh, messe, notfall);
+    if (!typo) return null;
+    const bh = typo.height / verh;
+    /* Motiv: unruhige Zellen direkt neben der Fläche. Ihre mittlere Höhe gibt dem Block Halt. */
+    const neben = spalten => { let n = 0, s = 0; for (const x of spalten) for (let y = r.y0; y < r.y1; y++) if (x >= 0 && x < C && !frei(x, y)) { n++; s += (y + 0.5) * zh; } return n ? s / n : null; };
+    const motivL = neben([r.x0 - 1, r.x0 - 2]), motivR = neben([r.x1, r.x1 + 1]);
+    const breit = !notfall && (r.x1 - r.x0) / C >= 0.8 && motivL === null && motivR === null;
+    const x = breit ? innen.x + (ib - typo.width) / 2 : motivL === null && motivR !== null ? innen.x1 - typo.width : innen.x;
+    const motivY = motivL !== null ? motivL : motivR;
+    if (anker === 'motiv' && motivY === null) return null;
+    const y = anker === 'motiv' ? klemme(motivY - bh / 2, innen.y, innen.y1 - bh) : anker === 'mitte' ? innen.y + (ih - bh) * 0.45 : anker === 'unten' ? innen.y1 - bh : innen.y;
+    const cxm = (r.x0 + r.x1) / 2 / C, cym = (r.y0 + r.y1) / 2 / R, hoch = (r.y1 - r.y0) / R >= 0.7, weit = (r.x1 - r.x0) / C >= 0.7;
+    const ort = [hoch ? '' : cym < 0.4 ? 'oben' : cym > 0.6 ? 'unten' : '', weit ? '' : cxm < 0.4 ? 'links' : cxm > 0.6 ? 'rechts' : 'Mitte'].filter(Boolean).join(' ') || 'Mitte';
+    return stelle(typo, x, y, {
+      key: `${r.x0}.${r.y0}.${r.x1}.${r.y1}:${anker}`, anchor: anker, align: breit ? 'mitte' : 'links', notfall, beside: motivY !== null,
+      label: notfall ? 'Auf einer Fläche, unten links' : `${ort[0].toUpperCase()}${ort.slice(1)}, ${ANKER[anker]}`,
+      region: { x: runde(r.x0 * zb), y: runde(r.y0 * zh), width: runde((r.x1 - r.x0) * zb), height: runde((r.y1 - r.y0) * zh) },
+      wert: ANKER_WERT[anker] + Math.min(0.5, r.zellen / (C * R)) * 0.3
+    });
+  };
+
+  let varianten = [], notfall = false, hinweis = '';
+  if (regel === 'auto') {
+    for (const r of flaechen(karte, verh)) {
+      const dieser = [];
+      for (const anker of ['motiv', 'mitte', 'unten', 'oben']) { const v = inFlaeche(r, anker, false); if (v && !dieser.some(o => Math.abs(o.block.y - v.block.y) < 7)) dieser.push(v); }
+      varianten.push(...dieser);
     }
-    varianten.push(...dieser);
-  }
-  varianten.sort((a, b) => b.score - a.score);
-  varianten = varianten.slice(0, 4);
-  let notfall = false;
-  if (!varianten.length) {
-    /* Keine ruhige Fläche, in die der Block passt: unten links auf einer Fläche */
-    notfall = true;
-    const v = bau({ x0: 0, y0: 0, x1: C, y1: R, zellen: C * R, ruhe: 0 }, 'unten', true);
-    if (v) varianten = [v];
+    varianten = varianten.sort((a, b) => b.score - a.score).slice(0, 4);
+    if (!varianten.length) {
+      /* Keine ruhige Fläche, in die der Block passt: unten links auf einer Fläche */
+      notfall = true;
+      const v = inFlaeche({ x0: 0, y0: 0, x1: C, y1: R, zellen: C * R, ruhe: 0 }, 'unten', true);
+      if (v) varianten = [v];
+    }
+  } else if (R_.linien) {
+    /* Rasterregeln: eine senkrechte Kante des Blocks liegt auf einer Linie, Ober- oder Unterkante
+       auf einer waagerechten. Zulässig ist nur, was kein Bildelement trifft. */
+    const alle = [];
+    R_.linien.forEach((fx, ix) => R_.linien.forEach((fy, iy) => {
+      for (const seite of ['ab', 'bis']) for (const haengt of ['oben', 'unten']) {
+        const lx = fx * 100, ly = fy * 100;
+        const typo = setzeTypo(t, Math.min(maxBlock, seite === 'ab' ? 100 - randX - lx : lx - randX), (haengt === 'oben' ? 100 - randY - ly : ly - randY) * verh, verh, messe);
+        if (!typo) continue;
+        const v = stelle(typo, seite === 'ab' ? lx : lx - typo.width, haengt === 'oben' ? ly : ly - typo.height / verh, {
+          key: `${ix}.${iy}.${seite}.${haengt}`, anchor: haengt, align: 'links',
+          label: `${seite === 'ab' ? 'Beginnt an' : 'Endet an'} ${R_.namen[ix]}, ${haengt === 'oben' ? 'hängt unter' : 'steht auf'} ${R_.namen[iy]}`,
+          wert: seite === 'ab' ? 0.1 : 0
+        });
+        if (v) alle.push(v);
+      }
+    }));
+    varianten = beste(alle.filter(v => v.overlap === 0 && !v.panel), 9);
+    if (!varianten.length && alle.length) {
+      /* Nichts liegt ganz frei: die Stellen, die am wenigsten treffen */
+      const wenig = Math.min(...alle.map(v => v.overlap));
+      varianten = beste(alle.filter(v => v.overlap <= wenig + 0.1), 9);
+      hinweis = `Auf den Linien dieser Regel liegt keine Stelle ganz frei. Gezeigt werden die, die am wenigsten vom Motiv treffen (${Math.round(varianten[0].overlap * 100)} % des Blocks).`;
+    }
+  } else if (regel === 'ueberlappen') {
+    /* Regelbruch: Der Block liegt zu einem Viertel bis gut zur Hälfte auf dem Motiv */
+    const typo = setzeTypo(t, maxBlock * 1.15, 76 * verh, verh, messe, false, 1.3), alle = [];
+    if (typo) {
+      const bh = typo.height / verh;
+      /* Anteil unruhiger Zellen unter einem Rechteck, schnell vorab */
+      const anteil = (x, y) => { let n = 0, b = 0; for (let cy = Math.floor(y / zh); cy <= Math.min(R - 1, Math.floor((y + bh - 0.01) / zh)); cy++) for (let cx = Math.floor(x / zb); cx <= Math.min(C - 1, Math.floor((x + typo.width - 0.01) / zb)); cx++) { n++; if (!frei(cx, cy)) b++; } return b / n; };
+      for (let y = randY; y <= 100 - randY - bh + 0.01; y += zh) for (let x = randX; x <= 100 - randX - typo.width + 0.01; x += zb) {
+        const vorab = anteil(x, y); if (vorab < 0.22 || vorab > 0.6) continue;
+        const v = stelle(typo, x, y, { key: `${runde(x, 1)}.${runde(y, 1)}`, anchor: 'oben', align: 'links', label: '', schleier: 0.6, ohneFlaeche: true });
+        if (!v || v.overlap < 0.22 || v.overlap > 0.6) continue;
+        /* am besten: gut ein Drittel auf dem Motiv, lesbar ohne viel Schleier */
+        v.score = runde(1 - Math.abs(v.overlap - 0.36) - (v.veil ? v.veil.opacity * 0.6 : 0) + Math.min(v.contrast.text, cfg.kontrast_min) / cfg.kontrast_min * 0.3, 3);
+        const mx = v.block.x + v.block.width / 2, my = v.block.y + v.block.height / 2;
+        v.label = `${my < 40 ? 'Oben' : my > 60 ? 'Unten' : 'Mitte'}${mx < 40 ? ' links' : mx > 60 ? ' rechts' : ''}, ${Math.round(v.overlap * 100)} % über dem Motiv`;
+        alle.push(v);
+      }
+    }
+    varianten = beste(alle, 14);
+    if (!varianten.length) hinweis = 'Dieses Bild hat kein klar abgegrenztes Motiv, über das sich der Block schieben ließe.';
+  } else if (regel === 'uebergross') {
+    /* Regelbruch: Headline in Plakatgröße über die ganze Breite, ohne Rücksicht auf das Motiv */
+    const rand = randX / 2, typo = setzeTypo(t, 100 - 2 * rand, 70 * verh, verh, messe, true, 2.4), alle = [];
+    if (typo) {
+      const bh = typo.height / verh, ry = randY / 2;
+      for (const [anker, y, name] of [['unten', 100 - ry - bh, 'Unten'], ['mitte', (100 - bh) / 2, 'Mitte'], ['oben', ry, 'Oben']]) {
+        const v = stelle(typo, rand, y, { key: anker, anchor: anker, align: 'links', label: `${name}, über die ganze Breite`, schleier: 0.6, ohneFlaeche: true });
+        if (v) { v.score = runde(v.contrast.text / 21 + (v.veil ? -v.veil.opacity * 0.3 : 0.2), 3); alle.push(v); }
+      }
+    }
+    varianten = alle.sort((a, b) => b.score - a.score);
   }
   varianten.forEach((v, i) => { v.id = 'ABCD'[i]; });
-  return { varianten, notfall, texte: t };
+  if (R_.bruch && varianten.some(v => v.contrast.text < cfg.kontrast_min)) hinweis = `Regelbruch: Über dem Motiv erreicht die Schrift nicht überall ${cfg.kontrast_min} : 1. Prüfe die Lesbarkeit mit dem Auge.`;
+  return { regel, varianten, notfall, hinweis, texte: t, linien: R_.linien || [] };
 }
 
 /* ---------- Die KI wählt und begründet ---------- */
@@ -276,7 +362,7 @@ export function designPrompt(analyse, texte, K) {
   const grob = Object.entries(analyse.grids || {}).sort((a, b) => a[1].length - b[1].length)[0];
   const bild = grob ? grob[1].map(k => `- ${k.label}: ${k.description || '(keine Beschreibung)'}`).join('\n') : '(keine)';
   const zahl = n => String(runde(n, 1)).replace('.', ',');
-  const var_ = K.varianten.map(v => `${v.id}: Textblock ${v.label[0].toLowerCase()}${v.label.slice(1)}${v.beside_subject ? ', direkt neben dem Motiv' : ''}; ${v.align === 'mitte' ? 'zentriert' : 'linksbündig'}; Headline ${v.lines.length}-zeilig mit ${zahl(v.sizes.headline)} % der Bildbreite; Schrift ${v.colors.text} (Kontrast ${zahl(v.contrast.text)} : 1)${v.panel ? ', auf einer Fläche' : v.veil ? ', direkt auf dem Bild mit weichem Schleier' : ', direkt auf dem Bild'}; liegt über: ${kachelnUnter(analyse, v.block).map(k => k.label).join(', ') || 'Bildmitte'}.`).join('\n');
+  const var_ = K.varianten.map(v => `${v.id}: Textblock ${v.label[0].toLowerCase()}${v.label.slice(1)}${v.beside_subject ? ', direkt neben dem Motiv' : ''}; ${v.align === 'mitte' ? 'zentriert' : 'linksbündig'}; Headline ${v.lines.length}-zeilig mit ${zahl(v.sizes.headline)} % der Bildbreite; Schrift ${v.colors.text} (Kontrast ${zahl(v.contrast.text)} : 1)${v.panel ? ', auf einer Fläche' : v.veil ? ', direkt auf dem Bild mit weichem Schleier' : ', direkt auf dem Bild'}${v.overlap ? `; ${Math.round(v.overlap * 100)} % des Blocks liegen über dem Motiv` : ''}; liegt über: ${kachelnUnter(analyse, v.block).map(k => k.label).join(', ') || 'Bildmitte'}.`).join('\n');
   return `BILD
 ${analyse.overall ? Object.entries({ Hauptmotiv: analyse.overall.main_subject, Bildaufbau: analyse.overall.composition, Stimmung: analyse.overall.mood, Stil: analyse.overall.style, Licht: analyse.overall.lighting }).map(([k, v]) => `${k}: ${v}`).join('\n') : '(keine Beschreibung)'}
 
@@ -290,7 +376,9 @@ Headline: ${K.texte.headline}
 Subline: ${K.texte.subline || '(keine)'}
 CTA: ${K.texte.cta || '(keiner)'}
 
-KOMPOSITIONEN (alle sind geprüft: ruhige Fläche, Abstand zu Rand und Motiv, Kontrast, Hierarchie). Headline, Subline und CTA stehen immer als ein Block zusammen.
+LAYOUT-REGEL: ${REGELN[K.regel].name}. ${REGELN[K.regel].info}
+
+KOMPOSITIONEN (von der App berechnet und geprüft). Headline, Subline und CTA stehen immer als ein Block zusammen.
 ${var_}
 
 AUFGABE
@@ -302,11 +390,12 @@ AUFGABE
 /* Wahl der KI (oder der Person) übernehmen und alles festschreiben. antwort.variant darf der
    Buchstabe oder der Schlüssel einer Variante sein; passt keine, gilt die beste der App. */
 export function pruefeVorschlag(analyse, antwort = {}, texte = {}, opts = {}) {
-  const cfg = konfig(analyse.config || {}), K = komponiere(analyse, texte, opts), korrekturen = [];
+  const cfg = konfig(analyse.config || {}), K = opts.fertig || komponiere(analyse, texte, opts), korrekturen = [];
   if (K.notfall) korrekturen.push('Das Bild hat keine ruhige Fläche, in die der Textblock passt. Er steht deshalb unten links auf einer Fläche.');
+  if (K.hinweis) korrekturen.push(K.hinweis);
   const wunsch = String(antwort.variant || '');
   let v = K.varianten.find(x => x.key === wunsch) || K.varianten.find(x => x.id === wunsch);
-  if (!v) { v = K.varianten[0] || null; if (wunsch && !K.notfall) korrekturen.push('Die gewählte Komposition passt mit den aktuellen Texten oder Schwellwerten nicht mehr. Es gilt die beste der verbleibenden.'); }
+  if (!v) { v = K.varianten[0] || null; if (wunsch && !K.notfall && v) korrekturen.push('Die gewählte Komposition passt mit den aktuellen Texten oder Schwellwerten nicht mehr. Es gilt die beste der verbleibenden.'); }
   if (v && v.panel && !K.notfall) korrekturen.push(`Direkt auf dem Bild erreicht die Schrift hier nicht ${cfg.kontrast_min} : 1. Der ganze Block steht deshalb auf einer Fläche.`);
   const gemessen = (analyse.palette || []).map(c => c.hex), p = antwort.palette || {};
   const aus = (wert, ersatz) => (istHex(wert) && gemessen.includes(hexNorm(wert)) ? hexNorm(wert) : ersatz);
@@ -318,7 +407,7 @@ export function pruefeVorschlag(analyse, antwort = {}, texte = {}, opts = {}) {
     accent: aus(p.accent, bunt || background),
     text: kontrast(cfg.text_hell, background) >= kontrast(cfg.text_dunkel, background) ? cfg.text_hell : cfg.text_dunkel
   };
-  return { variant: v, variants: K.varianten, texts: K.texte, palette, reasoning: String(antwort.reasoning || '').trim(), corrections: korrekturen, emergency: K.notfall, min_contrast: cfg.kontrast_min };
+  return { rule: K.regel, lines: K.linien, variant: v, variants: K.varianten, texts: K.texte, palette, reasoning: String(antwort.reasoning || '').trim(), corrections: korrekturen, emergency: K.notfall, min_contrast: cfg.kontrast_min };
 }
 
 /* ---------- HTML/CSS-Ansicht ---------- */
@@ -326,6 +415,7 @@ export const ANSICHT_SCHRIFT = 'https://fonts.googleapis.com/css2?family=Familje
 export const ANSICHT_CSS = `.bd-ansicht{position:relative;width:100%;container-type:inline-size;background-size:100% 100%;background-repeat:no-repeat;overflow:hidden;font-family:"Familjen Grotesk",ui-sans-serif,system-ui,sans-serif}
 .bd-block{position:absolute;display:flex;flex-direction:column;box-sizing:border-box;isolation:isolate}
 .bd-schleier{position:absolute;inset:-6cqw;z-index:-1;filter:blur(4cqw);pointer-events:none}
+.bd-linie{position:absolute;border:0 dashed rgba(255,255,255,.75);border-width:1px 0 0 1px;mix-blend-mode:difference;pointer-events:none}
 .bd-block.a-links{align-items:flex-start;text-align:left}
 .bd-block.a-mitte{align-items:center;text-align:center}
 .bd-block.flaeche{border-radius:.6cqw}
@@ -334,8 +424,9 @@ export const ANSICHT_CSS = `.bd-ansicht{position:relative;width:100%;container-t
 .bd-subline{margin:0;font-weight:500;line-height:1.36;text-wrap:balance}
 .bd-cta{display:inline-block;font-weight:600;line-height:1;padding:.85em 1.5em;border-radius:99em;text-decoration:none;white-space:nowrap}`;
 /* Bild als Hintergrund, der Textblock an der Stelle der Variante */
-export function ansichtHTML(analyse, v, texte = {}, bildURL = '') {
-  const kopf = `<div class="bd-ansicht" style="aspect-ratio:${analyse.image.width}/${analyse.image.height};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">`;
+export function ansichtHTML(analyse, v, texte = {}, bildURL = '', linien = []) {
+  const hilfe = linien.map(f => `<i class="bd-linie" style="left:${runde(f * 100)}%;top:0;bottom:0;width:0"></i><i class="bd-linie" style="top:${runde(f * 100)}%;left:0;right:0;height:0"></i>`).join('');
+  const kopf = `<div class="bd-ansicht" style="aspect-ratio:${analyse.image.width}/${analyse.image.height};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${hilfe}`;
   if (!v) return kopf + '</div>';
   const sub = String(texte.subline || '').trim(), cta = String(texte.cta || '').trim(), b = v.block;
   /* Unten verankerte Blöcke hängen an ihrer Unterkante, mittige an ihrer Mitte: so stimmt die
@@ -402,15 +493,16 @@ ${liste.map(kachel).join('\n')}
 }
 /* Freiraum-Karte mit den Textflächen: freie Zellen grün, die Fläche jeder Variante gestrichelt,
    der Textblock als Rahmen mit Buchstabe. */
-export function flaechenSVG(analyse, varianten = [], bildURL = '', aktiv = '') {
+export function flaechenSVG(analyse, varianten = [], bildURL = '', aktiv = '', linien = []) {
   const W = analyse.image.width, H = analyse.image.height, m = analyse.free_map;
   const fs = Math.max(10, Math.round(Math.min(W, H) / 34)), sw = Math.max(1.5, Math.min(W, H) / 400), zb = W / m.cols, zh = H / m.rows;
   const zellen = m.free.map((f, i) => (f ? `<rect x="${runde(i % m.cols * zb, 1)}" y="${runde(Math.floor(i / m.cols) * zh, 1)}" width="${runde(zb, 1)}" height="${runde(zh, 1)}" fill="#1FA35B" fill-opacity=".34" stroke="#1FA35B" stroke-opacity=".5" stroke-width="${sw / 2}"/>` : '')).join('');
   const px = (r, f = 'none') => `x="${runde(r.x * W / 100, 1)}" y="${runde(r.y * H / 100, 1)}" width="${runde(r.width * W / 100, 1)}" height="${runde(r.height * H / 100, 1)}" fill="${f}"`;
-  const regionen = [...new Map(varianten.map(v => [JSON.stringify(v.region), v.region])).values()];
+  const regionen = [...new Map(varianten.filter(v => v.region).map(v => [JSON.stringify(v.region), v.region])).values()];
   return `${svgKopf(W, H, 'Freiraum-Karte mit Textflächen', bildURL)}
 ${zellen}
 ${regionen.map(r => `<rect ${px(r)} stroke="#fff" stroke-width="${sw * 1.4}" stroke-dasharray="${sw * 6} ${sw * 4}"/>`).join('')}
+${linien.map(f => `<path d="M${runde(f * W, 1)} 0V${H}M0 ${runde(f * H, 1)}H${W}" stroke="#fff" stroke-opacity=".85" stroke-width="${sw}" stroke-dasharray="${sw * 3} ${sw * 3}"/>`).join('')}
 ${varianten.map(v => `<rect ${px(v.block, v.key === aktiv || v.id === aktiv ? 'rgba(255,255,255,.22)' : 'none')} stroke="#000" stroke-opacity=".6" stroke-width="${sw * 3}"/><rect ${px(v.block)} stroke="#fff" stroke-width="${sw * 1.5}"/>${beschrift(v.block.x * W / 100 + fs * 0.4, v.block.y * H / 100 + fs * 1.2, fs, [v.id])}`).join('\n')}
 </svg>`;
 }
