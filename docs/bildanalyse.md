@@ -13,7 +13,7 @@ Weg: Projekt-Analyse → **Design entwickeln** → oben auf **Bild-Design** umsc
    - Das Vision-Modell beschreibt das Gesamtbild: Hauptmotiv, Bildaufbau, Stimmung, Stil, Licht.
    - Das Vision-Modell beschreibt jede Kachel in höchstens zwei Sätzen. Das lässt sich abschalten, wenn es schnell gehen soll.
 4. **Analyse prüfen.** Die Debug-Vorschau zeigt das Bild mit Raster: Freiraum für Text grün, unscharfe Bereiche rot schraffiert. Darunter stehen die Beschreibung des Gesamtbilds, die Farben und alle Messwerte je Kachel.
-5. **Design vorschlagen.** Das Design-Modell bekommt die Analyse und die Texte aus „Texte fürs Bild“ und legt Kacheln, Ausrichtung und Farben fest. Die App prüft jede Angabe nach (siehe unten) und zeigt das Bild mit den Texten an den vorgeschlagenen Stellen.
+5. **Design-Vorschlag.** Die App berechnet aus der Analyse und den Texten aus „Texte fürs Bild“ bis zu vier geprüfte Kompositionen und zeigt die beste sofort. Das Design-Modell wählt auf Wunsch eine davon aus und begründet sie (siehe unten).
 6. **Weiterverwenden.** Analyse und Vorschlag als JSON speichern, die Debug-Vorschau als PNG, die Ansicht als eigenständige HTML-Datei. **In den Flyer übernehmen** setzt das Bild als Hintergrund des Entwurfs und übergibt die Farbpalette.
 
 ## Modelle
@@ -60,6 +60,7 @@ Alle Schwellwerte stehen an einer Stelle: als `STANDARD` in [`bildanalyse/kern.j
 | `freiraum.kantenschwelle` | 60 | Stärke, ab der ein Pixel als Kante zählt (0–1020) |
 | `freiraum.kantendichte_max` | 0,04 | höchster Anteil Kantenpixel für Freiraum |
 | `freiraum.farbvarianz_max` | 24 | höchste Farbstreuung für Freiraum |
+| `freiraum.karte` | 16 | Feinheit der Freiraum-Karte: Zellen entlang der längsten Seite |
 | `kontrast_min` | 4,5 | Mindestkontrast für Schrift (WCAG AA) |
 | `kontrast_flaeche_min` | 3 | Mindestkontrast des Knopfs zum Bild |
 | `arbeitsgroesse` | 1024 | längste Seite bei der Messung |
@@ -90,31 +91,30 @@ Ein JSON je Bild („JSON speichern“):
 }
 ```
 
-`palette` sind die sechs prägenden Farben des ganzen Bildes.
+`palette` sind die sechs prägenden Farben des ganzen Bildes. Dazu kommt `free_map`, die Freiraum-Karte: `cols`, `rows` und je Zelle `free` (0/1), `score` und `color`.
 
 ## Der Design-Vorschlag
 
-Das Design-Modell bekommt das Analyse-JSON in knapper Form (ohne Pixel- und Messdetails) und antwortet mit Kachel, Ausrichtung und Farbe je Element, einer Palette und einer Begründung in 2–3 Sätzen. Die App sorgt auf zwei Wegen dafür, dass die Regeln sicher gelten:
+Die Gestaltung rechnet die App selbst. Die KI wählt am Ende nur zwischen fertigen, geprüften Kompositionen und begründet ihre Wahl. So entsteht der Vorschlag:
 
-**Vorher:** Das Antwortformat lässt als Kachel nur solche mit `text_space = true` zu und als Palettenfarben nur die gemessenen Farben des Bildes.
+1. **Freiraum-Karte.** Zusätzlich zu den Rastern misst die App ein feines Raster aus annähernd quadratischen Zellen (16 entlang der längsten Seite, im JSON unter `free_map`). Die groben Raster sind für die Platzierung zu grob: Eine 2 × 2-Kachel mit halber Person gilt als unruhig, obwohl ihre andere Hälfte frei ist.
+2. **Zusammenhängende Flächen.** Aus der Karte sucht die App die größten Rechtecke aus lauter ruhigen Zellen, höchstens drei, die sich deutlich unterscheiden.
+3. **Ein Textblock.** Headline, Subline und CTA stehen immer zusammen als ein Block an einer Kante, linksbündig. Nur wenn die Fläche fast die ganze Bildbreite füllt und kein Motiv daneben liegt, wird zentriert.
+4. **Feste Hierarchie.** Die Headline wird so groß, wie Fläche und Format es zulassen (Obergrenze rund 6 % der Bildbreite im Querformat 3:2, mehr im Hochformat), in ausgewogenen Zeilen. Die Subline hat 36 % der Headline-Größe, der CTA etwas weniger. Passt der Block nicht mit mindestens der halben Obergrenze, scheidet die Fläche aus.
+5. **Ränder und Motiv.** Zum Bildrand bleiben 6 % der kurzen Seite frei, zum Motiv gut eine halbe Zelle. Liegt neben der Fläche das Motiv, setzt sich der Block an diese Kante und auf dessen Höhe („auf Höhe des Motivs“); weitere Varianten sind mittig, unten und oben.
+6. **Farbe und Kontrast.** Die Schrift steht direkt auf dem Bild, in einem Ton des Bildes: die dunkelste oder hellste Bildfarbe, bis fast Schwarz oder Weiß gezogen. Der Kontrast muss gegenüber jeder Zelle unter dem Block den Mindestwert erreichen. Fehlt wenig, legt die App einen weichen Schleier hinter den Block (höchstens 44 % Deckkraft, unscharfer Rand, kein Kasten). Reicht auch das nicht, bekommt der ganze Block eine Fläche, nie einzelne Zeilen.
+7. **Auswahl.** Die bis zu vier besten Varianten heißen A bis D. Ohne KI gilt A. „KI wählen und begründen lassen“ schickt Bildbeschreibung und Varianten an das Design-Modell; es antwortet mit einem Buchstaben, den Palettenrollen und 2–3 Sätzen Begründung. Du kannst jede Variante selbst anklicken.
 
-**Nachher** prüft `pruefeVorschlag` in [`bildanalyse/design.js`](../bildanalyse/design.js) jede Angabe:
+Die Ansicht „Textflächen“ in der Analyse zeigt die Freiraum-Karte, die gefundenen Flächen und die Blöcke aller Varianten.
 
-- Steht ein Element in einer Kachel ohne Freiraum, wird es in die beste freie Kachel verschoben.
-- Liegen zwei gewählte Kacheln übereinander (grobes und feines Raster), stehen die Texte als Gruppe zusammen.
-- Eine Gruppe darf in ihrer Zeile über benachbarte freie Kacheln breiter werden, nie in eine Kachel ohne Freiraum.
-- Jede Schriftfarbe muss den Mindestkontrast gegenüber allen Farben unter dem Text erreichen. Sonst wird sie durch die empfohlene helle oder dunkle Farbe ersetzt.
-- Der Knopf muss sich vom Bild abheben, seine Schrift auf dem Knopf lesbar sein.
-- Hat das Bild gar keinen Freiraum oder reicht kein Kontrast, bekommt der Text eine Fläche als Unterlage.
-
-Was die App geändert hat, steht im Kasten „Von der App korrigiert“ und im JSON unter `corrections`.
+Hat ein Bild keine ruhige Fläche, in die der Block passt, steht er unten links auf einer Fläche; die App sagt das dazu.
 
 ## Aufbau
 
 | Datei | Aufgabe | Läuft in |
 |---|---|---|
 | `bildanalyse/kern.js` | Raster, k-Means, Helligkeit, Schärfe, Kanten, Freiraum, WCAG-Kontrast, Schwellwerte | Browser, Node |
-| `bildanalyse/design.js` | Fragen an die Modelle, Antwortformate, Prüfung des Vorschlags, HTML-Ansicht, Debug-Vorschau | Browser, Node |
+| `bildanalyse/design.js` | Flächen finden, Textblock setzen, Varianten prüfen, Fragen an die Modelle, HTML-Ansicht, Debug-Vorschau | Browser, Node |
 | `bildanalyse/ui.js` | Bereich „Bild-Design“ im Studio, Aufrufe der KI, Speichern, Übernahme in den Flyer | Browser |
 | `tests/bildanalyse.test.js` | Tests für Messung und Regeln, mit Testbildern aus dem Code | Browser, Node |
 
@@ -124,7 +124,8 @@ Was die App geändert hat, steht im Kasten „Von der App korrigiert“ und im J
 
 Das Konzept beschrieb eine Python-Kommandozeile. Umgesetzt ist dieselbe Pipeline im Browser:
 
-- `analyze.py` und `compose.py` sind die Knöpfe „Bild analysieren“ und „Design vorschlagen“.
+- `analyze.py` und `compose.py` sind „Bild analysieren“ und der Reiter „Design-Vorschlag“.
+- Die Platzierung entscheidet nicht die KI je Kachel, sondern die App über zusammenhängende Flächen; die KI wählt zwischen geprüften Varianten. Einzelne Kacheln je Element ergaben verstreute, kleine Texte.
 - `config.yaml` ist der Bereich „Schwellwerte“ mit den Vorgaben in `kern.js`.
 - Ordner-Batch ist „Alle Bilder analysieren“.
 - OpenCV-Canny ist durch Sobel mit Schwelle ersetzt, scikit-learn-k-Means durch ein eigenes ohne Zufall.

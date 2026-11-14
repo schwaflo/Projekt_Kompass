@@ -142,65 +142,106 @@ test('Bild: Analyse-JSON hat overall und grids, Koordinaten in Originalpixeln', 
   gleich(A.grids['4x2'].map(x => x.text_space), [true, true, false, false, true, true, false, false]);
 });
 
-/* ---------- Design-Vorschlag ---------- */
+/* ---------- Freiraum-Karte und Komposition ---------- */
 const ANALYSE = K.analysiereBild(HALB, { raster: ['2x2', '4x2'], original: { width: 1600, height: 800 } });
-test('Design: der KI werden nur Freiraum-Kacheln und gemessene Farben angeboten', () => {
-  const s = G.designSchema(ANALYSE);
-  gleich(s.properties.headline.properties.tile.enum, ['2x2:r1c1', '2x2:r2c1', '4x2:r1c1', '4x2:r1c2', '4x2:r2c1', '4x2:r2c2']);
+const TEXTE = { headline: 'Straßenfest-Glaube-Leben', subline: 'sei bereit für Begegnungen mit Gott', cta: 'Mehr erfahren' };
+const zelleFrei = (A, x, y) => { const m = A.free_map; return m.free[Math.min(m.rows - 1, Math.floor(y / 100 * m.rows)) * m.cols + Math.min(m.cols - 1, Math.floor(x / 100 * m.cols))] === 1; };
+/* Liegt der ganze Textblock auf freien Zellen? */
+function blockFrei(A, v) { const b = v.block; for (let x = b.x; x < b.x + b.width; x += 1) for (let y = b.y; y < b.y + b.height; y += 1) if (!zelleFrei(A, x, y)) return false; return true; }
+
+test('Bild: Freiraum-Karte ist ein feines Raster mit annähernd quadratischen Zellen', () => {
+  const m = ANALYSE.free_map;
+  gleich([m.cols, m.rows, m.free.length, m.color.length], [16, 8, 128, 128]);
+  for (let y = 0; y < 8; y++) { assert(m.free[y * 16 + 2] === 1, 'links ruhig'); assert(m.free[y * 16 + 12] === 0, 'rechts unruhig'); }
+});
+test('Design: Headline bricht ausgewogen, an Leerzeichen und nach Bindestrichen', () => {
+  gleich(G.umbruch('Straßenfest-Glaube-Leben', 2).lines, ['Straßenfest-', 'Glaube-Leben']);
+  gleich(G.umbruch('Tag der offenen Tür', 2).lines, ['Tag der', 'offenen Tür']);
+  gleich(G.umbruch('Sommerfest', 1).lines, ['Sommerfest']);
+  gleich(G.umbruch('Sommerfest', 2), null, 'ein Wort lässt sich nicht teilen');
+});
+test('Design: feste Hierarchie, Größen aus Fläche und Format', () => {
+  const t = G.setzeTypo(TEXTE, 40, 40, 0.5);
+  assert(t.headline >= 2.2 * t.subline && t.subline > t.cta, `Headline ${t.headline}, Subline ${t.subline}, CTA ${t.cta}`);
+  assert(t.width <= 40 && t.height <= 40, 'Block passt in die Fläche');
+  assert(t.headline <= G.headlineMax(0.5), 'Obergrenze aus dem Format');
+  const klein = G.setzeTypo(TEXTE, 20, 40, 0.5);
+  assert(klein.headline < t.headline, 'kleinere Fläche, kleinere Headline');
+  gleich(G.setzeTypo(TEXTE, 8, 40, 0.5), null, 'zu schmal für eine Headline mit Gewicht');
+  assert(G.headlineMax(1.25) > G.headlineMax(0.5), 'Hochformat erlaubt im Verhältnis zur Breite größere Schrift');
+});
+test('Design: ruhige Flächen sind Rechtecke aus lauter freien Zellen', () => {
+  const m = ANALYSE.free_map, fl = G.flaechen(m, 0.5);
+  assert(fl.length >= 1, 'mindestens eine Fläche');
+  for (const r of fl) for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) assert(m.free[y * m.cols + x] === 1, 'Zelle frei');
+  gleich([fl[0].x0, fl[0].y0, fl[0].y1], [0, 0, 8], 'größte Fläche: die linke Hälfte in voller Höhe');
+});
+test('Design: jede Variante ist ein Block auf ruhiger Fläche mit Rand und Kontrast', () => {
+  const k = G.komponiere(ANALYSE, TEXTE);
+  assert(k.varianten.length >= 2 && k.varianten.length <= 4 && !k.notfall, `${k.varianten.length} Varianten`);
+  gleich(k.varianten.map(v => v.id), ['A', 'B', 'C', 'D'].slice(0, k.varianten.length));
+  for (const v of k.varianten) {
+    assert(blockFrei(ANALYSE, v), `${v.id}: Block liegt ganz auf freien Zellen`);
+    assert(v.contrast.text >= 4.5 && v.contrast.cta_text >= 4.5 && v.contrast.cta_background >= 3, `${v.id}: Kontrast ${JSON.stringify(v.contrast)}`);
+    assert(v.block.x >= 2.9 && v.block.y >= 5.9 && v.block.y + v.block.height <= 94.1, `${v.id}: Rand zum Bild (${JSON.stringify(v.block)})`);
+    assert(v.sizes.headline >= 2.2 * v.sizes.subline, `${v.id}: Hierarchie`);
+    assert(!v.panel, `${v.id}: kein Kasten, wenn die Fläche ruhig ist`);
+  }
+  assert(k.varianten.every((v, i) => !i || v.score <= k.varianten[i - 1].score), 'beste zuerst');
+  const m = k.varianten.find(v => v.anchor === 'motiv');
+  assert(m && m.beside_subject, 'eine Variante richtet sich am Motiv aus');
+  assert(m.block.x + m.block.width > m.region.x + m.region.width - 5, 'der Block steht an der Kante zum Motiv, nicht am Bildrand');
+});
+test('Design: mittlerer Bildton bekommt einen weichen Schleier statt eines Kastens', () => {
+  const A = K.analysiereBild(bild(480, 320, () => [165, 110, 88]), { raster: ['2x2'] });
+  const v = G.komponiere(A, TEXTE).varianten[0];
+  assert(v.veil && !v.panel, 'Schleier, kein Kasten');
+  assert(v.veil.opacity > 0 && v.veil.opacity <= 0.44, `Deckkraft ${v.veil.opacity}`);
+  assert(v.contrast.text >= 4.5, `Kontrast ${v.contrast.text}`);
+  gleich(v.align, 'mitte', 'freies Bild ohne Motiv: zentriert');
+  const dunkel = K.analysiereBild(bild(480, 320, () => [20, 30, 60]), { raster: ['2x2'] });
+  const d = G.komponiere(dunkel, TEXTE).varianten[0];
+  assert(!d.veil && !d.panel && K.luminanz(d.colors.text) > 0.8, 'dunkles Bild: helle Schrift ohne Hilfsmittel');
+});
+test('Design: Bild ohne ruhige Fläche bekommt einen Block auf einer Fläche', () => {
+  const voll = K.analysiereBild(bild(240, 160, (x, y) => schach(x, y, 3)), { raster: ['2x2'] });
+  const v = G.pruefeVorschlag(voll, {}, TEXTE);
+  gleich([v.emergency, v.variants.length, v.variant.align], [true, 1, 'links']);
+  assert(v.variant.panel && v.variant.contrast.text >= 4.5, `Fläche mit Kontrast ${v.variant.contrast.text}`);
+  assert(v.corrections[0].includes('keine ruhige Fläche'), 'Hinweis');
+});
+test('Design: die KI wählt nur zwischen geprüften Varianten und gemessenen Farben', () => {
+  const k = G.komponiere(ANALYSE, TEXTE), s = G.designSchema(ANALYSE, k);
+  gleich(s.properties.variant.enum, k.varianten.map(v => v.id));
   gleich(s.properties.palette.properties.accent.enum, ANALYSE.palette.map(c => c.hex));
-  const p = G.designPrompt(ANALYSE, { headline: 'Sommerfest' });
-  assert(p.includes('Sommerfest') && p.includes('4x2:r1c2') && !p.includes('"x":'), 'Prompt nennt Text und Kacheln, aber keine Pixelwerte');
+  const p = G.designPrompt(ANALYSE, TEXTE, k);
+  assert(p.includes('Straßenfest-Glaube-Leben') && p.includes('A: Textblock') && p.includes('als ein Block'), 'Prompt nennt Texte und Varianten');
 });
-test('Design: Text in einer Kachel ohne Freiraum wird verschoben', () => {
-  const v = G.pruefeVorschlag(ANALYSE, { headline: { tile: '2x2:r1c2', align: 'links', color: '#FFFFFF' }, subline: { tile: '4x2:r2c4', align: 'links', color: '#FFFFFF' }, cta: { tile: 'gibtsnicht', align: 'links', background: '#FFFFFF' } });
-  const frei = new Set(K.alleKacheln(ANALYSE).filter(k => k.text_space).map(k => k.id));
-  for (const r of G.ROLLEN) assert(frei.has(v.elements[r].tile), `${r} steht in ${v.elements[r].tile}`);
-  for (const g of v.groups) assert(g.tiles.every(id => frei.has(id)), 'jede belegte Kachel hat Freiraum');
-  gleich(v.corrections.length >= 3, true);
-  assert(v.corrections[0].includes('2x2:r1c2') && v.corrections[0].includes('keinen Freiraum'), v.corrections[0]);
+test('Design: Wahl übernehmen, Unsinn abfangen', () => {
+  const b = G.pruefeVorschlag(ANALYSE, { variant: 'B', palette: { background: '#123456' }, reasoning: 'Weil.' }, TEXTE);
+  gleich([b.variant.id, b.reasoning, b.corrections.length], ['B', 'Weil.', 0]);
+  assert(ANALYSE.palette.some(c => c.hex === b.palette.background), 'fremde Palettenfarbe ersetzt');
+  assert(K.kontrast(b.palette.text, b.palette.background) >= 4.5, 'Schrift der Palette lesbar');
+  gleich(G.pruefeVorschlag(ANALYSE, { variant: b.variant.key }, TEXTE).variant.id, 'B', 'auch über den Schlüssel');
+  const x = G.pruefeVorschlag(ANALYSE, { variant: 'Z' }, TEXTE);
+  gleich([x.variant.id, x.corrections.length], ['A', 1]);
+  gleich(G.pruefeVorschlag(ANALYSE, {}, TEXTE).variant.id, 'A', 'ohne KI gilt die beste der App');
 });
-test('Design: zu schwache Schriftfarbe wird ersetzt, ausreichende bleibt', () => {
-  const roh = { headline: { tile: '2x2:r1c1', align: 'links', color: '#22335A' }, subline: { tile: '2x2:r2c1', align: 'links', color: '#F2E9D0' }, cta: { tile: '2x2:r2c1', align: 'links', background: '#14285A' }, palette: {}, reasoning: 'Weil.' };
-  const v = G.pruefeVorschlag(ANALYSE, roh);
-  gleich(v.elements.headline.color, '#FFFFFF', 'dunkelblau auf dunkelblau ersetzt');
-  gleich(v.elements.subline.color, '#F2E9D0', 'helle Farbe der KI bleibt');
-  for (const r of ['headline', 'subline', 'cta']) assert(v.elements[r].contrast >= 4.5, `${r}: ${v.elements[r].contrast}`);
-  assert(v.elements.cta.background !== '#14285A' && v.elements.cta.background_contrast >= 3, 'Knopf hebt sich vom Bild ab');
-  assert(v.corrections.some(c => c.includes('Headline') && c.includes('#22335A')), 'Korrektur wird genannt');
-  gleich(v.reasoning, 'Weil.');
-});
-test('Design: Texte in übereinander liegenden Kacheln stehen als Gruppe zusammen', () => {
-  const v = G.pruefeVorschlag(ANALYSE, { headline: { tile: '2x2:r1c1', align: 'links', color: '#FFFFFF' }, subline: { tile: '4x2:r1c2', align: 'links', color: '#FFFFFF' }, cta: { tile: '4x2:r2c1', align: 'links', background: '#FFFFFF' } });
-  gleich(v.groups.map(g => g.roles), [['headline', 'subline'], ['cta']]);
-  gleich([v.groups[0].x, v.groups[0].y, v.groups[0].width, v.groups[0].height], [0, 0, 50, 50]);
-  /* der Knopf wächst nach rechts in die freie Nachbarkachel, aber nicht ins Muster */
-  gleich(v.groups[1].tiles, ['4x2:r2c1', '4x2:r2c2']);
-  gleich([v.groups[1].x, v.groups[1].width, v.groups[1].valign], [0, 50, 'unten']);
-});
-test('Design: ohne Antwort der KI entsteht trotzdem ein gültiger Vorschlag', () => {
-  const v = G.pruefeVorschlag(ANALYSE, {});
-  gleich(v.elements.headline.tile, '2x2:r1c1');
-  assert(ANALYSE.palette.some(c => c.hex === v.palette.background) && ANALYSE.palette.some(c => c.hex === v.palette.accent), 'Palette aus dem Bild');
-  assert(K.kontrast(v.palette.text, v.palette.background) >= 4.5, 'Schrift der Palette lesbar');
-});
-test('Design: Bild ohne Freiraum bekommt eine Fläche unter dem Text', () => {
-  const voll = K.analysiereBild(bild(120, 80, (x, y) => schach(x, y, 3)), { raster: ['2x2'] });
-  gleich(G.kandidaten(voll).notfall, true);
-  const v = G.pruefeVorschlag(voll, {});
-  gleich(v.emergency, true);
-  assert(v.groups.every(g => g.panel), 'Fläche als Unterlage');
-  assert(v.elements.headline.contrast >= 4.5, `Kontrast auf der Fläche: ${v.elements.headline.contrast}`);
-  assert(v.corrections[0].includes('keinen Freiraum'), 'Hinweis');
-});
-test('Design: HTML-Ansicht setzt die Texte an die Stellen des Vorschlags', () => {
-  const v = G.pruefeVorschlag(ANALYSE, { headline: { tile: '4x2:r1c1', align: 'mitte', color: '#FFFFFF' }, subline: { tile: '4x2:r1c1', align: 'mitte', color: '#FFFFFF' }, cta: { tile: '4x2:r2c1', align: 'links', background: '#FFFFFF' } });
-  const h = G.ansichtHTML(ANALYSE, v, { headline: 'Tag der <offenen> Tür', subline: 'Samstag', cta: 'Anmelden' }, 'bild.jpg');
+test('Design: HTML-Ansicht setzt einen Block an die Stelle der Variante', () => {
+  const v = G.pruefeVorschlag(ANALYSE, {}, { headline: 'Tag der <offenen> Tür', subline: 'Samstag', cta: 'Anmelden' });
+  const h = G.ansichtHTML(ANALYSE, v.variant, v.texts, 'bild.jpg');
   assert(h.includes('aspect-ratio:1600/800') && h.includes("url('bild.jpg')"), 'Bild als Hintergrund');
-  assert(h.includes('Tag der &lt;offenen&gt; Tür'), 'Text maskiert');
-  assert(/data-kachel="4x2:r1c1" style="left:0%;top:0%;width:50%;height:50%"/.test(h), 'Gruppe an der Kachel, über die freie Nachbarkachel verbreitert');
-  assert(h.includes('h-mitte v-oben'), 'Ausrichtung');
-  const d = G.ansichtDatei(ANALYSE, v, { headline: 'Test' }, 'bild.jpg');
-  assert(d.startsWith('<!doctype html>') && d.includes('.bd-headline') && d.includes('<title>Test</title>'), 'eigenständige Datei');
+  gleich((h.match(/class="bd-block/g) || []).length, 1, 'genau ein Block');
+  assert(h.includes('&lt;offenen&gt;') && h.includes('Samstag') && h.includes('Anmelden'), 'Texte, maskiert');
+  assert(h.includes(`left:${v.variant.block.x}%`) && h.includes(`font-size:${v.variant.sizes.headline}cqw`), 'Lage und Größe aus der Variante');
+  assert(!G.ansichtHTML(ANALYSE, v.variant, { headline: 'Nur Titel' }, '').includes('bd-cta'), 'leere Elemente entfallen');
+  const d = G.ansichtDatei(ANALYSE, v, 'bild.jpg');
+  assert(d.startsWith('<!doctype html>') && d.includes('.bd-headline') && d.includes('<title>Tag der &lt;offenen&gt; Tür</title>'), 'eigenständige Datei');
+});
+test('Design: Textflächen-Vorschau zeigt freie Zellen und die Blöcke der Varianten', () => {
+  const k = G.komponiere(ANALYSE, TEXTE), svg = G.flaechenSVG(ANALYSE, k.varianten, '', 'A');
+  gleich((svg.match(/fill="#1FA35B"/g) || []).length, ANALYSE.free_map.free.filter(Boolean).length);
+  assert(svg.includes('stroke-dasharray') && svg.includes('>A</tspan>'), 'Fläche gestrichelt, Block beschriftet');
 });
 test('Design: Debug-Vorschau zeichnet Raster, Freiraum grün und Unschärfe rot', () => {
   const unscharf = weich(bild(160, 80, (x, y) => (x < 80 ? [20, 40, 90] : schach(x, y, 8))), 3, 3);

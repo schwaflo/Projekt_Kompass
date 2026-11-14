@@ -40,10 +40,16 @@ const modelle = () => ui.models || [];
 const vlmName = () => (Z().vlm && modelle().includes(Z().vlm) ? Z().vlm : modelle().find(m => VLM_WUNSCH.test(m)) || S.model);
 const designName = () => (Z().modell && modelle().includes(Z().modell) ? Z().modell : modelle().find(m => DESIGN_WUNSCH.test(m)) || S.model);
 const texte = () => { const t = designState().texte || {}; return { headline: t.headline || '', subline: t.subline || '', cta: t.cta || '' }; };
-/* Der geprüfte Vorschlag wird bei jedem Zeichnen neu aus der KI-Antwort berechnet, damit geänderte Schwellwerte sofort gelten */
+/* Textbreite mit der echten Schrift messen, damit Zeilen und Größen genau stimmen */
+const messFlaeche = document.createElement('canvas').getContext('2d');
+const messe = (text, fett) => { messFlaeche.font = `${fett ? 700 : 500} 100px "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif`; return messFlaeche.measureText(text).width / 100 * 1.02; };
+/* Der Vorschlag wird bei jedem Zeichnen neu gerechnet, damit geänderte Texte und Schwellwerte sofort gelten.
+   Die Varianten kommen von der App; von der KI stammen nur Wahl, Palette und Begründung. */
 function vorschlag(id) {
-  const z = Z(), A = z.analysen[id], v = z.vorschlaege[id];
-  return A && v ? G.pruefeVorschlag(A, v.roh) : null;
+  const z = Z(), A = z.analysen[id], v = z.vorschlaege[id] || {};
+  if (!A || !A.free_map) return null;
+  const roh = v.roh || {};
+  return G.pruefeVorschlag(A, { variant: v.wahl || v.key || '', palette: roh.palette, reasoning: roh.reasoning }, texte(), { messe });
 }
 
 /* ---------- Bilder laden und zuschneiden ---------- */
@@ -61,7 +67,7 @@ const alsJpeg = (img, sx, sy, sw, sh, laengste, vergr) => flaeche(img, sx, sy, s
 /* ---------- Analyse ---------- */
 const frage = o => window.KompassKI.frage(o);
 function fortschritt(text) { ui.busyText = text; const el = document.getElementById('bd-fort'); if (el) el.textContent = text; }
-function messe(a, img, alt) {
+function vermiss(a, img, alt) {
   const z = Z();
   const A = analysiereBild(messbild(img, konfig(z.cfg).arbeitsgroesse), { raster: z.raster, cfg: z.cfg, name: a.name, original: { width: img.naturalWidth, height: img.naturalHeight } });
   if (alt) {
@@ -77,7 +83,7 @@ async function neuRechnen() {
   const z = Z();
   for (const a of bilder()) {
     if (!z.analysen[a.id] || !ui.assetURL[a.id]) continue;
-    try { z.analysen[a.id] = messe(a, await ladeBild(ui.assetURL[a.id]), z.analysen[a.id]); } catch (e) { ui.error = e.message; }
+    try { z.analysen[a.id] = vermiss(a, await ladeBild(ui.assetURL[a.id]), z.analysen[a.id]); } catch (e) { ui.error = e.message; }
   }
   save(); if (an()) render();
 }
@@ -91,7 +97,7 @@ function analysiere(liste, nurFehlende) {
       const vor = liste.length > 1 ? `Bild ${nr + 1} von ${liste.length} · ` : '';
       fortschritt(vor + 'Farben, Schärfe und Freiraum werden gemessen');
       const img = await ladeBild(ui.assetURL[a.id]);
-      const A = z.analysen[a.id] = messe(a, img, nurFehlende ? z.analysen[a.id] : null);
+      const A = z.analysen[a.id] = vermiss(a, img, nurFehlende ? z.analysen[a.id] : null);
       if (!nurFehlende) delete z.vorschlaege[a.id];
       A.vlm = modell; save();
       if (!A.overall) {
@@ -120,8 +126,10 @@ function schlageVor() {
   run('Design-Vorschlag entsteht …', async () => {
     const modell = designName();
     fortschritt('Analyse wird zu einem Design-Vorschlag zusammengeführt');
-    const roh = await frage({ system: G.DESIGN_SYSTEM, prompt: G.designPrompt(A, texte()), schema: G.designSchema(A), art: 'bild_design', modell, denken: false });   /* ohne Denkphase: die App prüft jede Angabe nach, langes Grübeln bringt hier nichts */
-    z.vorschlaege[a.id] = { roh, modell };
+    const K = G.komponiere(A, texte(), { messe });
+    const roh = await frage({ system: G.DESIGN_SYSTEM, prompt: G.designPrompt(A, texte(), K), schema: G.designSchema(A, K), art: 'bild_design', modell, denken: false });   /* ohne Denkphase: die Varianten sind schon geprüft */
+    const wahl = K.varianten.find(v => v.id === roh.variant);
+    z.vorschlaege[a.id] = { roh, key: wahl ? wahl.key : '', wahl: '', modell };
     z.tab = 'vorschlag';
     addLog('Design für Bild vorgeschlagen', a.name);
   });
@@ -136,16 +144,17 @@ function speichere(name, inhalt, typ) {
 const stamm = a => slug(a.name.replace(/\.[a-z0-9]+$/i, '')) || 'bild';
 const analyseJSON = A => JSON.stringify({ version: A.version, image: A.image, vlm: A.vlm || '', config: A.config, overall: A.overall, palette: A.palette, grids: A.grids }, null, 2);
 function vorschlagJSON(a) {
-  const z = Z(), v = vorschlag(a.id), t = texte();
-  return JSON.stringify({ image: z.analysen[a.id].image, model: z.vorschlaege[a.id].modell, texts: t, ...v, model_answer: z.vorschlaege[a.id].roh }, null, 2);
+  const z = Z(), v = vorschlag(a.id), ki = z.vorschlaege[a.id] || {};
+  return JSON.stringify({ image: z.analysen[a.id].image, model: ki.modell || '', chosen_by: ki.wahl ? 'person' : ki.key ? 'model' : 'app', ...v, model_answer: ki.roh || null }, null, 2);
 }
 async function debugPNG(a) {
-  const z = Z(), A = z.analysen[a.id], svg = G.debugSVG(A, gridName(A), ui.assetURL[a.id]);
+  const z = Z(), A = z.analysen[a.id], v = z.grid === 'flaechen' && vorschlag(a.id);
+  const svg = v ? G.flaechenSVG(A, v.variants, ui.assetURL[a.id], v.variant && v.variant.key) : G.debugSVG(A, gridName(A), ui.assetURL[a.id]);
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {
     const img = await ladeBild(url), c = document.createElement('canvas'); c.width = A.image.width; c.height = A.image.height;
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    c.toBlob(b => speichere(`${stamm(a)}-debug-${gridName(A)}.png`, b), 'image/png');
+    c.toBlob(b => speichere(`${stamm(a)}-debug-${v ? 'textflaechen' : gridName(A)}.png`, b), 'image/png');
   } finally { URL.revokeObjectURL(url); }
 }
 /* Bild und Farben in den Flyer-Entwurf des Studios übernehmen */
@@ -178,6 +187,7 @@ const SCHWELLEN = [
   ['freiraum.kantenschwelle', 'Kante ab Stärke', 'Ab welcher Stärke ein Pixel als Kante zählt (0–1020).', 1],
   ['freiraum.kantendichte_max', 'Freiraum: Kanten höchstens', 'Anteil Kantenpixel, 0,04 = 4 %.', 0.005],
   ['freiraum.farbvarianz_max', 'Freiraum: Farbstreuung höchstens', 'Wie stark die Farben in der Kachel schwanken dürfen.', 1],
+  ['freiraum.karte', 'Feinheit der Freiraum-Karte', 'Zellen entlang der längsten Seite. Feiner = genauere Textflächen.', 1],
   ['kontrast_min', 'Kontrast Schrift mindestens', 'WCAG AA verlangt 4,5 : 1.', 0.1],
   ['kontrast_flaeche_min', 'Kontrast Knopf mindestens', 'Knopffläche gegen das Bild, WCAG verlangt 3 : 1.', 0.1],
   ['arbeitsgroesse', 'Messgröße in Pixel', 'Längste Seite, auf die das Bild für die Messung verkleinert wird.', 64]
@@ -224,6 +234,7 @@ function panel() {
 const farbfeld = c => `<span class="bd-farbe" title="${c.hex}${c.percent !== undefined ? ` · ${zahl(c.percent)} %` : ''}" style="background:${c.hex}"></span>`;
 function viewAnalyse(a, A) {
   const g = gridName(A), z = Z(), sum = G.zusammenfassung(A), o = A.overall;
+  const fl = z.grid === 'flaechen' && A.free_map, v = fl && vorschlag(a.id);
   const offen = z.beschreiben ? sum.kacheln - sum.beschrieben : 0;
   const zeile = k => `<tr class="${k.text_space ? 'frei' : ''}">
     <td><b>r${k.row}c${k.col}</b><br><span class="muted">${esc(k.label)}</span></td>
@@ -235,13 +246,14 @@ function viewAnalyse(a, A) {
     <td class="bd-besch">${esc(k.description) || '<span class="muted">–</span>'}</td></tr>`;
   return `
     <div class="ds-toolbar">
-      <div class="seg2">${Object.keys(A.grids).map(n => `<button data-bdgrid="${n}" aria-pressed="${n === g}">${n.replace('x', ' × ')}</button>`).join('')}</div>
-      <span class="small muted">${sum.frei} von ${sum.kacheln} Kacheln mit Freiraum · ${sum.unscharf} unscharf</span>
+      <div class="seg2">${Object.keys(A.grids).map(n => `<button data-bdgrid="${n}" aria-pressed="${!fl && n === g}">${n.replace('x', ' × ')}</button>`).join('')}${A.free_map ? `<button data-bdgrid="flaechen" aria-pressed="${!!fl}">Textflächen</button>` : ''}</div>
+      <span class="small muted">${fl ? `Freiraum-Karte ${A.free_map.cols} × ${A.free_map.rows} · ${v.variants.length} geprüfte Kompositionen` : `${sum.frei} von ${sum.kacheln} Kacheln mit Freiraum · ${sum.unscharf} unscharf`}</span>
       <span class="spacer"></span>
       <button class="btn tiny" data-bd="debugpng">Vorschau als PNG</button><button class="btn tiny" data-bd="json">JSON speichern</button>
     </div>
-    <div class="bd-debug">${G.debugSVG(A, g, ui.assetURL[a.id])}</div>
-    <p class="bd-legende small"><span><i class="gruen"></i>Freiraum für Text</span><span><i class="rot"></i>blurry</span><span><i class="rot2"></i>leicht unscharf</span><span class="muted">Flächen fast ohne Struktur (Himmel, Wand) bekommen kein Schärfe-Urteil.</span></p>
+    <div class="bd-debug">${fl ? G.flaechenSVG(A, v.variants, ui.assetURL[a.id], v.variant && v.variant.key) : G.debugSVG(A, g, ui.assetURL[a.id])}</div>
+    ${fl ? '<p class="bd-legende small"><span><i class="gruen"></i>ruhige Zelle</span><span><i class="strich"></i>zusammenhängende Fläche</span><span><i class="rahmen"></i>Textblock einer Komposition (A–D)</span></p>'
+      : '<p class="bd-legende small"><span><i class="gruen"></i>Freiraum für Text</span><span><i class="rot"></i>blurry</span><span><i class="rot2"></i>leicht unscharf</span><span class="muted">Flächen fast ohne Struktur (Himmel, Wand) bekommen kein Schärfe-Urteil.</span></p>'}
     ${offen ? `<p class="bd-hinweis small">${offen} Kacheln haben noch keine Beschreibung. <button class="linkbtn" data-bd="fehlende">Fehlende Beschreibungen ergänzen</button></p>` : ''}
     <div class="ds-info">
       <div class="m-box"><h4>Gesamtbild</h4>${o ? `<dl class="bd-dl"><dt>Hauptmotiv</dt><dd>${esc(o.main_subject)}</dd><dt>Bildaufbau</dt><dd>${esc(o.composition)}</dd><dt>Stimmung</dt><dd>${esc(o.mood)}</dd><dt>Stil</dt><dd>${esc(o.style)}</dd><dt>Licht</dt><dd>${esc(o.lighting)}</dd></dl>` : '<p class="muted">Noch nicht beschrieben.</p>'}</div>
@@ -251,26 +263,27 @@ function viewAnalyse(a, A) {
     <div class="bd-tabelle"><table><thead><tr><th>Kachel</th><th>Farben</th><th>Helligkeit</th><th>Schärfe</th><th>Freiraum</th><th>Schrift</th><th>Inhalt</th></tr></thead><tbody>${A.grids[g].map(zeile).join('')}</tbody></table></div>`;
 }
 function viewVorschlag(a, A) {
-  const z = Z(), v = vorschlag(a.id);
-  if (!v) return `<div class="ds-empty"><h2>Wohin mit dem Text?</h2><p class="muted">Das Design-Modell (${esc(designName() || 'kein Modell')}) bekommt die Analyse und schlägt vor, wo Headline, Subline und CTA stehen. Die App prüft danach jede Stelle und jede Farbe: Text nur in Kacheln mit Freiraum, Schrift mit mindestens ${zahl(konfig(z.cfg).kontrast_min)} : 1 Kontrast.</p><button class="btn primary" data-bd="vorschlag">Design vorschlagen</button></div>`;
-  const e = v.elements, p = v.palette, nach = Object.fromEntries(alleKacheln(A).map(k => [k.id, k]));
-  const wo = id => `${id.replace(':', ' · ')} (${esc(nach[id] ? nach[id].label : '')})`;
+  const z = Z(), v = vorschlag(a.id), ki = z.vorschlaege[a.id] || {};
+  if (!v || !v.variant) return `<div class="ds-empty"><h2>Analyse erneuern</h2><p class="muted">Für dieses Bild fehlt die Freiraum-Karte. Starte die Analyse noch einmal.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
+  const e = v.variant, p = v.palette;
+  const quelle = x => (ki.wahl ? (x.key === ki.wahl ? 'deine Wahl' : x.key === ki.key ? 'Wahl der KI' : '') : ki.key ? (x.key === ki.key ? 'Wahl der KI' : '') : x.id === 'A' ? 'Empfehlung der App' : '');
   return `
     <div class="ds-toolbar">
-      <span class="small muted">Vorschlag von ${esc(z.vorschlaege[a.id].modell)}</span><span class="spacer"></span>
-      <button class="btn tiny" data-bd="vorschlag">Neu vorschlagen</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
+      <span class="small muted">${ki.modell ? `Gewählt und begründet von ${esc(ki.modell)}` : 'Komposition von der App berechnet, noch ohne KI'}</span><span class="spacer"></span>
+      <button class="btn tiny" data-bd="vorschlag">${ki.modell ? 'KI neu wählen lassen' : 'KI wählen und begründen lassen'}</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
       <button class="btn tiny primary" data-bd="flyer">In den Flyer übernehmen</button>
     </div>
-    <div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, v, texte(), ui.assetURL[a.id])}</div>
-    ${v.corrections.length ? `<div class="m-box warn"><h4>Von der App korrigiert</h4><ul class="mlist">${v.corrections.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+    <div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, e, v.texts, ui.assetURL[a.id])}</div>
+    <div class="bd-varianten" role="group" aria-label="Komposition">${v.variants.map(x => `<button class="bd-var" data-bdvar="${esc(x.key)}" aria-pressed="${x.key === e.key}"><b>${x.id}</b><span>${esc(x.label)}${quelle(x) ? `<small>${quelle(x)}</small>` : ''}</span></button>`).join('')}</div>
+    ${v.corrections.length ? `<div class="m-box warn"><h4>Hinweis der App</h4><ul class="mlist">${v.corrections.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     <div class="ds-info">
-      <div class="m-box"><h4>Platzierung und Kontrast</h4>
+      <div class="m-box"><h4>Typografie und Kontrast</h4>
         <table class="bd-mini"><tbody>
-          <tr><th>Headline</th><td>${wo(e.headline.tile)}</td><td><span class="bd-probe" style="background:${nach[e.headline.tile].mean_color};color:${e.headline.color}">Aa</span> ${e.headline.color}</td><td>${zahl(e.headline.contrast)} : 1</td></tr>
-          <tr><th>Subline</th><td>${wo(e.subline.tile)}</td><td><span class="bd-probe" style="background:${nach[e.subline.tile].mean_color};color:${e.subline.color}">Aa</span> ${e.subline.color}</td><td>${zahl(e.subline.contrast)} : 1</td></tr>
-          <tr><th>CTA</th><td>${wo(e.cta.tile)}</td><td><span class="bd-probe" style="background:${e.cta.background};color:${e.cta.color}">Aa</span> ${e.cta.background}</td><td>${zahl(e.cta.contrast)} : 1</td></tr>
+          <tr><th>Headline</th><td>${zahl(e.sizes.headline)} % der Bildbreite, ${e.lines.length}-zeilig</td><td><span class="bd-probe" style="background:${e.panel ? e.panel.color : e.ground};color:${e.colors.text}">Aa</span> ${e.colors.text}</td><td>${zahl(e.contrast.text)} : 1</td></tr>
+          ${v.texts.subline ? `<tr><th>Subline</th><td>${zahl(e.sizes.subline)} % · Verhältnis 1 : ${zahl(e.sizes.headline / e.sizes.subline)}</td><td>${e.colors.text}</td><td>${zahl(e.contrast.text)} : 1</td></tr>` : ''}
+          ${v.texts.cta ? `<tr><th>CTA</th><td>${zahl(e.sizes.cta)} %</td><td><span class="bd-probe" style="background:${e.colors.cta_background};color:${e.colors.cta_text}">Aa</span> ${e.colors.cta_background}</td><td>${zahl(e.contrast.cta_text)} : 1</td></tr>` : ''}
         </tbody></table>
-        <p class="small muted" style="margin-top:8px">Kontrast = kleinster Wert gegenüber allen Farben unter dem Text. Mindestens ${zahl(v.min_contrast)} : 1.</p></div>
+        <p class="small muted" style="margin-top:8px">Ein Block, eine Kante, ${e.align === 'mitte' ? 'zentriert' : 'linksbündig'}. Kontrast = kleinster Wert gegenüber allen Bildstellen unter dem Block, mindestens ${zahl(v.min_contrast)} : 1.${e.veil ? ` Dafür liegt ein weicher Schleier (${Math.round(e.veil.opacity * 100)} % ${e.veil.color}) hinter dem Block.` : ''} Rand zum Bild: 6 % der kurzen Seite.</p></div>
       <div class="m-box"><h4>Farbpalette</h4><div class="bd-palette">${[['Hintergrund', p.background], ['Fläche', p.surface], ['Akzent', p.accent], ['Schrift', p.text]].map(([n, h]) => `<div>${farbfeld({ hex: h })}<b>${h}</b><span class="muted">${n}</span></div>`).join('')}</div>
         ${v.reasoning ? `<h4 style="margin-top:14px">Begründung</h4><p>${esc(v.reasoning)}</p>` : ''}</div>
     </div>`;
@@ -279,6 +292,7 @@ function main() {
   const z = Z(), a = asset(), A = a && z.analysen[a.id];
   if (ui.busy) return `<p class="bd-fort" id="bd-fort" role="status">${esc(ui.busyText || '')}</p><div class="live" id="live">${liveInner()}</div>`;
   if (!a) return `<div class="ds-empty"><h2>Design für ein Bild</h2><p class="muted">Lade links ein Foto hoch. Die App misst, wo das Bild ruhig genug für Text ist, wo es unscharf wird und welche Farben es prägen. Daraus entsteht ein Vorschlag, wo Headline, Subline und CTA stehen.</p></div>`;
+  if (A && !A.free_map && !ui.bdNach) { ui.bdNach = true; neuRechnen().finally(() => { ui.bdNach = false; }); }
   if (!A) return `<div class="ds-empty bd-leer">${ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : ''}<h2>${esc(a.name)}</h2><p class="muted">Die Analyse teilt das Bild in Raster, misst jede Kachel und lässt das Vision-Modell (${esc(vlmName() || 'kein Modell')}) beschreiben, was zu sehen ist.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
   const tab = ['analyse', 'vorschlag', 'json'].includes(z.tab) ? z.tab : 'analyse';
   return `<div class="bd-tabs"><div class="seg2"><button data-bdtab="analyse" aria-pressed="${tab === 'analyse'}">Analyse</button><button data-bdtab="vorschlag" aria-pressed="${tab === 'vorschlag'}">Design-Vorschlag</button><button data-bdtab="json" aria-pressed="${tab === 'json'}">JSON</button></div></div>
@@ -298,6 +312,7 @@ function klick(e) {
   if (d.bdbild) { z.asset = d.bdbild; save(); return render(); }
   if (d.bdtab) { z.tab = d.bdtab; save(); return render(); }
   if (d.bdgrid) { z.grid = d.bdgrid; save(); return render(); }
+  if (d.bdvar && a) { z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}), wahl: d.bdvar }; save(); return render(); }
   if (d.bdraster) {
     z.raster = z.raster.includes(d.bdraster) ? z.raster.filter(r => r !== d.bdraster) : [...z.raster, d.bdraster];
     z.raster = [...RASTER_FEST, ...z.eigene].filter(r => z.raster.includes(r));
@@ -319,7 +334,7 @@ function klick(e) {
     case 'vorschlag': return ui.busy ? null : schlageVor();
     case 'json': return speichere(`${stamm(a)}-analyse.json`, analyseJSON(z.analysen[a.id]), 'application/json');
     case 'vjson': return speichere(`${stamm(a)}-design.json`, vorschlagJSON(a), 'application/json');
-    case 'html': return speichere(`${stamm(a)}-design.html`, G.ansichtDatei(z.analysen[a.id], vorschlag(a.id), texte(), ui.assetURL[a.id]), 'text/html');
+    case 'html': return speichere(`${stamm(a)}-design.html`, G.ansichtDatei(z.analysen[a.id], vorschlag(a.id), ui.assetURL[a.id]), 'text/html');
     case 'debugpng': return debugPNG(a);
     case 'kopieren': return navigator.clipboard.writeText(analyseJSON(z.analysen[a.id])).then(() => toast('JSON kopiert'), () => toast('Kopieren hat nicht geklappt'));
     case 'flyer': return uebernehmen();
@@ -342,7 +357,7 @@ function wechsel(e) {
 function eingabe(e) {
   if (!an() || !e.target.dataset || !/^texte\./.test(e.target.dataset.d || '')) return;
   const st = document.getElementById('bd-stage'), a = asset(), v = a && vorschlag(a.id);
-  if (st && v) st.innerHTML = G.ansichtHTML(Z().analysen[a.id], v, texte(), ui.assetURL[a.id]);
+  if (st && v && v.variant) st.innerHTML = G.ansichtHTML(Z().analysen[a.id], v.variant, v.texts, ui.assetURL[a.id]);
 }
 
 /* ---------- Stile ---------- */
@@ -372,6 +387,14 @@ const CSS = `${G.ANSICHT_CSS}
 .bd-legende i{width:14px;height:14px;border-radius:3px;display:inline-block}
 .bd-legende i.gruen{background:rgba(31,163,91,.6)}
 .bd-legende i.rot{background:repeating-linear-gradient(45deg,rgba(215,54,43,.85) 0 3px,rgba(215,54,43,.4) 3px 7px)}
+
+.bd-legende i.strich{background:none;border:2px dashed var(--ink)}
+.bd-legende i.rahmen{background:none;border:2px solid var(--ink)}
+.bd-varianten{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:12px}
+.bd-var{display:flex;gap:10px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 12px;font-size:.86rem}
+.bd-var b{font-family:var(--display);font-size:1.1rem;width:1.2em}
+.bd-var small{display:block;color:var(--muted);font-size:.74rem}
+.bd-var[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
 .bd-legende i.rot2{background:repeating-linear-gradient(45deg,rgba(215,54,43,.6) 0 2px,rgba(215,54,43,.15) 2px 7px)}
 .bd-hinweis{background:var(--assume-bg);border-radius:10px;padding:8px 12px;margin:10px 0 0}
 .bd-dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:.92rem}
@@ -407,3 +430,5 @@ app.addEventListener('change', wechsel);
 app.addEventListener('input', eingabe);
 window.BildDesign = { panel, main, umschalter, aktiv: an };
 if (S.screen === 'design') render();
+/* Sobald die Schrift geladen ist, stimmen die gemessenen Breiten: dann neu zeichnen */
+if (document.fonts && document.fonts.load) document.fonts.load('700 100px "Familjen Grotesk"').then(() => { if (an()) render(); }).catch(() => {});

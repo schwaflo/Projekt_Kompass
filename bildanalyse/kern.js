@@ -22,7 +22,8 @@ export const STANDARD = {
   freiraum: {
     kantenschwelle: 60,      /* Stärke, ab der ein Pixel als Kante zählt (Sobel, 0–1020) */
     kantendichte_max: 0.04,  /* höchster Anteil Kantenpixel für Freiraum */
-    farbvarianz_max: 24      /* höchste Streuung der Farbe (0–128) für Freiraum */
+    farbvarianz_max: 24,     /* höchste Streuung der Farbe (0–128) für Freiraum */
+    karte: 16                /* Feinheit der Freiraum-Karte: Zellen entlang der längsten Seite */
   },
   kontrast_min: 4.5,         /* WCAG AA für Text */
   kontrast_flaeche_min: 3,   /* WCAG für Flächen wie den Knopf */
@@ -209,7 +210,7 @@ export function textFarbe(farben, cfg = STANDARD) {
 
 /* ---------- Eine Kachel messen ---------- */
 /* r liegt in den Koordinaten des gemessenen Bildes */
-export function messeKachel(bild, K, r, cfg = STANDARD) {
+export function messeKachel(bild, K, r, cfg = STANDARD, ohneFarben = false) {
   let n = 0, sg = 0, sg2 = 0, sl = 0, sl2 = 0, kanten = 0, sr = 0, sgn = 0, sb = 0, sr2 = 0, sgn2 = 0, sb2 = 0;
   const schwelle = cfg.freiraum.kantenschwelle;
   for (let y = r.y; y < r.y + r.height; y++) for (let x = r.x; x < r.x + r.width; x++) {
@@ -221,10 +222,12 @@ export function messeKachel(bild, K, r, cfg = STANDARD) {
   const va = (s, s2) => Math.max(0, s2 / n - (s / n) ** 2);
   const helligkeit = sg / n, kontrastWert = Math.sqrt(va(sg, sg2)), lapVar = va(sl, sl2);
   const kantendichte = kanten / n, farbvarianz = Math.sqrt((va(sr, sr2) + va(sgn, sgn2) + va(sb, sb2)) / 3);
-  const colors = dominanteFarben(bild, r, cfg.farben);
+  const mittel = rgbZuHex([sr / n, sgn / n, sb / n]);
+  /* Für die feine Freiraum-Karte reicht die mittlere Farbe der Zelle */
+  const colors = ohneFarben ? [{ hex: mittel, percent: 100 }] : dominanteFarben(bild, r, cfg.farben);
   return {
     colors,
-    mean_color: rgbZuHex([sr / n, sgn / n, sb / n]),
+    mean_color: mittel,
     brightness: runde(helligkeit, 1),
     contrast: runde(kontrastWert, 1),
     sharpness: { laplace_variance: runde(lapVar, 1), label: schaerfeLabel(lapVar, cfg), reliable: kontrastWert >= cfg.schaerfe.min_kontrast },
@@ -233,6 +236,21 @@ export function messeKachel(bild, K, r, cfg = STANDARD) {
     ...textFreiraum(kantendichte, farbvarianz, cfg),
     ...textFarbe(colors, cfg)
   };
+}
+
+/* ---------- Freiraum-Karte ---------- */
+/* Ein feines Raster aus annähernd quadratischen Zellen, gemessen wie die Kacheln. Daraus sucht
+   der Design-Vorschlag zusammenhängende ruhige Flächen; die groben Raster sind dafür zu grob
+   (eine 2×2-Kachel mit halber Person gilt als unruhig, obwohl ihre andere Hälfte frei ist). */
+export function freiraumKarte(bild, K, cfg = STANDARD) {
+  const lang = Math.max(bild.width, bild.height), fein = Math.max(6, Math.min(32, Math.round(cfg.freiraum.karte)));
+  const cols = Math.max(4, Math.round(fein * bild.width / lang)), rows = Math.max(4, Math.round(fein * bild.height / lang));
+  const free = [], score = [], color = [];
+  for (const k of kachelRechtecke(bild.width, bild.height, { name: 'karte', spalten: cols, zeilen: rows })) {
+    const m = messeKachel(bild, K, k, cfg, true);
+    free.push(m.text_space ? 1 : 0); score.push(m.text_space_score); color.push(m.mean_color);
+  }
+  return { cols, rows, free, score, color };
 }
 
 /* ---------- Ganzes Bild ---------- */
@@ -255,6 +273,7 @@ export function analysiereBild(bild, { raster = ['2x2', '4x2'], cfg: eigene = {}
     config: cfg,
     overall: null,
     palette: dominanteFarben(bild, { x: 0, y: 0, width: bild.width, height: bild.height }, 6, 8000),
+    free_map: freiraumKarte(bild, K, cfg),
     grids
   };
 }

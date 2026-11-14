@@ -116,7 +116,7 @@ Im Design-Studio (Projekt-Analyse → **Design entwickeln**) gibt es neben dem E
 1. **Bild** hochladen und **Raster** wählen (2 × 2, 4 × 2, 4 × 4 oder eigene).
 2. **Bild analysieren:** Die App misst je Kachel dominante Farben, Helligkeit, Kontrast, Schärfe und Freiraum für Text. Ein Vision-Modell beschreibt das Gesamtbild und jede Kachel.
 3. **Debug-Vorschau** ansehen: Raster über dem Bild, Freiraum für Text grün, unscharfe Bereiche rot.
-4. **Design vorschlagen:** Ein zweites Modell legt fest, wo Headline, Subline und CTA stehen. Die App lässt Text nur in Kacheln mit Freiraum zu und ersetzt Schriftfarben mit zu wenig Kontrast.
+4. **Design-Vorschlag:** Die App sucht zusammenhängende ruhige Flächen und setzt Headline, Subline und CTA als einen Block mit fester Hierarchie hinein, mit geprüftem Kontrast und Abstand zu Rand und Motiv. Ein zweites Modell wählt zwischen den geprüften Varianten und begründet die Wahl.
 5. Als JSON, PNG oder HTML speichern oder **in den Flyer übernehmen**.
 
 Die Modelle wählst du im Bereich „Modelle“, alle Schwellwerte unter „Schwellwerte“. Einzelheiten, das JSON-Format und die Regeln stehen in [docs/bildanalyse.md](docs/bildanalyse.md).
