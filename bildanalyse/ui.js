@@ -243,7 +243,7 @@ function nimmSkizze(i) {
   z.regel = s.regel; z.stil = JSON.parse(JSON.stringify({ farben: {}, flaeche: { art: 'keine' }, schmuck: {}, ...s.stil, datum: z.stil.datum || '' }));
   z.farbname = s.stil.farben && (s.stil.farben.schrift || s.stil.farben.akzent) ? s.name : '';
   const v = z.vorschlaege[a.id]; if (v && v.wahl && typeof v.wahl === 'object') delete v.wahl[s.regel];
-  z.tab = 'vorschlag'; save(); render(); toast(`Skizze „${s.name}“ übernommen`);
+  z.tab = 'vorschlag'; save(); render(); zuTabs(); toast(`Skizze „${s.name}“ übernommen`);
 }
 
 /* ---------- Farbwelt ---------- */
@@ -513,6 +513,9 @@ function open() {
 }
 const einstieg = () => `<section class="startlist bd-einstieg"><div><h3>Text auf ein Bild setzen</h3><p class="small muted">Foto hochladen, ruhige Flächen und Schärfe messen lassen und geprüfte Kompositionen für Headline, Subline und CTA bekommen. Ohne Projektanalyse.</p></div><button class="btn" data-bd="start">Bild-Design öffnen</button></section>`;
 
+/* Nach einem Wechsel des Reiters beginnt der Inhalt oben, wenn man weiter unten war */
+function zuTabs() { const t = document.querySelector('.bd-tabs'); if (t && t.getBoundingClientRect().top < 0) t.scrollIntoView({ block: 'start' }); }
+
 /* ---------- Ereignisse ---------- */
 function klick(e) {
   const b = e.target.closest('button'); if (!b) return;
@@ -523,7 +526,7 @@ function klick(e) {
   if (!an()) return;
   const z = Z(), a = asset();
   if (d.bdbild) { z.asset = d.bdbild; save(); return render(); }
-  if (d.bdtab) { z.tab = d.bdtab; save(); return render(); }
+  if (d.bdtab) { z.tab = d.bdtab; save(); render(); return zuTabs(); }
   if (d.bdgrid) { z.grid = d.bdgrid; save(); return render(); }
   if (d.bdvar && a) { const v = z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}) }; v.wahl = { ...(v.wahl && typeof v.wahl === 'object' ? v.wahl : {}), [regel()]: d.bdvar }; save(); return render(); }
   if (d.bdregel) { z.regel = d.bdregel; save(); return render(); }
@@ -567,7 +570,12 @@ function klick(e) {
 function wechsel(e) {
   if (!an()) return;
   const t = e.target, z = Z();
-  if (t.dataset.bds) { setze(z.stil, t.dataset.bds, stilWert(t)); save(); return render(); }
+  if (t.dataset.bds) {
+    setze(z.stil, t.dataset.bds, stilWert(t)); save();
+    /* Textfelder zeichnen nicht neu: die Ansicht ist beim Tippen schon mitgelaufen, und ein Neuzeichnen
+       beim Verlassen des Felds würde den Klick verschlucken, mit dem man es verlässt. */
+    return t.type === 'text' || t.tagName === 'TEXTAREA' ? undefined : render();
+  }
   if (t.dataset.bdf) { z[t.dataset.bdf] = t.type === 'checkbox' ? t.checked : t.value; save(); return render(); }
   if (t.dataset.bdcfg) {
     const pfad = t.dataset.bdcfg, n = parseFloat(String(t.value).replace(',', '.'));
@@ -674,6 +682,27 @@ const CSS = `${G.ANSICHT_CSS}
 .bd-json{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.78rem;line-height:1.45;max-height:70vh;overflow:auto;white-space:pre}
 .bd-leer img{max-width:min(100%,520px);max-height:320px;border-radius:12px;display:block;margin:0 auto 16px}
 `;
+
+/* ---------- Neuzeichnen ohne Sprung ---------- */
+/* Die App baut bei jeder Änderung die ganze Seite neu auf. Im Design-Studio bleibt dabei erhalten,
+   wo man gerade ist: Position der Seite und der linken Spalte, auf- und zugeklappte Abschnitte
+   und das Feld, in dem man steht. Gilt für das ganze Studio, nicht nur für das Bild-Design. */
+const zeichneRoh = window.render;
+window.render = function () {
+  const feld = el => (!el || !el.dataset ? '' : el.dataset.bds ? `[data-bds="${el.dataset.bds}"]` : el.dataset.bdcfg ? `[data-bdcfg="${el.dataset.bdcfg}"]` : el.dataset.d ? `[data-d="${el.dataset.d}"]` : el.id ? '#' + el.id : '');
+  const spalte = S.screen === 'design' ? document.querySelector('.ds-panel') : null;
+  if (!spalte) return zeichneRoh();
+  const stand = { y: window.scrollY, oben: spalte.scrollTop, art: spalte.className, offen: [...spalte.querySelectorAll('details')].map(d => d.open), fokus: feld(document.activeElement) };
+  const auswahl = stand.fokus && 'selectionStart' in document.activeElement ? (() => { try { return [document.activeElement.selectionStart, document.activeElement.selectionEnd]; } catch { return null; } })() : null;
+  zeichneRoh();
+  const neu = S.screen === 'design' ? document.querySelector('.ds-panel') : null;
+  if (!neu || neu.className !== stand.art) return;   /* anderer Bereich: dort beginnt man oben */
+  const klappen = [...neu.querySelectorAll('details')];
+  if (klappen.length === stand.offen.length) klappen.forEach((d, i) => { d.open = stand.offen[i]; });
+  neu.scrollTop = stand.oben;
+  window.scrollTo(0, stand.y);
+  if (stand.fokus) { const el = document.querySelector(stand.fokus); if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); if (auswahl && el.setSelectionRange) { try { el.setSelectionRange(auswahl[0], auswahl[1]); } catch {} } } }
+};
 
 /* ---------- Start ---------- */
 document.head.appendChild(Object.assign(document.createElement('style'), { id: 'bild-css', textContent: CSS }));
