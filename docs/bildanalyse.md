@@ -126,12 +126,27 @@ Die KI wählt immer innerhalb der gerade aktiven Regel. Neue Regeln kommen als E
 
 Hat ein Bild keine ruhige Fläche, in die der Block passt, steht er unten links auf einer Fläche; die App sagt das dazu.
 
+## Stil: Farbwelt, Farbflächen, Schmuck, Datum
+
+Links im Bereich stehen vier Bausteine, die sich einzeln an- und abwählen lassen. Jede Änderung wirkt sofort auf die Ansicht; die Komposition wird dabei neu gerechnet, ohne KI.
+
+**Farbwelt.** Drei Farben: Schrift, Akzent (Knopf und Schmuck am Block) und Fläche. Ohne Angabe nimmt die App Töne aus dem Bild. Du setzt sie mit dem Farbwähler, lässt sie aus einer Beschreibung vorschlagen („frisch, Meer, Türkis mit Weiß“, ein KI-Aufruf) oder übernimmst die Farben der empfohlenen Gestaltungsrichtung aus der Projektanalyse, wenn es eine gibt. Die Kontrastregeln gelten weiter: Wäre eine Wunschfarbe an der Stelle nicht lesbar, nimmt die App eine andere und nennt den Grund.
+
+**Farbflächen.** Eine Farbfläche überdeckt einen Teil des Fotos. Presets: Band (Streifen links oder rechts), Sockel (unten oder oben), Diagonale (schräg aus einer Ecke) und Farbton (halb durchsichtig über dem ganzen Bild). Einstellbar sind Seite, Größe, Deckkraft und Farbe. Der Text ist darauf abgestimmt: Die App rechnet mit der Freiraum-Karte, wie sie mit der Fläche aussieht. Eine deckende Fläche gilt als ruhiger Grund in ihrer Farbe, der Textblock stellt sich bevorzugt darauf, Schrift- und Knopffarbe richten sich nach ihr, und kein Text läuft über ihre Kante.
+
+**Schmuckelemente.** Presets über dem Bild: diagonale Linie (steigend, fallend oder gekreuzt, Höhe einstellbar), Rahmen und Eckmarken (Abstand zum Rand einstellbar). Presets am Textblock, die mit ihm wandern: Akzentlinie über der Headline und Balken an der Kante. Für jedes Element: Stärke und Farbe. Ohne eigene Farbe nehmen Linien über dem Bild die Schriftfarbe der Komposition, Akzente am Block die Akzentfarbe.
+
+**Datum oder Nummer.** Das Feld unter „Texte fürs Bild“ wird an Punkten, Strichen und Leerzeichen geteilt und gestapelt gesetzt (30 – 03 – 19). Gibt es ein Band, steht der Stapel darin; sonst in der ersten Ecke, die ruhig ist und dem Textblock nicht in die Quere kommt.
+
+Die Presets stehen als `FLAECHEN` und `SCHMUCK` in [`bildanalyse/stil.js`](../bildanalyse/stil.js); ein neues Preset ist ein Eintrag dort plus seine Zeichnung in `flaechePolygon` oder `schmuckBildSVG`.
+
 ## Aufbau
 
 | Datei | Aufgabe | Läuft in |
 |---|---|---|
 | `bildanalyse/kern.js` | Raster, k-Means, Helligkeit, Schärfe, Kanten, Freiraum, WCAG-Kontrast, Schwellwerte | Browser, Node |
 | `bildanalyse/design.js` | Flächen finden, Textblock setzen, Varianten prüfen, Fragen an die Modelle, HTML-Ansicht, Debug-Vorschau | Browser, Node |
+| `bildanalyse/stil.js` | Presets für Farbflächen und Schmuck, gestapeltes Datum, Wirkung der Fläche auf die Freiraum-Karte | Browser, Node |
 | `bildanalyse/ui.js` | Bereich „Bild-Design“ im Studio, Aufrufe der KI, Speichern, Übernahme in den Flyer | Browser |
 | `tests/bildanalyse.test.js` | Tests für Messung und Regeln, mit Testbildern aus dem Code | Browser, Node |
 

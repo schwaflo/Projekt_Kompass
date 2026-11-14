@@ -7,16 +7,19 @@
    → Debug-Vorschau prüfen → Design vorschlagen → speichern oder
    in den Flyer-Entwurf übernehmen.
    ============================================================ */
+/* global recIndex */
 /* global S, ui, render, run, save, esc, toast, liveInner, designState, addLog, slug, KIND, TOK, FORMATE, errorBox, loadAssets */
 import { STANDARD, konfig, analysiereBild, parseRaster, parseRasterListe, alleKacheln } from './kern.js';
 import * as G from './design.js';
+import { FLAECHEN, SCHMUCK, stilVoll } from './stil.js';
 
 Object.assign(KIND, {
   bild_gesamt: { name: 'Gesamtbild beschreiben', expect: 500 },
   bild_kachel: { name: 'Kachel beschreiben', expect: 160 },
-  bild_design: { name: 'Design-Vorschlag zusammenführen', expect: 700 }
+  bild_design: { name: 'Design-Vorschlag zusammenführen', expect: 700 },
+  bild_farben: { name: 'Farbwelt vorschlagen', expect: 120 }
 });
-Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000 });
+Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000, bild_farben: 300 });
 
 const RASTER_FEST = ['2x2', '4x2', '4x4'];
 const VLM_WUNSCH = /qwen2\.5-?vl/i, DESIGN_WUNSCH = /gemma-?4/i;
@@ -25,6 +28,7 @@ const VLM_WUNSCH = /qwen2\.5-?vl/i, DESIGN_WUNSCH = /gemma-?4/i;
 function Z() {
   const D = designState();
   if (!D.bild) D.bild = { asset: '', raster: ['2x2', '4x2'], eigene: [], beschreiben: true, vlm: '', modell: '', cfg: {}, analysen: {}, vorschlaege: {}, tab: 'analyse', grid: '' };
+  if (!D.bild.stil) D.bild.stil = { farben: {}, flaeche: { art: 'keine' }, schmuck: {}, datum: '' };
   /* Analysen entfernter Bilder nicht weiter mitspeichern */
   const da = new Set(D.assets.map(a => a.id));
   for (const feld of ['analysen', 'vorschlaege']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
@@ -59,8 +63,8 @@ function vorschlag(id, r = regel()) {
   if (!A || !A.free_map) return null;
   const ki = (v.kiRegel || 'auto') === r ? v.roh || {} : {};
   /* Die Kompositionen ändern sich nur mit Bild, Texten, Schwellwerten oder Schrift: so lange merken */
-  const marke = [id, r, JSON.stringify(texte()), JSON.stringify(A.config), A.image.measured_width, A.free_map.free.join(''), document.fonts ? document.fonts.status : ''].join('|');
-  if (!merk.has(marke)) { if (merk.size > 60) merk.clear(); merk.set(marke, G.komponiere(A, texte(), { messe, regel: r })); }
+  const marke = [id, r, JSON.stringify(z.stil), JSON.stringify(texte()), JSON.stringify(A.config), A.image.measured_width, A.free_map.free.join(''), document.fonts ? document.fonts.status : ''].join('|');
+  if (!merk.has(marke)) { if (merk.size > 60) merk.clear(); merk.set(marke, G.komponiere(A, texte(), { messe, regel: r, stil: z.stil })); }
   return G.pruefeVorschlag(A, { variant: wunsch(v, r), palette: (v.roh || {}).palette, reasoning: ki.reasoning }, texte(), { fertig: merk.get(marke) });
 }
 /* Durch alle Kompositionen aller Regeln blättern */
@@ -149,7 +153,7 @@ function schlageVor() {
   run('Design-Vorschlag entsteht …', async () => {
     const modell = designName();
     fortschritt('Analyse wird zu einem Design-Vorschlag zusammengeführt');
-    const K = vorschlag(a.id) ? { regel: regel(), varianten: vorschlag(a.id).variants, texte: vorschlag(a.id).texts } : G.komponiere(A, texte(), { messe, regel: regel() });
+    const K = vorschlag(a.id) ? { regel: regel(), varianten: vorschlag(a.id).variants, texte: vorschlag(a.id).texts } : G.komponiere(A, texte(), { messe, regel: regel(), stil: z.stil });
     const roh = await frage({ system: G.DESIGN_SYSTEM, prompt: G.designPrompt(A, texte(), K), schema: G.designSchema(A, K), art: 'bild_design', modell, denken: false });   /* ohne Denkphase: die Varianten sind schon geprüft */
     const wahl = K.varianten.find(v => v.id === roh.variant);
     const alt = z.vorschlaege[a.id] || {}, eigene = { ...(alt.wahl && typeof alt.wahl === 'object' ? alt.wahl : {}) };
@@ -158,6 +162,28 @@ function schlageVor() {
     z.tab = 'vorschlag';
     addLog('Design für Bild vorgeschlagen', a.name);
   });
+}
+
+/* ---------- Farbwelt ---------- */
+function farbweltKI() {
+  const z = Z(), a = asset(), A = a && z.analysen[a.id], feld = document.getElementById('bd-farbwunsch'), wunsch = feld ? feld.value.trim() : '';
+  if (!wunsch) { ui.error = 'Beschreib die Farbwelt in ein paar Worten, zum Beispiel „frisch, Meer, Türkis mit Weiß“.'; return render(); }
+  z.farbwunsch = wunsch;
+  run('Farbwelt entsteht …', async () => {
+    fortschritt('Farbwelt wird vorgeschlagen');
+    const f = G.leseFarbwelt(await frage({ system: 'Du bist Farbgestalterin. Antworte ausschließlich mit JSON.', prompt: G.farbweltPrompt(A || { palette: [] }, wunsch), schema: G.FARBWELT_SCHEMA, art: 'bild_farben', modell: designName(), denken: false }));
+    if (!f.schrift && !f.akzent && !f.flaeche) throw new Error('Das Modell hat keine gültigen Farben geliefert. Versuch es noch einmal oder wähle die Farben selbst.');
+    z.stil.farben = { schrift: f.schrift, akzent: f.akzent, flaeche: f.flaeche }; z.farbname = f.name;
+  });
+}
+/* Farben der empfohlenen Gestaltungsrichtung aus der Projektanalyse */
+function projektFarben() {
+  const r = S.ergebnis, st = r && r.strategien && r.strategien.length ? r.strategien[typeof recIndex === 'function' ? recIndex(r) : 0] : null;
+  const liste = ((st && st.farben) || []).filter(c => /^#?[0-9a-f]{6}$/i.test(String(c.hex || '').trim()));
+  if (!liste.length) return null;
+  const nach = re => (liste.find(c => re.test(`${c.rolle || ''} ${c.name || ''}`)) || {}).hex;
+  const h = x => (x ? (x.startsWith('#') ? x : '#' + x).toUpperCase() : '');
+  return { schrift: h(nach(/text|schrift/i)), akzent: h(nach(/akzent|signal|highlight/i) || liste[0].hex), flaeche: h(nach(/hintergrund|fläche|flaeche|grund/i)) };
 }
 
 /* ---------- Ausgaben ---------- */
@@ -240,7 +266,10 @@ function panel() {
       <label class="ds-l">Headline<input class="input" data-d="texte.headline" value="${esc(t.headline)}"></label>
       <label class="ds-l">Subline<input class="input" data-d="texte.subline" value="${esc(t.subline)}"></label>
       <label class="ds-l">CTA<input class="input" data-d="texte.cta" value="${esc(t.cta)}"></label>
+      <label class="ds-l">Datum oder Nummer<input class="input" data-bds="datum" value="${esc(z.stil.datum || '')}" placeholder="z. B. 30.03.19"></label>
+      <p class="small muted">Wird an Punkten, Strichen und Leerzeichen in Blöcke geteilt und gestapelt.</p>
     </details>
+    ${stilPanel()}
     <details><summary>Modelle</summary>
       <label class="ds-l">Vision-Modell (sieht das Bild)${wahl('vlm', vlmName())}</label>
       <label class="ds-l">Design-Modell (führt zusammen)${wahl('modell', designName())}</label>
@@ -253,6 +282,41 @@ function panel() {
     <button class="btn primary ds-go" data-bd="analyse" ${ui.busy || !a ? 'disabled' : ''}>${A ? 'Bild neu analysieren' : 'Bild analysieren'}</button>
     ${liste.length > 1 ? `<button class="btn ds-go bd-zweit" data-bd="alle" ${ui.busy ? 'disabled' : ''}>Alle ${liste.length} Bilder analysieren</button>` : ''}
   </aside>`;
+}
+
+/* Farbwelt, Farbflächen und Schmuck: Presets anklicken, darunter anpassen */
+function stilPanel() {
+  const z = Z(), st = stilVoll(z.stil), a = asset(), v = a && vorschlag(a.id), akt = v && v.variant;
+  const farbe = (pfad, wert, name, auto) => `<div class="bd-farbwahl"><input type="color" data-bds="${pfad}" value="${wert || auto || '#888888'}" aria-label="${name}"><span>${name}<small>${wert || 'automatisch'}</small></span>${wert ? `<button class="linkbtn" data-bdsleer="${pfad}">auto</button>` : ''}</div>`;
+  const regler = (pfad, wert, name, [min, max], schritt, einheit = '') => `<label class="bd-regler"><span>${name}</span><input type="range" min="${min}" max="${max}" step="${schritt}" data-bds="${pfad}" value="${wert}"><output>${zahl(wert)}${einheit}</output></label>`;
+  const wahl = (pfad, wert, name, optionen) => `<label class="bd-regler"><span>${name}</span><select class="input" data-bds="${pfad}">${Object.entries(optionen).map(([k, n]) => `<option value="${k}" ${k === wert ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+  const fl = st.flaeche, F = FLAECHEN[fl.art], proj = projektFarben();
+  const aktiv = Object.keys(SCHMUCK).filter(id => st.schmuck[id].an);
+  return `<details ${st.farben.schrift || st.farben.akzent || st.farben.flaeche ? 'open' : ''}><summary>Farbwelt ${z.farbname && (st.farben.schrift || st.farben.akzent) ? `<span class="muted small">${esc(z.farbname)}</span>` : ''}</summary>
+      ${farbe('farben.schrift', st.farben.schrift, 'Schrift', akt && akt.colors.text)}
+      ${farbe('farben.akzent', st.farben.akzent, 'Akzent (Knopf, Schmuck)', akt && akt.colors.cta_background)}
+      ${farbe('farben.flaeche', st.farben.flaeche, 'Fläche', v && v.style.flaeche ? v.style.flaeche.color : '#F7F0EC')}
+      <div class="row bd-eigen"><input class="input" id="bd-farbwunsch" placeholder="z. B. frisch, Meer, Türkis mit Weiß" value="${esc(z.farbwunsch || '')}" aria-label="Farbwelt beschreiben"><button class="btn tiny" data-bd="farbwelt" ${ui.busy ? 'disabled' : ''}>Vorschlagen</button></div>
+      <p class="small muted">Ohne Angabe nimmt die App Töne aus dem Bild. Die Schriftfarbe gilt nur dort, wo sie lesbar bleibt.${proj ? ' <button class="linkbtn" data-bd="farbprojekt">Farben aus der Projektanalyse nehmen</button>' : ''}</p>
+    </details>
+    <details ${fl.art !== 'keine' ? 'open' : ''}><summary>Farbflächen</summary>
+      <div class="bd-chips">${Object.entries(FLAECHEN).map(([k, x]) => `<button class="bd-chip" data-bdflaeche="${k}" aria-pressed="${k === fl.art}" title="${esc(x.info)}">${x.name}</button>`).join('')}</div>
+      ${fl.art !== 'keine' ? `<div class="bd-stilbox"><p class="small muted">${esc(F.info)}</p>
+        ${F.seiten ? wahl('flaeche.seite', fl.seite, 'Seite', F.seiten) : ''}
+        ${F.groesse ? regler('flaeche.groesse', fl.groesse, 'Größe', F.groesse, 1, ' %') : ''}
+        ${regler('flaeche.deckkraft', fl.deckkraft, 'Deckkraft', [0.1, 1], 0.05)}
+        ${farbe('flaeche.farbe', fl.farbe, 'Farbe der Fläche', v && v.style.flaeche ? v.style.flaeche.color : '')}</div>` : '<p class="small muted">Eine Farbfläche überdeckt einen Teil des Fotos. Text und Farben richten sich danach.</p>'}
+    </details>
+    <details ${aktiv.length ? 'open' : ''}><summary>Schmuckelemente <span class="muted small">${aktiv.length || ''}</span></summary>
+      <div class="bd-chips">${Object.entries(SCHMUCK).map(([k, x]) => `<button class="bd-chip" data-bdschmuck="${k}" aria-pressed="${st.schmuck[k].an}" title="${esc(x.info)}">${x.name}</button>`).join('')}</div>
+      ${aktiv.map(id => { const e = st.schmuck[id], P = SCHMUCK[id]; return `<div class="bd-stilbox"><b class="small">${P.name}</b>
+        ${P.richtung ? wahl(`schmuck.${id}.richtung`, e.richtung, 'Richtung', P.richtung) : ''}
+        ${P.lage ? regler(`schmuck.${id}.lage`, e.lage, 'Höhe', P.lage, 1, ' %') : ''}
+        ${P.abstand ? regler(`schmuck.${id}.abstand`, e.abstand, 'Abstand zum Rand', P.abstand, 0.5, ' %') : ''}
+        ${regler(`schmuck.${id}.staerke`, e.staerke, 'Stärke', [0.5, 6], 0.25)}
+        ${farbe(`schmuck.${id}.farbe`, e.farbe, 'Farbe', P.ort === 'block' ? (st.farben.akzent || (akt && akt.colors.cta_background)) : akt && akt.colors.text)}</div>`; }).join('')}
+      ${aktiv.length ? '' : '<p class="small muted">Linien, Rahmen und Akzente. Anklicken schaltet ein Element ein, darunter passt du es an.</p>'}
+    </details>`;
 }
 
 /* ---------- Ansicht: Hauptbereich ---------- */
@@ -302,8 +366,8 @@ function viewVorschlag(a, A) {
       <div class="bd-blaettern"><button class="btn tiny" data-bd="zurueck" aria-label="Vorherige Komposition">‹</button><button class="btn tiny" data-bd="weiter" aria-label="Nächste Komposition">Nächste ›</button></div>
     </div>
     <p class="small muted bd-regelinfo">${esc(R[r].info)}${v.lines.length ? ` <label class="bd-check inline"><input type="checkbox" data-bdf="linien" ${z.linien ? 'checked' : ''}> Hilfslinien zeigen</label>` : ''}</p>
-    ${e ? `<div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, e, v.texts, ui.assetURL[a.id], z.linien ? v.lines : [])}</div>
-    <div class="bd-varianten" role="group" aria-label="Komposition">${v.variants.map(x => `<button class="bd-var" data-bdvar="${esc(x.key)}" aria-pressed="${x.key === e.key}"><b>${x.id}</b><span>${esc(x.label)}${quelle(x) ? `<small>${quelle(x)}</small>` : ''}</span></button>`).join('')}</div>` : `<div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, null, v.texts, ui.assetURL[a.id], z.linien ? v.lines : [])}</div>`}
+    ${e ? `<div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, e, v.texts, ui.assetURL[a.id], { linien: z.linien ? v.lines : [], stil: v.style })}</div>
+    <div class="bd-varianten" role="group" aria-label="Komposition">${v.variants.map(x => `<button class="bd-var" data-bdvar="${esc(x.key)}" aria-pressed="${x.key === e.key}"><b>${x.id}</b><span>${esc(x.label)}${quelle(x) ? `<small>${quelle(x)}</small>` : ''}</span></button>`).join('')}</div>` : `<div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, null, v.texts, ui.assetURL[a.id], { linien: z.linien ? v.lines : [], stil: v.style })}</div>`}
     ${v.corrections.length ? `<div class="m-box warn"><h4>Hinweis der App</h4><ul class="mlist">${v.corrections.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     ${e ? `<div class="ds-toolbar bd-aktionen">
       <span class="small muted">${kiHier ? `Gewählt und begründet von ${esc(ki.modell)}` : 'Von der App berechnet, noch ohne KI'}</span><span class="spacer"></span>
@@ -360,6 +424,9 @@ function klick(e) {
   if (d.bdgrid) { z.grid = d.bdgrid; save(); return render(); }
   if (d.bdvar && a) { const v = z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}) }; v.wahl = { ...(v.wahl && typeof v.wahl === 'object' ? v.wahl : {}), [regel()]: d.bdvar }; save(); return render(); }
   if (d.bdregel) { z.regel = d.bdregel; save(); return render(); }
+  if (d.bdflaeche) { z.stil.flaeche = { ...(z.stil.flaeche || {}), art: d.bdflaeche }; if (d.bdflaeche !== (z.stil.flaeche.alt || '')) { delete z.stil.flaeche.seite; delete z.stil.flaeche.groesse; delete z.stil.flaeche.deckkraft; z.stil.flaeche.alt = d.bdflaeche; } save(); return render(); }
+  if (d.bdschmuck) { const e = (z.stil.schmuck = z.stil.schmuck || {}); e[d.bdschmuck] = { ...(e[d.bdschmuck] || {}), an: !(e[d.bdschmuck] || {}).an }; save(); return render(); }
+  if (d.bdsleer) { setze(z.stil, d.bdsleer, ''); save(); return render(); }
   if (d.bdraster) {
     z.raster = z.raster.includes(d.bdraster) ? z.raster.filter(r => r !== d.bdraster) : [...z.raster, d.bdraster];
     z.raster = [...RASTER_FEST, ...z.eigene].filter(r => z.raster.includes(r));
@@ -385,6 +452,8 @@ function klick(e) {
     case 'debugpng': return debugPNG(a);
     case 'kopieren': return navigator.clipboard.writeText(analyseJSON(z.analysen[a.id])).then(() => toast('JSON kopiert'), () => toast('Kopieren hat nicht geklappt'));
     case 'flyer': return uebernehmen();
+    case 'farbwelt': return ui.busy ? null : farbweltKI();
+    case 'farbprojekt': { const f = projektFarben(); if (f) { z.stil.farben = f; z.farbname = 'aus der Projektanalyse'; save(); render(); } return; }
     case 'weiter': return blaettere(1);
     case 'zurueck': return blaettere(-1);
   }
@@ -392,6 +461,7 @@ function klick(e) {
 function wechsel(e) {
   if (!an()) return;
   const t = e.target, z = Z();
+  if (t.dataset.bds) { setze(z.stil, t.dataset.bds, stilWert(t)); save(); return render(); }
   if (t.dataset.bdf) { z[t.dataset.bdf] = t.type === 'checkbox' ? t.checked : t.value; save(); return render(); }
   if (t.dataset.bdcfg) {
     const pfad = t.dataset.bdcfg, n = parseFloat(String(t.value).replace(',', '.'));
@@ -402,11 +472,15 @@ function wechsel(e) {
     save(); return neuRechnen();
   }
 }
-/* Texte links ändern: die Ansicht folgt sofort */
+const stilWert = t => (t.type === 'range' || t.type === 'number' ? parseFloat(t.value) : t.type === 'checkbox' ? t.checked : t.type === 'color' ? t.value.toUpperCase() : t.value);
+/* Texte und Stil links ändern: die Ansicht folgt sofort */
 function eingabe(e) {
-  if (!an() || !e.target.dataset || !/^texte\./.test(e.target.dataset.d || '')) return;
+  if (!an() || !e.target.dataset) return;
+  const t = e.target;
+  if (t.dataset.bds) { setze(Z().stil, t.dataset.bds, stilWert(t)); const o = t.parentElement.querySelector('output'); if (o) o.textContent = zahl(parseFloat(t.value)) + (o.textContent.includes('%') ? ' %' : ''); }
+  else if (!/^texte\./.test(t.dataset.d || '')) return;
   const st = document.getElementById('bd-stage'), a = asset(), v = a && vorschlag(a.id);
-  if (st && v) st.innerHTML = G.ansichtHTML(Z().analysen[a.id], v.variant, v.texts, ui.assetURL[a.id], Z().linien ? v.lines : []);
+  if (st && v) st.innerHTML = G.ansichtHTML(Z().analysen[a.id], v.variant, v.texts, ui.assetURL[a.id], { linien: Z().linien ? v.lines : [], stil: v.style });
 }
 
 /* ---------- Stile ---------- */
@@ -441,6 +515,15 @@ const CSS = `${G.ANSICHT_CSS}
 
 .bd-legende i.strich{background:none;border:2px dashed var(--ink)}
 .bd-legende i.rahmen{background:none;border:2px solid var(--ink)}
+.bd-farbwahl{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;margin-bottom:8px;font-size:.86rem}
+.bd-farbwahl input[type=color]{width:34px;height:28px;padding:0;border:1px solid var(--line);border-radius:8px;background:none}
+.bd-farbwahl small{display:block;color:var(--muted);font-size:.74rem;font-variant-numeric:tabular-nums}
+.bd-regler{display:grid;grid-template-columns:minmax(0,1fr) 120px 44px;gap:8px;align-items:center;margin-bottom:8px;font-size:.84rem}
+.bd-regler select{grid-column:2 / -1;padding:4px 8px;font-size:.84rem}
+.bd-regler input[type=range]{width:100%;accent-color:var(--accent)}
+.bd-regler output{text-align:right;color:var(--muted);font-size:.78rem;font-variant-numeric:tabular-nums}
+.bd-stilbox{border-top:1px solid var(--line);padding-top:10px;margin-top:6px}
+.bd-stilbox>b{display:block;margin-bottom:8px}
 .bd-regeln{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:flex-end;margin-bottom:6px}
 .bd-regeln .bd-chips{margin:3px 0 0}
 .bd-blaettern{margin-left:auto;display:flex;gap:6px}

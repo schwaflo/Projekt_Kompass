@@ -11,6 +11,7 @@
    Alles ohne Browser lauffähig.
    ============================================================ */
 import { STANDARD, konfig, alleKacheln, istHex, hexNorm, hexZuRgb, kontrast, luminanz, mische } from './kern.js';
+import { stilVoll, flaechePolygon, wendeFlaecheAn, flaecheHTML, teileDatum, datumHTML, schmuckBildSVG, schmuckBlockHTML, STIL_CSS } from './stil.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const runde = (n, st = 2) => { const f = 10 ** st; return Math.round(n * f) / f; };
@@ -167,22 +168,28 @@ const ANKER_WERT = { motiv: 0.25, mitte: 0.16, unten: 0.12, oben: 0.04 };
 /* Baut die geprüften Varianten für ein Bild, seine Texte und eine Layout-Regel.
    texte: { headline, subline, cta }. opts.regel: Schlüssel aus REGELN. opts.messe: (text, fett) → Breite in em. */
 export function komponiere(analyse, texte = {}, opts = {}) {
-  const cfg = konfig(analyse.config || {}), karte = analyse.free_map, messe = opts.messe || breiteEm;
+  const cfg = konfig(analyse.config || {}), messe = opts.messe || breiteEm;
+  /* Stil: Farbwelt, Farbfläche, Schmuck, Datum. Die Farbfläche verändert den Untergrund, auf dem
+     der Text steht: gerechnet wird deshalb mit der Karte, wie sie MIT der Fläche aussieht. */
+  const stil = stilVoll(opts.stil || {}), toeneBild = schriftToene(analyse, cfg);
+  const flFarbe = stil.flaeche.farbe || stil.farben.flaeche || toeneBild.hell, poly = flaechePolygon(stil.flaeche);
+  const karte = poly ? wendeFlaecheAn(analyse.free_map, stil.flaeche, flFarbe) : analyse.free_map;
+  const gestalt = { farben: stil.farben, flaeche: poly ? { art: stil.flaeche.art, seite: stil.flaeche.seite, size: stil.flaeche.groesse, polygon: poly, color: flFarbe, opacity: stil.flaeche.deckkraft } : null, schmuck: stil.schmuck };
   const regel = REGELN[opts.regel] ? opts.regel : 'auto', R_ = REGELN[regel];
   const W = analyse.image.width, H = analyse.image.height, verh = H / W, kurz = Math.min(W, H);
   const t = { headline: String(texte.headline || '').trim() || 'Headline', subline: String(texte.subline || '').trim(), cta: String(texte.cta || '').trim() };
   const { cols: C, rows: R } = karte, zb = 100 / C, zh = 100 / R;
   const randX = 6 * kurz / W, randY = 6 * kurz / H;   /* Rand zum Bildrand: 6 % der kurzen Seite */
-  const toene = schriftToene(analyse, cfg);
+  const toene = toeneBild, wunschSchrift = stil.farben.schrift, wunschAkzent = stil.farben.akzent;
   const frei = (x, y) => x >= 0 && y >= 0 && x < C && y < R && karte.free[y * C + x] === 1;
   const maxBlock = verh <= 1.05 ? 46 : 88;
 
   /* Einen gesetzten Block an eine Stelle legen: Untergrund lesen, Farben wählen, Kontrast prüfen */
   const stelle = (typo, x, y, o) => {
     const bh = typo.height / verh;   /* Blockhöhe in Prozent der Bildhöhe */
-    const grund = []; let belegt = 0, ruhe = 0;
+    const grund = []; let belegt = 0, ruhe = 0, bedeckt = 0;
     for (let cy = Math.max(0, Math.floor(y / zh)); cy <= Math.min(R - 1, Math.floor((y + bh - 0.01) / zh)); cy++) for (let cx = Math.max(0, Math.floor(x / zb)); cx <= Math.min(C - 1, Math.floor((x + typo.width - 0.01) / zb)); cx++) {
-      grund.push(karte.color[cy * C + cx]); ruhe += karte.score[cy * C + cx]; if (!frei(cx, cy)) belegt++;
+      grund.push(karte.color[cy * C + cx]); ruhe += karte.score[cy * C + cx]; if (!frei(cx, cy)) belegt++; if (karte.cover && karte.cover[cy * C + cx] === 1) bedeckt++;
     }
     if (!grund.length) return null;
     const mk = (farbe, lage) => Math.min(...grund.map(g => kontrast(farbe, lage && lage.opacity ? mische(lage.color, g, lage.opacity) : g)));
@@ -209,11 +216,16 @@ export function komponiere(analyse, texte = {}, opts = {}) {
       text = dunkel ? toene.dunkel : toene.hell;
       const a = dunkel ? aD : aH;
       if (a > 0) veil = { color: dunkel ? toene.hell : toene.dunkel, opacity: runde(a) };
+      /* Die Schriftfarbe aus der Farbwelt hat Vorrang, wenn sie kaum mehr Schleier braucht */
+      if (wunschSchrift) {
+        const schein = luminanz(wunschSchrift) < 0.3 ? toene.hell : toene.dunkel, aW = bedarf(wunschSchrift, schein);
+        if (aW !== null && aW <= a + 0.081) { text = wunschSchrift; veil = aW > 0 ? { color: schein, opacity: runde(aW) } : null; }
+      }
     }
     const lage = panel || veil, kText = mk(text, lage);
     /* Knopf: kräftigste Bildfarbe, die sich vom Grund abhebt; sonst die Schriftfarbe */
     const ab = hex => mk(hex, lage);
-    const knopf = (analyse.palette || []).map(c => c.hex).filter(h => saettigung(h) > 0.25 && ab(h) >= cfg.kontrast_flaeche_min).sort((a, b) => saettigung(b) * ab(b) - saettigung(a) * ab(a))[0] || text;
+    const knopf = wunschAkzent && ab(wunschAkzent) >= cfg.kontrast_flaeche_min ? wunschAkzent : (analyse.palette || []).map(c => c.hex).filter(h => saettigung(h) > 0.25 && ab(h) >= cfg.kontrast_flaeche_min).sort((a, b) => saettigung(b) * ab(b) - saettigung(a) * ab(a))[0] || text;
     let knopfText = kontrast(toene.hell, knopf) >= kontrast(toene.dunkel, knopf) ? toene.hell : toene.dunkel;
     if (kontrast(knopfText, knopf) < cfg.kontrast_min) knopfText = kontrast('#FFFFFF', knopf) >= kontrast('#000000', knopf) ? '#FFFFFF' : '#000000';
     const ueber = belegt / grund.length;
@@ -226,8 +238,8 @@ export function komponiere(analyse, texte = {}, opts = {}) {
       ground: grund[Math.floor(grund.length / 2)],
       colors: { text, cta_background: knopf, cta_text: knopfText },
       contrast: { text: runde(kText), cta_text: runde(kontrast(knopfText, knopf)), cta_background: runde(ab(knopf)) },
-      veil, panel, overlap: runde(ueber),
-      score: runde(typo.headline / headlineMax(verh) * 0.4 + ruhe / grund.length * 0.2 + (o.wert || 0) - (panel ? 0.5 : veil ? veil.opacity * 0.3 : 0), 3)
+      veil, panel, overlap: runde(ueber), on_surface: runde(bedeckt / grund.length),
+      score: runde(typo.headline / headlineMax(verh) * 0.4 + ruhe / grund.length * 0.2 + (o.wert || 0) + (gestalt.flaeche && gestalt.flaeche.opacity >= 0.8 && gestalt.flaeche.art !== 'ton' ? bedeckt / grund.length * 0.3 : 0) - (panel ? 0.5 : veil ? veil.opacity * 0.3 : 0), 3)
     };
   };
   /* Varianten, die fast an derselben Stelle landen, nicht doppelt anbieten */
@@ -333,9 +345,27 @@ export function komponiere(analyse, texte = {}, opts = {}) {
     }
     varianten = alle.sort((a, b) => b.score - a.score);
   }
-  varianten.forEach((v, i) => { v.id = 'ABCD'[i]; });
+  /* Datum oder Nummer: in Blöcke geteilt und gestapelt. Steht im Band, wenn es eines gibt, sonst
+     in der ersten Ecke, die ruhig ist und dem Textblock nicht in die Quere kommt. */
+  const teile = teileDatum(stil.datum);
+  const setzeDatum = v => {
+    if (!teile.length) return null;
+    const em = Math.max(...teile.map(x => messe(x, true))), fl = gestalt.flaeche, band = fl && fl.art === 'band' && fl.opacity >= 0.8;
+    let gr = klemme(headlineMax(verh) * 0.44, 2.2, 4.4); if (band) gr = Math.min(gr, fl.size * 0.56 / em);
+    const b = em * gr, h = (teile.length * 1.05 + (teile.length - 1) * 0.93) * gr / verh;
+    const mitteBand = band ? (fl.seite === 'links' ? fl.size / 2 : 100 - fl.size / 2) - b / 2 : 0;
+    const orte = [...(band ? [[mitteBand, randY], [mitteBand, 100 - randY - h]] : []), [100 - randX - b, randY], [randX, randY], [100 - randX - b, 100 - randY - h], [randX, 100 - randY - h]];
+    const zellen = (x, y) => { const z = []; for (let cy = Math.max(0, Math.floor(y / zh)); cy <= Math.min(R - 1, Math.floor((y + h - 0.01) / zh)); cy++) for (let cx = Math.max(0, Math.floor(x / zb)); cx <= Math.min(C - 1, Math.floor((x + b - 0.01) / zb)); cx++) z.push(cy * C + cx); return z; };
+    const trifft = (x, y) => x < v.block.x + v.block.width + 3 && x + b > v.block.x - 3 && y < v.block.y + v.block.height + 3 && y + h > v.block.y - 3;
+    const ohne = orte.filter(([x, y]) => !trifft(x, y));
+    const [x, y] = ohne.find(([x, y]) => zellen(x, y).every(i => karte.free[i] === 1)) || ohne[0] || orte[0];
+    const grund = zellen(x, y).map(i => karte.color[i]), k = f => Math.min(...grund.map(g => kontrast(f, g)));
+    const farbe = wunschSchrift && k(wunschSchrift) >= cfg.kontrast_min ? wunschSchrift : k(toene.dunkel) >= k(toene.hell) ? toene.dunkel : toene.hell;
+    return { parts: teile, x: runde(x), y: runde(y), width: runde(b), height: runde(h), size: runde(gr), color: farbe, contrast: runde(k(farbe)) };
+  };
+  varianten.forEach((v, i) => { v.id = 'ABCD'[i]; v.date = setzeDatum(v); });
   if (R_.bruch && varianten.some(v => v.contrast.text < cfg.kontrast_min)) hinweis = `Regelbruch: Über dem Motiv erreicht die Schrift nicht überall ${cfg.kontrast_min} : 1. Prüfe die Lesbarkeit mit dem Auge.`;
-  return { regel, varianten, notfall, hinweis, texte: t, linien: R_.linien || [] };
+  return { regel, varianten, notfall, hinweis, texte: t, linien: R_.linien || [], gestalt };
 }
 
 /* ---------- Die KI wählt und begründet ---------- */
@@ -387,6 +417,23 @@ AUFGABE
 - reasoning: Begründung in 2–3 Sätzen: warum diese Stelle, wie sie sich zum Motiv verhält, warum diese Farben.`;
 }
 
+/* Farbwelt aus einer Beschreibung: drei Farben, die zum Bild passen */
+export const FARBWELT_SCHEMA = { type: 'object', properties: { schrift: S, akzent: S, flaeche: S, name: S }, required: ['schrift', 'akzent', 'flaeche', 'name'] };
+export const farbweltPrompt = (analyse, wunsch) => `Stelle eine Farbwelt für Text und Gestaltungselemente auf einem Foto zusammen.
+FARBEN DES FOTOS (Hex, Anteil): ${(analyse.palette || []).map(c => `${c.hex} ${Math.round(c.percent)} %`).join(', ')}
+${analyse.overall ? `STIMMUNG DES FOTOS: ${analyse.overall.mood} ${analyse.overall.style}` : ''}
+WUNSCH: ${wunsch}
+
+Antworte mit drei Hex-Codes (#RRGGBB):
+- schrift: Farbe für Headline und Text, sehr dunkel oder sehr hell, damit sie lesbar bleibt
+- akzent: Signalfarbe für Knopf und Schmucklinien, kräftig
+- flaeche: ruhige Farbe für Farbflächen, die Teile des Fotos überdecken und Text tragen; deutlicher Kontrast zu schrift
+- name: 2–3 Wörter, die die Farbwelt benennen`;
+export function leseFarbwelt(antwort = {}) {
+  const f = k => (istHex(antwort[k]) ? hexNorm(antwort[k]) : '');
+  return { schrift: f('schrift'), akzent: f('akzent'), flaeche: f('flaeche'), name: String(antwort.name || '').trim().slice(0, 40) };
+}
+
 /* Wahl der KI (oder der Person) übernehmen und alles festschreiben. antwort.variant darf der
    Buchstabe oder der Schlüssel einer Variante sein; passt keine, gilt die beste der App. */
 export function pruefeVorschlag(analyse, antwort = {}, texte = {}, opts = {}) {
@@ -396,6 +443,10 @@ export function pruefeVorschlag(analyse, antwort = {}, texte = {}, opts = {}) {
   const wunsch = String(antwort.variant || '');
   let v = K.varianten.find(x => x.key === wunsch) || K.varianten.find(x => x.id === wunsch);
   if (!v) { v = K.varianten[0] || null; if (wunsch && !K.notfall && v) korrekturen.push('Die gewählte Komposition passt mit den aktuellen Texten oder Schwellwerten nicht mehr. Es gilt die beste der verbleibenden.'); }
+  /* Farben aus der Farbwelt, die hier nicht lesbar wären, nennt die App beim Namen */
+  const w = K.gestalt.farben;
+  if (v && w.schrift && v.colors.text !== w.schrift) korrekturen.push(`Die Schriftfarbe ${w.schrift} aus der Farbwelt wäre an dieser Stelle nicht gut lesbar. Die Schrift nimmt deshalb ${v.colors.text}.`);
+  if (v && w.akzent && K.texte.cta && v.colors.cta_background !== w.akzent) korrekturen.push(`Die Akzentfarbe ${w.akzent} hebt sich hier zu wenig vom Untergrund ab. Der Knopf nimmt deshalb ${v.colors.cta_background}.`);
   if (v && v.panel && !K.notfall) korrekturen.push(`Direkt auf dem Bild erreicht die Schrift hier nicht ${cfg.kontrast_min} : 1. Der ganze Block steht deshalb auf einer Fläche.`);
   const gemessen = (analyse.palette || []).map(c => c.hex), p = antwort.palette || {};
   const aus = (wert, ersatz) => (istHex(wert) && gemessen.includes(hexNorm(wert)) ? hexNorm(wert) : ersatz);
@@ -407,7 +458,7 @@ export function pruefeVorschlag(analyse, antwort = {}, texte = {}, opts = {}) {
     accent: aus(p.accent, bunt || background),
     text: kontrast(cfg.text_hell, background) >= kontrast(cfg.text_dunkel, background) ? cfg.text_hell : cfg.text_dunkel
   };
-  return { rule: K.regel, lines: K.linien, variant: v, variants: K.varianten, texts: K.texte, palette, reasoning: String(antwort.reasoning || '').trim(), corrections: korrekturen, emergency: K.notfall, min_contrast: cfg.kontrast_min };
+  return { rule: K.regel, lines: K.linien, style: K.gestalt, variant: v, variants: K.varianten, texts: K.texte, palette, reasoning: String(antwort.reasoning || '').trim(), corrections: korrekturen, emergency: K.notfall, min_contrast: cfg.kontrast_min };
 }
 
 /* ---------- HTML/CSS-Ansicht ---------- */
@@ -422,22 +473,23 @@ export const ANSICHT_CSS = `.bd-ansicht{position:relative;width:100%;container-t
 .bd-headline{margin:0;font-weight:700;line-height:1.06;letter-spacing:-.015em;white-space:nowrap}
 .bd-headline span{display:block}
 .bd-subline{margin:0;font-weight:500;line-height:1.36;text-wrap:balance}
-.bd-cta{display:inline-block;font-weight:600;line-height:1;padding:.85em 1.5em;border-radius:99em;text-decoration:none;white-space:nowrap}`;
+.bd-cta{display:inline-block;font-weight:600;line-height:1;padding:.85em 1.5em;border-radius:99em;text-decoration:none;white-space:nowrap}
+${STIL_CSS}`;
 /* Bild als Hintergrund, der Textblock an der Stelle der Variante */
-export function ansichtHTML(analyse, v, texte = {}, bildURL = '', linien = []) {
+export function ansichtHTML(analyse, v, texte = {}, bildURL = '', { linien = [], stil = null } = {}) {
   const hilfe = linien.map(f => `<i class="bd-linie" style="left:${runde(f * 100)}%;top:0;bottom:0;width:0"></i><i class="bd-linie" style="top:${runde(f * 100)}%;left:0;right:0;height:0"></i>`).join('');
-  const kopf = `<div class="bd-ansicht" style="aspect-ratio:${analyse.image.width}/${analyse.image.height};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${hilfe}`;
+  const kopf = `<div class="bd-ansicht" style="aspect-ratio:${analyse.image.width}/${analyse.image.height};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${stil ? flaecheHTML(stil) + schmuckBildSVG(stil, analyse, v ? v.colors.text : '#FFFFFF') : ''}${hilfe}`;
   if (!v) return kopf + '</div>';
   const sub = String(texte.subline || '').trim(), cta = String(texte.cta || '').trim(), b = v.block;
   /* Unten verankerte Blöcke hängen an ihrer Unterkante, mittige an ihrer Mitte: so stimmt die
      Stelle auch dann, wenn die Schrift minimal anders läuft als berechnet. */
   const lage = v.anchor === 'unten' ? `bottom:${runde(100 - b.y - b.height)}%` : v.anchor === 'oben' ? `top:${b.y}%` : `top:${runde(b.y + b.height / 2)}%;transform:translateY(-50%)`;
   const fl = v.panel ? `;background:rgba(${hexZuRgb(v.panel.color).join(',')},${v.panel.opacity});box-shadow:0 0 0 2.4cqw rgba(${hexZuRgb(v.panel.color).join(',')},${v.panel.opacity})` : '';
-  return `${kopf}<div class="bd-block a-${v.align}${v.panel ? ' flaeche' : ''}" data-variante="${v.id}" style="left:${b.x}%;width:${b.width}%;${lage};color:${v.colors.text}${fl}">${v.veil ? `<div class="bd-schleier" style="background:rgba(${hexZuRgb(v.veil.color).join(',')},${v.veil.opacity})"></div>` : ''}
+  return `${kopf}<div class="bd-block a-${v.align}${v.panel ? ' flaeche' : ''}" data-variante="${v.id}" style="left:${b.x}%;width:${b.width}%;${lage};color:${v.colors.text}${fl}">${v.veil ? `<div class="bd-schleier" style="background:rgba(${hexZuRgb(v.veil.color).join(',')},${v.veil.opacity})"></div>` : ''}${stil ? schmuckBlockHTML(stil, v, stil.farben.akzent || v.colors.cta_background) : ''}
 <h1 class="bd-headline" style="font-size:${v.sizes.headline}cqw">${v.lines.map(z => `<span>${esc(z)}</span>`).join('')}</h1>
 ${sub ? `<p class="bd-subline" style="font-size:${v.sizes.subline}cqw;margin-top:${v.gaps.headline}cqw;max-width:${v.sub_max}cqw">${esc(sub)}</p>` : ''}
 ${cta ? `<a class="bd-cta" style="font-size:${v.sizes.cta}cqw;margin-top:${v.gaps.cta}cqw;background:${v.colors.cta_background};color:${v.colors.cta_text}">${esc(cta)}</a>` : ''}
-</div></div>`;
+</div>${datumHTML(v.date)}</div>`;
 }
 /* Eigenständige HTML-Datei zum Speichern */
 export function ansichtDatei(analyse, vorschlag, bildURL) {
@@ -455,7 +507,7 @@ ${ANSICHT_CSS}
 </style>
 </head>
 <body>
-<main>${ansichtHTML(analyse, vorschlag.variant, vorschlag.texts, bildURL)}</main>
+<main>${ansichtHTML(analyse, vorschlag.variant, vorschlag.texts, bildURL, { stil: vorschlag.style })}</main>
 </body>
 </html>
 `;

@@ -117,7 +117,8 @@ Die KI liefert nur Inhalt und Struktur. Farben, Schriften, Layouts und Logos kom
 2. **Bild analysieren:** Die App misst je Kachel dominante Farben, Helligkeit, Kontrast, Schärfe und Freiraum für Text. Ein Vision-Modell beschreibt das Gesamtbild und jede Kachel.
 3. **Debug-Vorschau** ansehen: Raster über dem Bild, Freiraum für Text grün, unscharfe Bereiche rot.
 4. **Design-Vorschlag:** Die App sucht zusammenhängende ruhige Flächen und setzt Headline, Subline und CTA als einen Block mit fester Hierarchie hinein, mit geprüftem Kontrast und Abstand zu Rand und Motiv. Layout-Regeln zum Durchklicken: Automatisch, Drittel, Goldener Schnitt, Viertel und als Regelbruch Überlappen und Übergroß. Ein zweites Modell wählt auf Wunsch zwischen den Varianten und begründet die Wahl.
-5. Als JSON, PNG oder HTML speichern oder, in einem Projekt, **in den Flyer übernehmen**.
+5. **Stil:** Farbwelt (Farbwähler, per Beschreibung oder aus der Projektanalyse), Farbflächen über dem Bild (Band, Sockel, Diagonale, Farbton), Schmuckelemente (Linien, Rahmen, Eckmarken, Akzente) und ein gestapeltes Datum, jeweils an- und abwählbar und anpassbar.
+6. Als JSON, PNG oder HTML speichern oder, in einem Projekt, **in den Flyer übernehmen**.
 
 Die Modelle wählst du im Bereich „Modelle“, alle Schwellwerte unter „Schwellwerte“. Einzelheiten, das JSON-Format und die Regeln stehen in [docs/bildanalyse.md](docs/bildanalyse.md).
 

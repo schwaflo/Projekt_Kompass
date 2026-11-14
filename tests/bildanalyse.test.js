@@ -3,6 +3,7 @@
 import { test, assert, gleich } from './harness.js';
 import * as K from '../bildanalyse/kern.js';
 import * as G from '../bildanalyse/design.js';
+import * as St from '../bildanalyse/stil.js';
 
 /* ---------- Testbilder ---------- */
 function bild(w, h, farbe) {
@@ -249,6 +250,79 @@ test('Design: Regel wird durchgereicht, unbekannte Regel fällt auf Automatisch'
   gleich(Object.keys(G.REGELN), ['auto', 'drittel', 'golden', 'viertel', 'ueberlappen', 'uebergross']);
   const p = G.designPrompt(MOTIV, TEXTE, G.komponiere(MOTIV, TEXTE, { regel: 'drittel' }));
   assert(p.includes('LAYOUT-REGEL: Drittel'), 'Prompt nennt die Regel');
+});
+/* ---------- Stil: Farbflächen, Schmuck, Datum, Farbwelt ---------- */
+test('Stil: Eingaben werden geprüft und mit den Vorgaben der Presets gefüllt', () => {
+  const s = St.stilVoll({ farben: { schrift: 'abc', akzent: 'quatsch' }, flaeche: { art: 'band', groesse: 500 }, schmuck: { rahmen: { an: 1, staerke: 99 }, gibtsnicht: { an: true } }, datum: ' 30.03.19 ' });
+  gleich(s.farben, { schrift: '#AABBCC', akzent: '', flaeche: '' });
+  gleich(s.flaeche, { art: 'band', seite: 'rechts', groesse: 60, farbe: '', deckkraft: 1 });
+  gleich([s.schmuck.rahmen.an, s.schmuck.rahmen.staerke, s.schmuck.rahmen.abstand, s.schmuck.diagonale.an, s.schmuck.diagonale.richtung], [true, 6, 3.5, false, 'steigend']);
+  gleich([Object.keys(s.schmuck).length, s.datum], [Object.keys(St.SCHMUCK).length, '30.03.19']);
+  gleich(St.stilVoll().flaeche.art, 'keine');
+  gleich(St.stilVoll({ flaeche: { art: 'ton' } }).flaeche.deckkraft, 0.45);
+});
+test('Stil: Zahlen werden in Blöcke geteilt', () => {
+  gleich(St.teileDatum('30.03.19'), ['30', '03', '19']);
+  gleich(St.teileDatum('12 – 14 / 06'), ['12', '14', '06']);
+  gleich(St.teileDatum(''), []);
+});
+test('Stil: Farbfläche macht ihre Zellen ruhig und trennt sich vom Foto', () => {
+  const voll = K.analysiereBild(bild(320, 200, (x, y) => schach(x, y, 3)), { raster: ['2x2'] }).free_map;
+  gleich(voll.free.some(Boolean), false, 'ohne Fläche ist nichts frei');
+  const m = St.wendeFlaecheAn(voll, St.stilVoll({ flaeche: { art: 'sockel', groesse: 50 } }).flaeche, '#FFFFFF');
+  const zeile = y => m.free.slice(y * m.cols, (y + 1) * m.cols);
+  assert(zeile(m.rows - 1).every(f => f === 1) && zeile(0).every(f => f === 0), 'unten frei, oben nicht');
+  gleich(m.color[(m.rows - 1) * m.cols], '#FFFFFF', 'Zelle hat die Farbe der Fläche');
+  gleich(St.wendeFlaecheAn(voll, St.stilVoll({ flaeche: { art: 'ton' } }).flaeche, '#FFFFFF').free.some(Boolean), false, 'halb durchsichtiger Farbton beruhigt nichts');
+  /* Kante genau zwischen zwei Zellen: die Bildzelle daneben trennt */
+  const ruhig = K.analysiereBild(bild(320, 200, () => [30, 45, 80]), { raster: ['2x2'] }).free_map;
+  const b = St.wendeFlaecheAn(ruhig, St.stilVoll({ flaeche: { art: 'band', seite: 'links', groesse: 50 } }).flaeche, '#FFFFFF');
+  gleich([b.free[7], b.free[8], b.free[9]], [1, 0, 1], 'Trennzelle neben der Kante');
+});
+test('Stil: der Text stellt sich auf die Farbfläche und nimmt dazu passende Farben', () => {
+  const voll = K.analysiereBild(bild(320, 200, (x, y) => schach(x, y, 3)), { raster: ['2x2'] });
+  const k = G.komponiere(voll, TEXTE, { stil: { flaeche: { art: 'sockel', groesse: 50, farbe: '#FFFFFF' } } }), v = k.varianten[0];
+  assert(!k.notfall && v, 'mit Sockel gibt es eine ruhige Fläche');
+  gleich([v.on_surface, v.overlap, v.panel, v.veil], [1, 0, null, null], 'ganz auf der Fläche, ohne Kasten und Schleier');
+  assert(v.block.y >= 50 && K.luminanz(v.colors.text) < 0.1 && v.contrast.text >= 4.5, 'unten, dunkle Schrift auf Weiß');
+  gleich(k.gestalt.flaeche.polygon, [[0, 50], [100, 50], [100, 100], [0, 100]]);
+  const dunkel = G.komponiere(voll, TEXTE, { stil: { flaeche: { art: 'sockel', groesse: 50, farbe: '#101820' } } }).varianten[0];
+  assert(K.luminanz(dunkel.colors.text) > 0.8, 'auf dunkler Fläche helle Schrift');
+  const h = G.ansichtHTML(voll, v, k.texte, '', { stil: k.gestalt });
+  assert(h.includes('class="bd-flaeche"') && h.includes('polygon(0% 50%,100% 50%,100% 100%,0% 100%)') && h.includes('rgba(255,255,255,1)'), 'Fläche in der Ansicht');
+});
+test('Stil: Datum steht gestapelt im Band und nie auf dem Textblock', () => {
+  const k = G.komponiere(MOTIV, TEXTE, { stil: { flaeche: { art: 'band', seite: 'rechts', groesse: 16, farbe: '#FFFFFF' }, datum: '30.03.19' } });
+  for (const v of k.varianten) {
+    const d = v.date, b = v.block;
+    gleich(d.parts, ['30', '03', '19']);
+    assert(d.x >= 84 && d.x + d.width <= 100, `${v.id}: im Band (${d.x})`);
+    assert(d.x >= b.x + b.width || d.x + d.width <= b.x || d.y >= b.y + b.height || d.y + d.height <= b.y, `${v.id}: nicht auf dem Block`);
+    assert(d.contrast >= 4.5 && K.luminanz(d.color) < 0.1, `${v.id}: dunkel auf Weiß`);
+    assert(b.x + b.width <= 84, `${v.id}: der Textblock läuft nicht ins Band`);
+  }
+  const ohne = G.komponiere(MOTIV, TEXTE, { stil: { datum: '30.03.19' } }).varianten[0];
+  assert(ohne.date && G.ansichtHTML(MOTIV, ohne, TEXTE, '').includes('class="bd-datum"') && G.ansichtHTML(MOTIV, ohne, TEXTE, '').includes('<b>30</b><i></i><b>03</b>'), 'ohne Band in einer Ecke, als Stapel');
+  gleich(G.komponiere(MOTIV, TEXTE).varianten[0].date, null, 'ohne Angabe kein Datum');
+});
+test('Stil: Farbwelt gilt, wo sie lesbar ist, sonst sagt die App warum nicht', () => {
+  const gut = G.pruefeVorschlag(MOTIV, {}, TEXTE, { stil: { farben: { schrift: '#FFF4D6', akzent: '#FFB000' } } });
+  gleich([gut.variant.colors.text, gut.variant.colors.cta_background, gut.corrections.length], ['#FFF4D6', '#FFB000', 0]);
+  const schlecht = G.pruefeVorschlag(MOTIV, {}, TEXTE, { stil: { farben: { schrift: '#22335A', akzent: '#20304F' } } });
+  assert(schlecht.variant.colors.text !== '#22335A' && schlecht.variant.contrast.text >= 4.5, 'dunkelblau auf dunkelblau wird nicht genommen');
+  assert(schlecht.corrections.some(c => c.includes('#22335A')) && schlecht.corrections.some(c => c.includes('#20304F')), 'beide Abweichungen werden genannt');
+  gleich(G.leseFarbwelt({ schrift: '#112233', akzent: 'rot', flaeche: 'fff', name: 'Meer' }), { schrift: '#112233', akzent: '', flaeche: '#FFFFFF', name: 'Meer' });
+  assert(G.farbweltPrompt(MOTIV, 'frisch, Meer').includes('frisch, Meer'), 'Prompt nennt den Wunsch');
+});
+test('Stil: Schmuck über dem Bild und am Textblock', () => {
+  const stil = { schmuck: { diagonale: { an: true, richtung: 'kreuz', farbe: '#FF0000' }, rahmen: { an: true }, ecken: { an: true }, akzentlinie: { an: true }, balken: { an: true, farbe: '#00FF00' } } };
+  const v = G.pruefeVorschlag(MOTIV, {}, TEXTE, { stil }), h = G.ansichtHTML(MOTIV, v.variant, v.texts, '', { stil: v.style });
+  for (const id of Object.keys(St.SCHMUCK)) assert(h.includes(`data-schmuck="${id}"`), id);
+  assert(h.includes('stroke="#FF0000"') && h.includes('background:#00FF00'), 'eigene Farben');
+  assert(h.includes(`stroke="${v.variant.colors.text}"`), 'ohne eigene Farbe: Schriftfarbe der Komposition');
+  assert(/<path data-schmuck="diagonale" d="M0 [\d.]+L640 [\d.]+M0 [\d.]+L640 [\d.]+"/.test(h), 'gekreuzt: zwei Linien');
+  assert(!G.ansichtHTML(MOTIV, v.variant, v.texts, '').includes('bd-schmuck'), 'ohne Stil kein Schmuck');
+  assert(G.ansichtDatei(MOTIV, v, '').includes('data-schmuck="rahmen"') && G.ANSICHT_CSS.includes('.bd-datum'), 'auch in der gespeicherten Datei');
 });
 test('Design: die KI wählt nur zwischen geprüften Varianten und gemessenen Farben', () => {
   const k = G.komponiere(ANALYSE, TEXTE), s = G.designSchema(ANALYSE, k);
