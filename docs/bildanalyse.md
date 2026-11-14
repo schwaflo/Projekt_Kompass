@@ -4,7 +4,7 @@ Das Design-Studio hat neben dem **Entwurf** einen zweiten Bereich: **Bild-Design
 
 ## Ablauf
 
-Weg: Projekt-Analyse → **Design entwickeln** → oben auf **Bild-Design** umschalten.
+Einstieg: **Bild-Design** in der Kopfzeile oder „Bild-Design öffnen“ auf der Startseite. Eine Projektanalyse ist dafür nicht nötig. Läuft schon ein Projekt, erreichst du den Bereich auch im Design-Studio über den Umschalter **Entwurf / Bild-Design**; nur dann gibt es „In den Flyer übernehmen“.
 
 1. **Bild wählen.** Bilder hochladen oder eines der vorhandenen anklicken. Mehrere Bilder lassen sich mit „Alle Bilder analysieren“ in einem Durchgang verarbeiten.
 2. **Raster wählen.** Vorgabe sind 2 × 2 und 4 × 2, dazu 4 × 4 und eigene Raster (Spalten × Zeilen, zum Beispiel `3x3`).

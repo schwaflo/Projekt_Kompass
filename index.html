@@ -1151,6 +1151,7 @@ code.cmd{display:block;font-size:.76rem;background:var(--surface);border:1px sol
       Projekt-Kompass
     </div>
     <div class="spacer"></div>
+    <button class="btn ghost tiny" id="bildBtn">Bild-Design</button>
     <button class="btn ghost tiny" id="praesBtn">Präsentation</button>
     <button class="btn ghost tiny" id="projBtn">Projekte</button>
     <button class="btn tiny" id="saveBtn" hidden>Speichern</button>
@@ -2057,7 +2058,7 @@ function viewStart() {
       ${ui.busy ? `<div class="live" id="live">${liveInner()}</div>` : ''}
       ${!ui.busy && ui.error ? statLine() : ''}
     </div>
-    <div class="startside">${ui.projekte && ui.projekte.length ? `<section class="startlist"><div class="side-head"><h3>Weitermachen</h3><button class="linkbtn" data-act="openprojpanel">Alle Projekte</button></div><div class="plist">${projectCards(ui.projekte.slice(0, 4))}</div></section>` : ''}
+    <div class="startside">${window.BildDesign ? BildDesign.einstieg() : ''}${ui.projekte && ui.projekte.length ? `<section class="startlist"><div class="side-head"><h3>Weitermachen</h3><button class="linkbtn" data-act="openprojpanel">Alle Projekte</button></div><div class="plist">${projectCards(ui.projekte.slice(0, 4))}</div></section>` : ''}
     <aside class="panel">
       <h3>KI-Server</h3>
       <p class="small muted" style="margin:2px 0 12px">Die App läuft in deinem Browser und spricht direkt mit deinem eigenen KI-Server.</p>
@@ -3366,7 +3367,7 @@ function viewDesign() {
   const sp2 = sp && (sp.typ === 'web') === web ? sp : null;
   const b = D.briefing, t = D.texte;
   /* Bild-Design (bildanalyse/ui.js): eigener Bereich neben dem Entwurf */
-  const bild = !web && D.modus === 'bild' && !!window.BildDesign;
+  const bild = D.modus === 'bild' && !!window.BildDesign;
   const assetRow = (a, i) => `<div class="ds-asset">
       <div class="ds-thumb">${ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : '<span>?</span>'}</div>
       <div class="ds-asset-f">
@@ -3449,10 +3450,10 @@ function viewDesign() {
         ${sp2.hinweise && sp2.hinweise.length ? `<h4 style="margin-top:12px">Für die Umsetzung</h4>${lst(sp2.hinweise)}` : ''}</div>
     </div>`;
   return `<section class="studio-page">
-    <div class="result-actions"><button class="btn" data-act="closedesign">${S.prevScreen === 'result' ? 'Zurück zum Steckbrief' : S.prevScreen === 'modul' ? 'Zurück' : 'Zurück zum Interview'}</button>
+    <div class="result-actions"><button class="btn" data-act="closedesign">${S.prevScreen === 'result' ? 'Zurück zum Steckbrief' : S.prevScreen === 'modul' ? 'Zurück' : S.prevScreen === 'start' ? 'Zurück zur Startseite' : 'Zurück zum Interview'}</button>
       <span class="spacer"></span>${sp2 && !bild ? `<button class="btn" data-act="printdesign">${web ? 'Wireframe drucken / PDF' : 'Drucken / PDF in Originalgröße'}</button>` : ''}</div>
-    <header class="m-hero"><span class="m-icon">${DESIGN_ICON}</span><div><h1>Design-Studio</h1><p>Hier geht es ums Aussehen: Format, Layout, Bilder und Farben. Die Strategie bleibt im Steckbrief.</p></div></header>
-    ${!web && window.BildDesign ? BildDesign.umschalter() : ''}
+    <header class="m-hero"><span class="m-icon">${DESIGN_ICON}</span><div><h1>${bild ? 'Bild-Design' : 'Design-Studio'}</h1><p>${bild ? 'Text auf ein Foto setzen: Die App misst, wo das Bild ruhig ist, und baut daraus geprüfte Kompositionen.' : 'Hier geht es ums Aussehen: Format, Layout, Bilder und Farben. Die Strategie bleibt im Steckbrief.'}</p></div></header>
+    ${window.BildDesign ? BildDesign.umschalter() : ''}
     ${errorBox()}
     <div class="ds-grid">${panel}<div class="ds-main">${main}</div></div>
   </section>`;
@@ -4494,6 +4495,7 @@ $('#app').addEventListener('focusout', e => {
 $('#saveBtn').onclick = () => saveProject(false);
 $('#projBtn').onclick = () => openProjects();
 $('#praesBtn').onclick = () => { if (!ui.busy) openPraes(); };
+$('#bildBtn').onclick = () => { if (!ui.busy && window.BildDesign) BildDesign.open(); };
 $('#newBtn').onclick = async () => {
   if (!confirm('Neues Projekt beginnen? Das aktuelle wird vorher unter „Projekte“ gespeichert.')) return;
   const ok = !hasProject() || await saveProject(true);

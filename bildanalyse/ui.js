@@ -7,7 +7,7 @@
    → Debug-Vorschau prüfen → Design vorschlagen → speichern oder
    in den Flyer-Entwurf übernehmen.
    ============================================================ */
-/* global S, ui, render, run, save, esc, toast, liveInner, designState, addLog, slug, KIND, TOK, FORMATE, errorBox */
+/* global S, ui, render, run, save, esc, toast, liveInner, designState, addLog, slug, KIND, TOK, FORMATE, errorBox, loadAssets */
 import { STANDARD, konfig, analysiereBild, parseRaster, parseRasterListe, alleKacheln } from './kern.js';
 import * as G from './design.js';
 
@@ -30,7 +30,9 @@ function Z() {
   for (const feld of ['analysen', 'vorschlaege']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
   return D.bild;
 }
-const an = () => S.screen === 'design' && S.design && S.design.modus === 'bild' && !FORMATE[designState().format].web;
+const an = () => S.screen === 'design' && S.design && S.design.modus === 'bild';
+/* Ohne Projektanalyse gibt es keinen Flyer-Entwurf: dann steht das Bild-Design für sich */
+const ohneProjekt = () => !S.phasen.length && !S.ergebnis;
 const bilder = () => designState().assets.filter(a => a.w > 0);   /* SVG-Dateien haben keine Pixel zum Messen */
 function asset() {
   const z = Z(), liste = bilder();
@@ -271,7 +273,7 @@ function viewVorschlag(a, A) {
     <div class="ds-toolbar">
       <span class="small muted">${ki.modell ? `Gewählt und begründet von ${esc(ki.modell)}` : 'Komposition von der App berechnet, noch ohne KI'}</span><span class="spacer"></span>
       <button class="btn tiny" data-bd="vorschlag">${ki.modell ? 'KI neu wählen lassen' : 'KI wählen und begründen lassen'}</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
-      <button class="btn tiny primary" data-bd="flyer">In den Flyer übernehmen</button>
+      ${ohneProjekt() || FORMATE[designState().format].web ? '' : '<button class="btn tiny primary" data-bd="flyer">In den Flyer übernehmen</button>'}
     </div>
     <div class="bd-stage" id="bd-stage">${G.ansichtHTML(A, e, v.texts, ui.assetURL[a.id])}</div>
     <div class="bd-varianten" role="group" aria-label="Komposition">${v.variants.map(x => `<button class="bd-var" data-bdvar="${esc(x.key)}" aria-pressed="${x.key === e.key}"><b>${x.id}</b><span>${esc(x.label)}${quelle(x) ? `<small>${quelle(x)}</small>` : ''}</span></button>`).join('')}</div>
@@ -299,13 +301,25 @@ function main() {
     ${tab === 'analyse' ? viewAnalyse(a, A) : tab === 'vorschlag' ? viewVorschlag(a, A) : `<div class="ds-toolbar"><span class="small muted">Dieses JSON geht an das Design-Modell (dort ohne Pixel- und Messdetails).</span><span class="spacer"></span><button class="btn tiny" data-bd="kopieren">Kopieren</button><button class="btn tiny" data-bd="json">JSON speichern</button></div><pre class="bd-json">${esc(analyseJSON(A))}</pre>`}`;
 }
 /* Umschalter im Kopf des Studios */
-const umschalter = () => `<div class="seg2 bd-modus" role="group" aria-label="Bereich"><button data-dsmodus="entwurf" aria-pressed="${designState().modus !== 'bild'}">Entwurf</button><button data-dsmodus="bild" aria-pressed="${designState().modus === 'bild'}">Bild-Design</button></div>`;
+const umschalter = () => ohneProjekt() ? '' : `<div class="seg2 bd-modus" role="group" aria-label="Bereich"><button data-dsmodus="entwurf" aria-pressed="${designState().modus !== 'bild'}">Entwurf</button><button data-dsmodus="bild" aria-pressed="${designState().modus === 'bild'}">Bild-Design</button></div>`;
+
+/* Direkter Einstieg von der Startseite oder aus der Kopfzeile, ohne Projektanalyse */
+function open() {
+  if (ui.busy) return;
+  if (S.screen !== 'design') S.prevScreen = S.screen;
+  S.screen = 'design'; ui.error = null;
+  const D = designState();
+  D.modus = 'bild'; Z(); save(); render(); window.scrollTo({ top: 0 });
+  loadAssets().then(() => { if (S.screen === 'design') render(); });
+}
+const einstieg = () => `<section class="startlist bd-einstieg"><div><h3>Text auf ein Bild setzen</h3><p class="small muted">Foto hochladen, ruhige Flächen und Schärfe messen lassen und geprüfte Kompositionen für Headline, Subline und CTA bekommen. Ohne Projektanalyse.</p></div><button class="btn" data-bd="start">Bild-Design öffnen</button></section>`;
 
 /* ---------- Ereignisse ---------- */
 function klick(e) {
-  if (S.screen !== 'design') return;
   const b = e.target.closest('button'); if (!b) return;
   const d = b.dataset;
+  if (d.bd === 'start') return open();
+  if (S.screen !== 'design') return;
   if (d.dsmodus) { if (ui.busy) return; designState().modus = d.dsmodus; ui.error = null; save(); return render(); }
   if (!an()) return;
   const z = Z(), a = asset();
@@ -363,6 +377,8 @@ function eingabe(e) {
 /* ---------- Stile ---------- */
 const CSS = `${G.ANSICHT_CSS}
 .bd-modus{margin:-6px 0 18px}
+.bd-einstieg{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.bd-einstieg h3{margin:0 0 4px}.bd-einstieg p{margin:0}
 .bd-bilder{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
 .bd-bild{position:relative;aspect-ratio:1;border:2px solid var(--line);border-radius:10px;padding:0;overflow:hidden;background:var(--surface-2)}
 .bd-bild img{width:100%;height:100%;object-fit:cover;display:block}
@@ -428,7 +444,7 @@ const app = document.getElementById('app');
 app.addEventListener('click', klick);
 app.addEventListener('change', wechsel);
 app.addEventListener('input', eingabe);
-window.BildDesign = { panel, main, umschalter, aktiv: an };
-if (S.screen === 'design') render();
+window.BildDesign = { panel, main, umschalter, open, einstieg, aktiv: an };
+if (S.screen === 'design' || S.screen === 'start') render();
 /* Sobald die Schrift geladen ist, stimmen die gemessenen Breiten: dann neu zeichnen */
 if (document.fonts && document.fonts.load) document.fonts.load('700 100px "Familjen Grotesk"').then(() => { if (an()) render(); }).catch(() => {});
