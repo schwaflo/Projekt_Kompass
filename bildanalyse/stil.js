@@ -53,6 +53,8 @@ export function stilVoll(stil = {}) {
     farben: { schrift: hex(f.schrift), akzent: hex(f.akzent), flaeche: hex(f.flaeche) },
     flaeche: { art, seite: P.seiten ? (P.seiten[fl.seite] ? fl.seite : Object.keys(P.seiten)[0]) : '', groesse: P.groesse ? zahl(fl.groesse, P.groesse) : 100, farbe: hex(fl.farbe), deckkraft: art === 'keine' ? 0 : zahl(fl.deckkraft, [DECK[0], DECK[1], P.deckkraft]) },
     schmuck,
+    /* Schriftbehandlung und Form des Aufrufs: als Textzeile mit Pfeil (Druck) oder als Knopf (digital) */
+    typo: { versal: !!(stil.typo || {}).versal, gewicht: [500, 600, 700].includes(+(stil.typo || {}).gewicht) ? +(stil.typo || {}).gewicht : 700, cta: (stil.typo || {}).cta === 'knopf' ? 'knopf' : 'zeile' },
     datum: String(stil.datum || '').trim()
   };
 }

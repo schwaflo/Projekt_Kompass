@@ -126,6 +126,20 @@ Die KI wählt immer innerhalb der gerade aktiven Regel. Neue Regeln kommen als E
 
 Hat ein Bild keine ruhige Fläche, in die der Block passt, steht er unten links auf einer Fläche; die App sagt das dazu.
 
+## Skizzen: ausprobieren wie auf Papier
+
+Kacheln messen und das Gesamtbild beschreiben reicht nicht für einen guten Entwurf. Der Reiter **Skizzen** probiert deshalb mehrere Richtungen nebeneinander aus, sieht sie sich an und urteilt:
+
+1. **Grundskizzen der App.** Sechs Richtungen, die sich klar unterscheiden: ruhig neben dem Motiv, Sockel, Band über dem Motiv, diagonaler Schnitt, Plakat in Versalien, Goldener Schnitt.
+2. **Ideen der KI.** Das Design-Modell bekommt Bildbeschreibung, Bildbereiche, Farben und Texte und entwickelt sechs Konzepte. Jedes hat einen Namen, einen Satz dazu, worauf im Bild es sich bezieht (Geste, Blick, Linie, Farbe, Stimmung), und eine Kombination aus dem Baukasten: Layout-Regel, Farbfläche, Schmuck, Farbwelt, Versalien. Gesetzt wird jedes Konzept von der App, mit denselben Prüfungen wie jeder Entwurf.
+3. **Ansehen und urteilen.** Die App zeichnet jede fertige Skizze als Bild. Das Vision-Modell sieht dieses Bild und vergibt je 1 bis 5 Punkte für Lesbarkeit, Bezug zum Motiv und Spannung, dazu einen Satz Urteil und einen Satz, was es als Nächstes ändern würde.
+4. **Weiterentwickeln.** „Beste weiterentwickeln“ gibt die drei besten Skizzen samt Kritik zurück an das Design-Modell; es entwickelt vier neue, die die genannten Schwächen angehen.
+5. **Übernehmen.** Ein Klick auf eine Skizze macht sie zum Entwurf: Regel und Stil stehen dann im Reiter **Entwurf** und links in den Stil-Abschnitten und lassen sich dort weiter anpassen.
+
+Ein Blatt mit zwölf Skizzen braucht mit `gemma4:12b-mlx` gut eine Minute, eine weitere Runde rund eine halbe. Die Urteile sind ein Anhaltspunkt: Das Modell sieht eine verkleinerte Zeichnung der Skizze (768 px breit) und irrt sich, wie jedes Modell.
+
+Der Code steht in [`bildanalyse/skizzen.js`](../bildanalyse/skizzen.js); die Grundskizzen sind die Liste in `eigeneSkizzen`.
+
 ## Stil: Farbwelt, Farbflächen, Schmuck, Datum
 
 Links im Bereich stehen vier Bausteine, die sich einzeln an- und abwählen lassen. Jede Änderung wirkt sofort auf die Ansicht; die Komposition wird dabei neu gerechnet, ohne KI.
@@ -135,6 +149,8 @@ Links im Bereich stehen vier Bausteine, die sich einzeln an- und abwählen lasse
 **Farbflächen.** Eine Farbfläche überdeckt einen Teil des Fotos. Presets: Band (Streifen links oder rechts), Sockel (unten oder oben), Diagonale (schräg aus einer Ecke) und Farbton (halb durchsichtig über dem ganzen Bild). Einstellbar sind Seite, Größe, Deckkraft und Farbe. Der Text ist darauf abgestimmt: Die App rechnet mit der Freiraum-Karte, wie sie mit der Fläche aussieht. Eine deckende Fläche gilt als ruhiger Grund in ihrer Farbe, der Textblock stellt sich bevorzugt darauf, Schrift- und Knopffarbe richten sich nach ihr, und kein Text läuft über ihre Kante.
 
 **Schmuckelemente.** Presets über dem Bild: diagonale Linie (steigend, fallend oder gekreuzt, Höhe einstellbar), Rahmen und Eckmarken (Abstand zum Rand einstellbar). Presets am Textblock, die mit ihm wandern: Akzentlinie über der Headline und Balken an der Kante. Für jedes Element: Stärke und Farbe. Ohne eigene Farbe nehmen Linien über dem Bild die Schriftfarbe der Komposition, Akzente am Block die Akzentfarbe.
+
+**Schrift und Aufruf.** Headline in Versalien (mit Sperrung), Schnitt der Headline (Mittel, Halbfett, Fett) und die Form des Aufrufs: als Textzeile mit Pfeil und Linie, wie es auf Flyer und Plakat passt, oder als Knopf für digitale Formate. Vorgabe ist die Textzeile.
 
 **Datum oder Nummer.** Das Feld unter „Texte fürs Bild“ wird an Punkten, Strichen und Leerzeichen geteilt und gestapelt gesetzt (30 – 03 – 19). Gibt es ein Band, steht der Stapel darin; sonst in der ersten Ecke, die ruhig ist und dem Textblock nicht in die Quere kommt.
 
@@ -147,6 +163,7 @@ Die Presets stehen als `FLAECHEN` und `SCHMUCK` in [`bildanalyse/stil.js`](../bi
 | `bildanalyse/kern.js` | Raster, k-Means, Helligkeit, Schärfe, Kanten, Freiraum, WCAG-Kontrast, Schwellwerte | Browser, Node |
 | `bildanalyse/design.js` | Flächen finden, Textblock setzen, Varianten prüfen, Fragen an die Modelle, HTML-Ansicht, Debug-Vorschau | Browser, Node |
 | `bildanalyse/stil.js` | Presets für Farbflächen und Schmuck, gestapeltes Datum, Wirkung der Fläche auf die Freiraum-Karte | Browser, Node |
+| `bildanalyse/skizzen.js` | Grundskizzen, Konzepte der KI lesen und prüfen, Bewertung durch das Vision-Modell | Browser, Node |
 | `bildanalyse/ui.js` | Bereich „Bild-Design“ im Studio, Aufrufe der KI, Speichern, Übernahme in den Flyer | Browser |
 | `tests/bildanalyse.test.js` | Tests für Messung und Regeln, mit Testbildern aus dem Code | Browser, Node |
 

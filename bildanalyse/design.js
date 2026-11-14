@@ -168,16 +168,18 @@ const ANKER_WERT = { motiv: 0.25, mitte: 0.16, unten: 0.12, oben: 0.04 };
 /* Baut die geprüften Varianten für ein Bild, seine Texte und eine Layout-Regel.
    texte: { headline, subline, cta }. opts.regel: Schlüssel aus REGELN. opts.messe: (text, fett) → Breite in em. */
 export function komponiere(analyse, texte = {}, opts = {}) {
-  const cfg = konfig(analyse.config || {}), messe = opts.messe || breiteEm;
+  const cfg = konfig(analyse.config || {}), messeRoh = opts.messe || breiteEm;
   /* Stil: Farbwelt, Farbfläche, Schmuck, Datum. Die Farbfläche verändert den Untergrund, auf dem
      der Text steht: gerechnet wird deshalb mit der Karte, wie sie MIT der Fläche aussieht. */
   const stil = stilVoll(opts.stil || {}), toeneBild = schriftToene(analyse, cfg);
   const flFarbe = stil.flaeche.farbe || stil.farben.flaeche || toeneBild.hell, poly = flaechePolygon(stil.flaeche);
   const karte = poly ? wendeFlaecheAn(analyse.free_map, stil.flaeche, flFarbe) : analyse.free_map;
-  const gestalt = { farben: stil.farben, flaeche: poly ? { art: stil.flaeche.art, seite: stil.flaeche.seite, size: stil.flaeche.groesse, polygon: poly, color: flFarbe, opacity: stil.flaeche.deckkraft } : null, schmuck: stil.schmuck };
+  /* Versalien laufen breiter (Sperrung), ein leichterer Schnitt etwas schmaler */
+  const messe = (x, fett) => messeRoh(x, fett) * (fett && stil.typo.gewicht < 700 ? 0.97 : 1) + (fett && stil.typo.versal ? 0.05 * [...String(x)].length : 0);
+  const gestalt = { typo: stil.typo, farben: stil.farben, flaeche: poly ? { art: stil.flaeche.art, seite: stil.flaeche.seite, size: stil.flaeche.groesse, polygon: poly, color: flFarbe, opacity: stil.flaeche.deckkraft } : null, schmuck: stil.schmuck };
   const regel = REGELN[opts.regel] ? opts.regel : 'auto', R_ = REGELN[regel];
   const W = analyse.image.width, H = analyse.image.height, verh = H / W, kurz = Math.min(W, H);
-  const t = { headline: String(texte.headline || '').trim() || 'Headline', subline: String(texte.subline || '').trim(), cta: String(texte.cta || '').trim() };
+  const t = { headline: (stil.typo.versal ? String(texte.headline || '').toLocaleUpperCase('de') : String(texte.headline || '')).trim() || 'Headline', subline: String(texte.subline || '').trim(), cta: String(texte.cta || '').trim() };
   const { cols: C, rows: R } = karte, zb = 100 / C, zh = 100 / R;
   const randX = 6 * kurz / W, randY = 6 * kurz / H;   /* Rand zum Bildrand: 6 % der kurzen Seite */
   const toene = toeneBild, wunschSchrift = stil.farben.schrift, wunschAkzent = stil.farben.akzent;
@@ -474,6 +476,7 @@ export const ANSICHT_CSS = `.bd-ansicht{position:relative;width:100%;container-t
 .bd-headline span{display:block}
 .bd-subline{margin:0;font-weight:500;line-height:1.36;text-wrap:balance}
 .bd-cta{display:inline-block;font-weight:600;line-height:1;padding:.85em 1.5em;border-radius:99em;text-decoration:none;white-space:nowrap}
+.bd-cta.zeile{padding:0 0 .35em;border-radius:0;border-bottom:.12em solid;color:inherit;background:none;display:inline-flex;gap:.6em;align-items:baseline}
 ${STIL_CSS}`;
 /* Bild als Hintergrund, der Textblock an der Stelle der Variante */
 export function ansichtHTML(analyse, v, texte = {}, bildURL = '', { linien = [], stil = null } = {}) {
@@ -486,9 +489,9 @@ export function ansichtHTML(analyse, v, texte = {}, bildURL = '', { linien = [],
   const lage = v.anchor === 'unten' ? `bottom:${runde(100 - b.y - b.height)}%` : v.anchor === 'oben' ? `top:${b.y}%` : `top:${runde(b.y + b.height / 2)}%;transform:translateY(-50%)`;
   const fl = v.panel ? `;background:rgba(${hexZuRgb(v.panel.color).join(',')},${v.panel.opacity});box-shadow:0 0 0 2.4cqw rgba(${hexZuRgb(v.panel.color).join(',')},${v.panel.opacity})` : '';
   return `${kopf}<div class="bd-block a-${v.align}${v.panel ? ' flaeche' : ''}" data-variante="${v.id}" style="left:${b.x}%;width:${b.width}%;${lage};color:${v.colors.text}${fl}">${v.veil ? `<div class="bd-schleier" style="background:rgba(${hexZuRgb(v.veil.color).join(',')},${v.veil.opacity})"></div>` : ''}${stil ? schmuckBlockHTML(stil, v, stil.farben.akzent || v.colors.cta_background) : ''}
-<h1 class="bd-headline" style="font-size:${v.sizes.headline}cqw">${v.lines.map(z => `<span>${esc(z)}</span>`).join('')}</h1>
+<h1 class="bd-headline" style="font-size:${v.sizes.headline}cqw${stil ? `;font-weight:${stil.typo.gewicht}${stil.typo.versal ? ';letter-spacing:.05em' : ''}` : ''}">${v.lines.map(z => `<span>${esc(z)}</span>`).join('')}</h1>
 ${sub ? `<p class="bd-subline" style="font-size:${v.sizes.subline}cqw;margin-top:${v.gaps.headline}cqw;max-width:${v.sub_max}cqw">${esc(sub)}</p>` : ''}
-${cta ? `<a class="bd-cta" style="font-size:${v.sizes.cta}cqw;margin-top:${v.gaps.cta}cqw;background:${v.colors.cta_background};color:${v.colors.cta_text}">${esc(cta)}</a>` : ''}
+${cta ? (stil && stil.typo.cta === 'zeile' ? `<a class="bd-cta zeile" style="font-size:${runde(v.sizes.cta * 1.08)}cqw;margin-top:${v.gaps.cta}cqw;border-color:${stil.farben.akzent || v.colors.cta_background}">${esc(cta)}<span aria-hidden="true">→</span></a>` : `<a class="bd-cta" style="font-size:${v.sizes.cta}cqw;margin-top:${v.gaps.cta}cqw;background:${v.colors.cta_background};color:${v.colors.cta_text}">${esc(cta)}</a>`) : ''}
 </div>${datumHTML(v.date)}</div>`;
 }
 /* Eigenständige HTML-Datei zum Speichern */

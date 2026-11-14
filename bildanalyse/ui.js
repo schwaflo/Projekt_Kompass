@@ -12,14 +12,17 @@
 import { STANDARD, konfig, analysiereBild, parseRaster, parseRasterListe, alleKacheln } from './kern.js';
 import * as G from './design.js';
 import { FLAECHEN, SCHMUCK, stilVoll } from './stil.js';
+import * as Sk from './skizzen.js';
 
 Object.assign(KIND, {
   bild_gesamt: { name: 'Gesamtbild beschreiben', expect: 500 },
   bild_kachel: { name: 'Kachel beschreiben', expect: 160 },
   bild_design: { name: 'Design-Vorschlag zusammenführen', expect: 700 },
-  bild_farben: { name: 'Farbwelt vorschlagen', expect: 120 }
+  bild_farben: { name: 'Farbwelt vorschlagen', expect: 120 },
+  bild_skizzen: { name: 'Ideen aus dem Bild entwickeln', expect: 2400 },
+  bild_urteil: { name: 'Skizze ansehen und beurteilen', expect: 320 }
 });
-Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000, bild_farben: 300 });
+Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000, bild_farben: 300, bild_skizzen: 3200, bild_urteil: 500 });
 
 const RASTER_FEST = ['2x2', '4x2', '4x4'];
 const VLM_WUNSCH = /qwen2\.5-?vl/i, DESIGN_WUNSCH = /gemma-?4/i;
@@ -28,10 +31,11 @@ const VLM_WUNSCH = /qwen2\.5-?vl/i, DESIGN_WUNSCH = /gemma-?4/i;
 function Z() {
   const D = designState();
   if (!D.bild) D.bild = { asset: '', raster: ['2x2', '4x2'], eigene: [], beschreiben: true, vlm: '', modell: '', cfg: {}, analysen: {}, vorschlaege: {}, tab: 'analyse', grid: '' };
+  if (!D.bild.skizzen) D.bild.skizzen = {};
   if (!D.bild.stil) D.bild.stil = { farben: {}, flaeche: { art: 'keine' }, schmuck: {}, datum: '' };
   /* Analysen entfernter Bilder nicht weiter mitspeichern */
   const da = new Set(D.assets.map(a => a.id));
-  for (const feld of ['analysen', 'vorschlaege']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
+  for (const feld of ['analysen', 'vorschlaege', 'skizzen']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
   return D.bild;
 }
 const an = () => S.screen === 'design' && S.design && S.design.modus === 'bild';
@@ -58,14 +62,18 @@ function wunsch(v, r) {
   const eigene = v.wahl && typeof v.wahl === 'object' ? v.wahl[r] : '';
   return eigene || ((v.kiRegel || 'auto') === r ? v.key || '' : '');
 }
+/* Die Kompositionen ändern sich nur mit Bild, Texten, Stil, Schwellwerten oder Schrift: so lange merken */
+function komponiert(id, r, stil) {
+  const A = Z().analysen[id];
+  const marke = [id, r, JSON.stringify(stil), JSON.stringify(texte()), JSON.stringify(A.config), A.image.measured_width, A.free_map.free.join(''), document.fonts ? document.fonts.status : ''].join('|');
+  if (!merk.has(marke)) { if (merk.size > 120) merk.clear(); merk.set(marke, G.komponiere(A, texte(), { messe, regel: r, stil })); }
+  return merk.get(marke);
+}
 function vorschlag(id, r = regel()) {
   const z = Z(), A = z.analysen[id], v = z.vorschlaege[id] || {};
   if (!A || !A.free_map) return null;
   const ki = (v.kiRegel || 'auto') === r ? v.roh || {} : {};
-  /* Die Kompositionen ändern sich nur mit Bild, Texten, Schwellwerten oder Schrift: so lange merken */
-  const marke = [id, r, JSON.stringify(z.stil), JSON.stringify(texte()), JSON.stringify(A.config), A.image.measured_width, A.free_map.free.join(''), document.fonts ? document.fonts.status : ''].join('|');
-  if (!merk.has(marke)) { if (merk.size > 60) merk.clear(); merk.set(marke, G.komponiere(A, texte(), { messe, regel: r, stil: z.stil })); }
-  return G.pruefeVorschlag(A, { variant: wunsch(v, r), palette: (v.roh || {}).palette, reasoning: ki.reasoning }, texte(), { fertig: merk.get(marke) });
+  return G.pruefeVorschlag(A, { variant: wunsch(v, r), palette: (v.roh || {}).palette, reasoning: ki.reasoning }, texte(), { fertig: komponiert(id, r, z.stil) });
 }
 /* Durch alle Kompositionen aller Regeln blättern */
 function blaettere(schritt) {
@@ -162,6 +170,80 @@ function schlageVor() {
     z.tab = 'vorschlag';
     addLog('Design für Bild vorgeschlagen', a.name);
   });
+}
+
+/* ---------- Skizzen: ausprobieren, ansehen, urteilen ---------- */
+/* Eine Skizze als Bild zeichnen, damit das Vision-Modell sie ansehen kann */
+function zeichneSkizze(img, A, v, breite = 768) {
+  const W = breite, H = Math.round(breite * A.image.height / A.image.width), c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), u = W / 100, X = p => p * W / 100, Y = p => p * H / 100, g = v.style, e = v.variant, schrift = '"Familjen Grotesk", ui-sans-serif, system-ui, sans-serif';
+  x.drawImage(img, 0, 0, W, H);
+  if (g.flaeche) { x.globalAlpha = g.flaeche.opacity; x.fillStyle = g.flaeche.color; x.beginPath(); g.flaeche.polygon.forEach(([px, py], i) => (i ? x.lineTo(X(px), Y(py)) : x.moveTo(X(px), Y(py)))); x.closePath(); x.fill(); x.globalAlpha = 1; }
+  const kurz = Math.min(W, H), strich = el => { x.strokeStyle = el.farbe || (e ? e.colors.text : '#FFFFFF'); x.lineWidth = Math.max(1, el.staerke * kurz / 700); };
+  const sm = g.schmuck;
+  if (sm.diagonale.an) { const m = H * sm.diagonale.lage / 100, d = W * 0.21, r = sm.diagonale.richtung; strich(sm.diagonale); x.beginPath(); if (r !== 'fallend') { x.moveTo(0, m + d); x.lineTo(W, m - d); } if (r !== 'steigend') { x.moveTo(0, m - d); x.lineTo(W, m + d); } x.stroke(); }
+  if (sm.rahmen.an) { const a = kurz * sm.rahmen.abstand / 100; strich(sm.rahmen); x.strokeRect(a, a, W - 2 * a, H - 2 * a); }
+  if (sm.ecken.an) { const a = kurz * sm.ecken.abstand / 100, l = kurz * 0.07; strich(sm.ecken); x.beginPath(); for (const [px, py, dx, dy] of [[a, a, 1, 1], [W - a, a, -1, 1], [a, H - a, 1, -1], [W - a, H - a, -1, -1]]) { x.moveTo(px + dx * l, py); x.lineTo(px, py); x.lineTo(px, py + dy * l); } x.stroke(); }
+  if (!e) return c;
+  const bx = X(e.block.x), by = Y(e.block.y), bw = X(e.block.width), bh = Y(e.block.height), mitte = e.align === 'mitte', tx = mitte ? bx + bw / 2 : bx;
+  const lage = e.panel || e.veil;
+  if (lage) { x.save(); x.globalAlpha = lage.opacity; x.fillStyle = lage.color; if (e.veil) x.filter = `blur(${4 * u}px)`; const r = e.veil ? 5 * u : 2.4 * u; x.fillRect(bx - r, by - r, bw + 2 * r, bh + 2 * r); x.restore(); }
+  x.textBaseline = 'top'; x.textAlign = mitte ? 'center' : 'left'; x.fillStyle = e.colors.text;
+  let y = by; const h = e.sizes.headline * u, su = e.sizes.subline * u, cu = e.sizes.cta * u;
+  x.font = `${g.typo.gewicht} ${h}px ${schrift}`; if ('letterSpacing' in x) x.letterSpacing = g.typo.versal ? `${0.05 * h}px` : '0px';
+  for (const z of e.lines) { x.fillText(z, tx, y + h * 0.06); y += h * 1.06; }
+  if ('letterSpacing' in x) x.letterSpacing = '0px';
+  if (v.texts.subline) {
+    y += e.gaps.headline * u; x.font = `500 ${su}px ${schrift}`;
+    const zeilen = ['']; for (const w of v.texts.subline.split(/\s+/)) { const probe = zeilen[zeilen.length - 1] ? zeilen[zeilen.length - 1] + ' ' + w : w; if (x.measureText(probe).width > e.sub_max * u && zeilen[zeilen.length - 1]) zeilen.push(w); else zeilen[zeilen.length - 1] = probe; }
+    for (const z of zeilen) { x.fillText(z, tx, y + su * 0.18); y += su * 1.36; }
+  }
+  if (v.texts.cta) {
+    y += e.gaps.cta * u; x.font = `600 ${cu}px ${schrift}`;
+    if (g.typo.cta === 'zeile') { const t = v.texts.cta + '  →', b = x.measureText(t).width, l = mitte ? tx - b / 2 : tx; x.fillText(t, tx, y); x.fillStyle = g.farben.akzent || e.colors.cta_background; x.fillRect(l, y + cu * 1.45, b, Math.max(1, cu * 0.12)); }
+    else { const b = x.measureText(v.texts.cta).width + 3 * cu, l = mitte ? tx - b / 2 : tx; x.fillStyle = e.colors.cta_background; x.beginPath(); x.roundRect(l, y, b, cu * 2.7, cu * 1.35); x.fill(); x.fillStyle = e.colors.cta_text; x.textAlign = 'center'; x.fillText(v.texts.cta, l + b / 2, y + cu * 0.85); }
+  }
+  x.fillStyle = g.farben.akzent || e.colors.cta_background;
+  if (sm.akzentlinie.an) { const b = e.sizes.headline * 1.5 * u; x.fillStyle = sm.akzentlinie.farbe || x.fillStyle; x.fillRect(mitte ? tx - b / 2 : bx, by - e.sizes.headline * 0.3 * u, b, Math.max(1, sm.akzentlinie.staerke * 0.16 * u)); }
+  if (sm.balken.an) { x.fillStyle = sm.balken.farbe || g.farben.akzent || e.colors.cta_background; x.fillRect(bx - e.sizes.headline * 0.32 * u, by, Math.max(1, sm.balken.staerke * 0.16 * u), bh); }
+  if (e.date) {
+    const d = e.date, gu = d.size * u; x.fillStyle = d.color; x.textAlign = 'center'; x.font = `700 ${gu}px ${schrift}`;
+    let dy = Y(d.y); const dx = X(d.x + d.width / 2);
+    d.parts.forEach((t, i) => { if (i) { x.fillRect(dx - gu * 0.25, dy + gu * 0.42, gu * 0.5, Math.max(1, gu * 0.09)); dy += gu * 0.93; } x.fillText(t, dx, dy); dy += gu * 1.05; });
+  }
+  return c;
+}
+const skizzenVorschlag = (id, s) => G.pruefeVorschlag(Z().analysen[id], {}, texte(), { fertig: komponiert(id, s.regel, s.stil) });
+/* weiter = false: neues Blatt. weiter = true: aus den besten und ihrer Kritik eine neue Runde. */
+function skizziere(weiter) {
+  const z = Z(), a = asset(), A = a && z.analysen[a.id];
+  if (!A || !A.free_map) return;
+  run(weiter ? 'Skizzen werden weiterentwickelt …' : 'Skizzen entstehen …', async () => {
+    const alt = weiter ? z.skizzen[a.id] || [] : [], runde = alt.reduce((m, s) => Math.max(m, s.runde || 1), 0) + 1, anzahl = weiter ? 4 : 6;
+    fortschritt('Ideen aus dem Bild entwickeln');
+    const roh = await frage({ system: Sk.SKIZZEN_SYSTEM, prompt: Sk.skizzenPrompt(A, texte(), { anzahl, vorher: Sk.rangfolge(alt).slice(0, 3) }), schema: Sk.skizzenSchema(anzahl), art: 'bild_skizzen', modell: designName(), denken: false });
+    const neu = [...(weiter ? [] : Sk.eigeneSkizzen(A)), ...Sk.leseSkizzen(roh)];
+    const jetzt = stilVoll(z.stil);
+    neu.forEach(s => { s.runde = runde; s.stil = { ...s.stil, datum: jetzt.datum, typo: { ...(s.stil.typo || {}), cta: jetzt.typo.cta } }; });
+    const blatt = z.skizzen[a.id] = [...alt], img = await ladeBild(ui.assetURL[a.id]), modell = vlmName();
+    for (const [i, s] of neu.entries()) {
+      const v = skizzenVorschlag(a.id, s);
+      if (!v.variant) continue;   /* lässt sich mit diesem Bild nicht setzen */
+      fortschritt(`Skizze ${i + 1} von ${neu.length} ansehen und beurteilen: ${s.name}`);
+      s.wertung = Sk.leseBewertung(await frage({ system: Sk.BEWERTUNG_SYSTEM, prompt: Sk.bewertungPrompt(s, v.texts), schema: Sk.BEWERTUNG_SCHEMA, art: 'bild_urteil', bilder: [zeichneSkizze(img, A, v).toDataURL('image/jpeg', 0.88)], modell, denken: false }));
+      blatt.push(s); save();
+    }
+    z.tab = 'skizzen';
+    addLog(weiter ? 'Skizzen weiterentwickelt' : 'Skizzen ausprobiert', `${blatt.length} Entwürfe für ${a.name}`);
+  });
+}
+function nimmSkizze(i) {
+  const z = Z(), a = asset(), s = a && (z.skizzen[a.id] || [])[i];
+  if (!s) return;
+  z.regel = s.regel; z.stil = JSON.parse(JSON.stringify({ farben: {}, flaeche: { art: 'keine' }, schmuck: {}, ...s.stil, datum: z.stil.datum || '' }));
+  z.farbname = s.stil.farben && (s.stil.farben.schrift || s.stil.farben.akzent) ? s.name : '';
+  const v = z.vorschlaege[a.id]; if (v && v.wahl && typeof v.wahl === 'object') delete v.wahl[s.regel];
+  z.tab = 'vorschlag'; save(); render(); toast(`Skizze „${s.name}“ übernommen`);
 }
 
 /* ---------- Farbwelt ---------- */
@@ -265,7 +347,7 @@ function panel() {
     <details open><summary>Texte fürs Bild</summary>
       <label class="ds-l">Headline<input class="input" data-d="texte.headline" value="${esc(t.headline)}"></label>
       <label class="ds-l">Subline<input class="input" data-d="texte.subline" value="${esc(t.subline)}"></label>
-      <label class="ds-l">CTA<input class="input" data-d="texte.cta" value="${esc(t.cta)}"></label>
+      <label class="ds-l">Aufruf<input class="input" data-d="texte.cta" value="${esc(t.cta)}"></label>
       <label class="ds-l">Datum oder Nummer<input class="input" data-bds="datum" value="${esc(z.stil.datum || '')}" placeholder="z. B. 30.03.19"></label>
       <p class="small muted">Wird an Punkten, Strichen und Leerzeichen in Blöcke geteilt und gestapelt.</p>
     </details>
@@ -292,7 +374,12 @@ function stilPanel() {
   const wahl = (pfad, wert, name, optionen) => `<label class="bd-regler"><span>${name}</span><select class="input" data-bds="${pfad}">${Object.entries(optionen).map(([k, n]) => `<option value="${k}" ${k === wert ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
   const fl = st.flaeche, F = FLAECHEN[fl.art], proj = projektFarben();
   const aktiv = Object.keys(SCHMUCK).filter(id => st.schmuck[id].an);
-  return `<details ${st.farben.schrift || st.farben.akzent || st.farben.flaeche ? 'open' : ''}><summary>Farbwelt ${z.farbname && (st.farben.schrift || st.farben.akzent) ? `<span class="muted small">${esc(z.farbname)}</span>` : ''}</summary>
+  return `<details><summary>Schrift und Aufruf</summary>
+      <label class="bd-check"><input type="checkbox" data-bds="typo.versal" ${st.typo.versal ? 'checked' : ''}> Headline in Versalien</label>
+      ${wahl('typo.gewicht', String(st.typo.gewicht), 'Schnitt der Headline', { 500: 'Mittel', 600: 'Halbfett', 700: 'Fett' })}
+      ${wahl('typo.cta', st.typo.cta, 'Aufruf als', { zeile: 'Textzeile mit Pfeil (Druck)', knopf: 'Knopf (digital)' })}
+    </details>
+    <details ${st.farben.schrift || st.farben.akzent || st.farben.flaeche ? 'open' : ''}><summary>Farbwelt ${z.farbname && (st.farben.schrift || st.farben.akzent) ? `<span class="muted small">${esc(z.farbname)}</span>` : ''}</summary>
       ${farbe('farben.schrift', st.farben.schrift, 'Schrift', akt && akt.colors.text)}
       ${farbe('farben.akzent', st.farben.akzent, 'Akzent (Knopf, Schmuck)', akt && akt.colors.cta_background)}
       ${farbe('farben.flaeche', st.farben.flaeche, 'Fläche', v && v.style.flaeche ? v.style.flaeche.color : '#F7F0EC')}
@@ -379,12 +466,28 @@ function viewVorschlag(a, A) {
         <table class="bd-mini"><tbody>
           <tr><th>Headline</th><td>${zahl(e.sizes.headline)} % der Bildbreite, ${e.lines.length}-zeilig</td><td><span class="bd-probe" style="background:${e.panel ? e.panel.color : e.ground};color:${e.colors.text}">Aa</span> ${e.colors.text}</td><td>${zahl(e.contrast.text)} : 1</td></tr>
           ${v.texts.subline ? `<tr><th>Subline</th><td>${zahl(e.sizes.subline)} % · Verhältnis 1 : ${zahl(e.sizes.headline / e.sizes.subline)}</td><td>${e.colors.text}</td><td>${zahl(e.contrast.text)} : 1</td></tr>` : ''}
-          ${v.texts.cta ? `<tr><th>CTA</th><td>${zahl(e.sizes.cta)} %</td><td><span class="bd-probe" style="background:${e.colors.cta_background};color:${e.colors.cta_text}">Aa</span> ${e.colors.cta_background}</td><td>${zahl(e.contrast.cta_text)} : 1</td></tr>` : ''}
+          ${v.texts.cta ? (v.style.typo.cta === 'zeile' ? `<tr><th>Aufruf</th><td>${zahl(e.sizes.cta * 1.08)} %, Textzeile</td><td>${e.colors.text}</td><td>${zahl(e.contrast.text)} : 1</td></tr>` : `<tr><th>Aufruf</th><td>${zahl(e.sizes.cta)} %, Knopf</td><td><span class="bd-probe" style="background:${e.colors.cta_background};color:${e.colors.cta_text}">Aa</span> ${e.colors.cta_background}</td><td>${zahl(e.contrast.cta_text)} : 1</td></tr>`) : ''}
         </tbody></table>
         <p class="small muted" style="margin-top:8px">Ein Block, eine Kante, ${e.align === 'mitte' ? 'zentriert' : 'linksbündig'}. Kontrast = kleinster Wert gegenüber allen Bildstellen unter dem Block, Ziel ${zahl(v.min_contrast)} : 1.${e.overlap ? ` ${Math.round(e.overlap * 100)} % des Blocks liegen über dem Motiv.` : ''}${e.veil ? ` Ein weicher Schleier (${Math.round(e.veil.opacity * 100)} % ${e.veil.color}) liegt hinter dem Block.` : ''}</p></div>
       <div class="m-box"><h4>Farbpalette</h4><div class="bd-palette">${[['Hintergrund', p.background], ['Fläche', p.surface], ['Akzent', p.accent], ['Schrift', p.text]].map(([n, h]) => `<div>${farbfeld({ hex: h })}<b>${h}</b><span class="muted">${n}</span></div>`).join('')}</div>
         ${v.reasoning ? `<h4 style="margin-top:14px">Begründung</h4><p>${esc(v.reasoning)}</p>` : ''}</div>
     </div>` : ''}`;
+}
+function viewSkizzen(a, A) {
+  const z = Z(), blatt = z.skizzen[a.id] || [];
+  if (!A.free_map) return viewVorschlag(a, A);
+  if (!blatt.length) return `<div class="ds-empty"><h2>Ausprobieren wie auf Papier</h2><p class="muted">Die KI entwickelt aus dem Bild mehrere Ideen, die App setzt sie nach den geprüften Regeln um und legt eigene Grundskizzen daneben. Danach sieht sich das Vision-Modell (${esc(vlmName() || 'kein Modell')}) jede fertige Skizze an und beurteilt Lesbarkeit, Bezug zum Motiv und Spannung. Rund 12 Entwürfe, etwa eine Minute.</p><button class="btn primary" data-bd="skizzen">Skizzen ausprobieren</button></div>`;
+  const karte = s => { const v = skizzenVorschlag(a.id, s), w = s.wertung, i = blatt.indexOf(s);
+    return `<article class="bd-skizze">
+      <button class="bd-skizze-bild" data-bdskizze="${i}" title="Als Entwurf übernehmen">${G.ansichtHTML(A, v.variant, v.texts, ui.assetURL[a.id], { stil: v.style })}</button>
+      <div class="bd-skizze-kopf"><b>${esc(s.name)}</b><span class="bd-marke ${w && w.summe >= 12 ? 'ok' : ''}">${w ? `${w.summe} / 15` : 'ohne Urteil'}</span></div>
+      <p class="small muted">${s.quelle === 'ki' ? 'Idee der KI' : 'Grundskizze der App'}${(s.runde || 1) > 1 ? ` · Runde ${s.runde}` : ''} · ${esc(G.REGELN[s.regel].name)}</p>
+      <p class="small">${esc(s.idee)}</p>
+      ${w ? `<p class="small muted">Lesbarkeit ${w.lesbarkeit} · Motiv ${w.motiv} · Spannung ${w.spannung}</p><p class="small"><b>Urteil:</b> ${esc(w.urteil)}</p><p class="small"><b>Nächster Schritt:</b> ${esc(w.verbessern)}</p>` : ''}
+      <button class="btn tiny" data-bdskizze="${i}">Als Entwurf übernehmen</button></article>`; };
+  return `<div class="ds-toolbar"><span class="small muted">${blatt.length} Skizzen, die besten zuerst. Die Urteile stammen vom Vision-Modell und sind ein Anhaltspunkt, kein Ersatz für dein Auge.</span><span class="spacer"></span>
+      <button class="btn tiny primary" data-bd="skizzenweiter">Beste weiterentwickeln</button><button class="btn tiny" data-bd="skizzen">Neues Blatt</button></div>
+    <div class="bd-blatt">${Sk.rangfolge(blatt).map(karte).join('')}</div>`;
 }
 function main() {
   const z = Z(), a = asset(), A = a && z.analysen[a.id];
@@ -392,9 +495,9 @@ function main() {
   if (!a) return `<div class="ds-empty"><h2>Design für ein Bild</h2><p class="muted">Lade links ein Foto hoch. Die App misst, wo das Bild ruhig genug für Text ist, wo es unscharf wird und welche Farben es prägen. Daraus entsteht ein Vorschlag, wo Headline, Subline und CTA stehen.</p></div>`;
   if (A && !A.free_map && !ui.bdNach) { ui.bdNach = true; neuRechnen().finally(() => { ui.bdNach = false; }); }
   if (!A) return `<div class="ds-empty bd-leer">${ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : ''}<h2>${esc(a.name)}</h2><p class="muted">Die Analyse teilt das Bild in Raster, misst jede Kachel und lässt das Vision-Modell (${esc(vlmName() || 'kein Modell')}) beschreiben, was zu sehen ist.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
-  const tab = ['analyse', 'vorschlag', 'json'].includes(z.tab) ? z.tab : 'analyse';
-  return `<div class="bd-tabs"><div class="seg2"><button data-bdtab="analyse" aria-pressed="${tab === 'analyse'}">Analyse</button><button data-bdtab="vorschlag" aria-pressed="${tab === 'vorschlag'}">Design-Vorschlag</button><button data-bdtab="json" aria-pressed="${tab === 'json'}">JSON</button></div></div>
-    ${tab === 'analyse' ? viewAnalyse(a, A) : tab === 'vorschlag' ? viewVorschlag(a, A) : `<div class="ds-toolbar"><span class="small muted">Dieses JSON geht an das Design-Modell (dort ohne Pixel- und Messdetails).</span><span class="spacer"></span><button class="btn tiny" data-bd="kopieren">Kopieren</button><button class="btn tiny" data-bd="json">JSON speichern</button></div><pre class="bd-json">${esc(analyseJSON(A))}</pre>`}`;
+  const tab = ['analyse', 'skizzen', 'vorschlag', 'json'].includes(z.tab) ? z.tab : 'analyse';
+  return `<div class="bd-tabs"><div class="seg2"><button data-bdtab="analyse" aria-pressed="${tab === 'analyse'}">Analyse</button><button data-bdtab="skizzen" aria-pressed="${tab === 'skizzen'}">Skizzen</button><button data-bdtab="vorschlag" aria-pressed="${tab === 'vorschlag'}">Entwurf</button><button data-bdtab="json" aria-pressed="${tab === 'json'}">JSON</button></div></div>
+    ${tab === 'analyse' ? viewAnalyse(a, A) : tab === 'skizzen' ? viewSkizzen(a, A) : tab === 'vorschlag' ? viewVorschlag(a, A) : `<div class="ds-toolbar"><span class="small muted">Dieses JSON geht an das Design-Modell (dort ohne Pixel- und Messdetails).</span><span class="spacer"></span><button class="btn tiny" data-bd="kopieren">Kopieren</button><button class="btn tiny" data-bd="json">JSON speichern</button></div><pre class="bd-json">${esc(analyseJSON(A))}</pre>`}`;
 }
 /* Umschalter im Kopf des Studios */
 const umschalter = () => ohneProjekt() ? '' : `<div class="seg2 bd-modus" role="group" aria-label="Bereich"><button data-dsmodus="entwurf" aria-pressed="${designState().modus !== 'bild'}">Entwurf</button><button data-dsmodus="bild" aria-pressed="${designState().modus === 'bild'}">Bild-Design</button></div>`;
@@ -424,6 +527,7 @@ function klick(e) {
   if (d.bdgrid) { z.grid = d.bdgrid; save(); return render(); }
   if (d.bdvar && a) { const v = z.vorschlaege[a.id] = { ...(z.vorschlaege[a.id] || {}) }; v.wahl = { ...(v.wahl && typeof v.wahl === 'object' ? v.wahl : {}), [regel()]: d.bdvar }; save(); return render(); }
   if (d.bdregel) { z.regel = d.bdregel; save(); return render(); }
+  if (d.bdskizze !== undefined) return nimmSkizze(+d.bdskizze);
   if (d.bdflaeche) { z.stil.flaeche = { ...(z.stil.flaeche || {}), art: d.bdflaeche }; if (d.bdflaeche !== (z.stil.flaeche.alt || '')) { delete z.stil.flaeche.seite; delete z.stil.flaeche.groesse; delete z.stil.flaeche.deckkraft; z.stil.flaeche.alt = d.bdflaeche; } save(); return render(); }
   if (d.bdschmuck) { const e = (z.stil.schmuck = z.stil.schmuck || {}); e[d.bdschmuck] = { ...(e[d.bdschmuck] || {}), an: !(e[d.bdschmuck] || {}).an }; save(); return render(); }
   if (d.bdsleer) { setze(z.stil, d.bdsleer, ''); save(); return render(); }
@@ -454,6 +558,8 @@ function klick(e) {
     case 'flyer': return uebernehmen();
     case 'farbwelt': return ui.busy ? null : farbweltKI();
     case 'farbprojekt': { const f = projektFarben(); if (f) { z.stil.farben = f; z.farbname = 'aus der Projektanalyse'; save(); render(); } return; }
+    case 'skizzen': return ui.busy ? null : skizziere(false);
+    case 'skizzenweiter': return ui.busy ? null : skizziere(true);
     case 'weiter': return blaettere(1);
     case 'zurueck': return blaettere(-1);
   }
@@ -515,6 +621,13 @@ const CSS = `${G.ANSICHT_CSS}
 
 .bd-legende i.strich{background:none;border:2px dashed var(--ink)}
 .bd-legende i.rahmen{background:none;border:2px solid var(--ink)}
+.bd-blatt{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.bd-skizze{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.bd-skizze p{margin:0}
+.bd-skizze-bild{padding:0;border:0;background:none;border-radius:8px;overflow:hidden;display:block;cursor:pointer;text-align:left}
+.bd-skizze-bild:hover{outline:2px solid var(--accent);outline-offset:2px}
+.bd-skizze-kopf{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:4px}
+.bd-skizze .btn{align-self:flex-start;margin-top:auto}
 .bd-farbwahl{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;margin-bottom:8px;font-size:.86rem}
 .bd-farbwahl input[type=color]{width:34px;height:28px;padding:0;border:1px solid var(--line);border-radius:8px;background:none}
 .bd-farbwahl small{display:block;color:var(--muted);font-size:.74rem;font-variant-numeric:tabular-nums}

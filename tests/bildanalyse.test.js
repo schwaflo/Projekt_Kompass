@@ -4,6 +4,7 @@ import { test, assert, gleich } from './harness.js';
 import * as K from '../bildanalyse/kern.js';
 import * as G from '../bildanalyse/design.js';
 import * as St from '../bildanalyse/stil.js';
+import * as Sk from '../bildanalyse/skizzen.js';
 
 /* ---------- Testbilder ---------- */
 function bild(w, h, farbe) {
@@ -323,6 +324,60 @@ test('Stil: Schmuck über dem Bild und am Textblock', () => {
   assert(/<path data-schmuck="diagonale" d="M0 [\d.]+L640 [\d.]+M0 [\d.]+L640 [\d.]+"/.test(h), 'gekreuzt: zwei Linien');
   assert(!G.ansichtHTML(MOTIV, v.variant, v.texts, '').includes('bd-schmuck'), 'ohne Stil kein Schmuck');
   assert(G.ansichtDatei(MOTIV, v, '').includes('data-schmuck="rahmen"') && G.ANSICHT_CSS.includes('.bd-datum'), 'auch in der gespeicherten Datei');
+});
+/* ---------- Aufruf, Schriftbehandlung, Skizzen ---------- */
+test('Stil: Aufruf ist eine Textzeile mit Pfeil, der Knopf eine Option', () => {
+  gleich(St.stilVoll().typo, { versal: false, gewicht: 700, cta: 'zeile' });
+  const z = G.pruefeVorschlag(MOTIV, {}, TEXTE), hz = G.ansichtHTML(MOTIV, z.variant, z.texts, '', { stil: z.style });
+  assert(hz.includes('class="bd-cta zeile"') && hz.includes('→') && !/class="bd-cta" /.test(hz), 'Vorgabe: Zeile');
+  const k = G.pruefeVorschlag(MOTIV, {}, TEXTE, { stil: { typo: { cta: 'knopf' } } }), hk = G.ansichtHTML(MOTIV, k.variant, k.texts, '', { stil: k.style });
+  assert(hk.includes(`background:${k.variant.colors.cta_background}`) && !hk.includes('bd-cta zeile'), 'Knopf mit Fläche');
+});
+test('Stil: Versalien werden als Großbuchstaben gesetzt und laufen breiter', () => {
+  const v = G.komponiere(MOTIV, TEXTE, { regel: 'uebergross', stil: { typo: { versal: true } } }).varianten[0];
+  gleich(v.lines.join(' '), v.lines.join(' ').toUpperCase());
+  assert(v.lines.join('').includes('STRASSENFEST'), v.lines.join('|'));
+  /* dieselbe Zeile misst in Versalien mit Sperrung breiter */
+  const na = G.komponiere(MOTIV, { headline: 'Sommerfest' }).varianten[0], va = G.komponiere(MOTIV, { headline: 'Sommerfest' }, { stil: { typo: { versal: true } } }).varianten[0];
+  assert(va.block.width / va.sizes.headline > na.block.width / na.sizes.headline, 'breiter im Verhältnis zur Schriftgröße');
+  const h = G.ansichtHTML(MOTIV, v, TEXTE, '', { stil: St.stilVoll({ typo: { versal: true, gewicht: 500 } }) });
+  assert(h.includes('font-weight:500') && h.includes('letter-spacing:.05em'), 'Schnitt und Sperrung');
+});
+test('Skizzen: Grundskizzen unterscheiden sich und lassen sich alle setzen', () => {
+  gleich(Sk.motivSeite(MOTIV), 'links');
+  const g = Sk.eigeneSkizzen(MOTIV);
+  gleich(g.length, 6);
+  gleich(new Set(g.map(s => JSON.stringify([s.regel, s.stil]))).size, 6, 'keine Kombination doppelt');
+  gleich(g.find(s => s.name.startsWith('Band')).stil.flaeche.seite, 'links', 'Band liegt über dem Motiv');
+  for (const s of g) { const v = G.pruefeVorschlag(MOTIV, {}, TEXTE, { regel: s.regel, stil: s.stil }); assert(v.variant && v.variant.contrast.text >= 4.5, `${s.name}: setzbar und lesbar`); }
+});
+test('Skizzen: Antwort der KI wird geprüft, Unbekanntes und Doppeltes fällt weg', () => {
+  const l = Sk.leseSkizzen({ skizzen: [
+    { name: 'Geste aufnehmen', idee: 'Die Hand weist nach rechts.', regel: 'golden', flaeche: 'band', flaeche_seite: 'links', flaeche_groesse: 24, schmuck: ['diagonale', 'quatsch'], linie: 'kreuz', versal: true, farbe_schrift: '#112233', farbe_akzent: 'rot', farbe_flaeche: 'fff' },
+    { name: 'Geste aufnehmen 2', idee: 'x', regel: 'golden', flaeche: 'band', flaeche_seite: 'links', flaeche_groesse: 24, schmuck: ['diagonale'], linie: 'kreuz', versal: true, farbe_schrift: '#112233', farbe_akzent: '', farbe_flaeche: '#FFFFFF' },
+    { name: '', idee: '', regel: 'erfunden', flaeche: 'erfunden', flaeche_seite: '', flaeche_groesse: 0, schmuck: 'nichts', linie: '', versal: 'ja' },
+    null
+  ] });
+  gleich(l.length, 2, 'Doppeltes und Leeres entfernt');
+  gleich(l[0], { name: 'Geste aufnehmen', idee: 'Die Hand weist nach rechts.', regel: 'golden', stil: { farben: { schrift: '#112233', akzent: '', flaeche: '#FFFFFF' }, schmuck: { diagonale: { an: true, richtung: 'kreuz' } }, typo: { versal: true }, flaeche: { art: 'band', seite: 'links', groesse: 24 } }, quelle: 'ki' });
+  gleich([l[1].name, l[1].regel, l[1].stil.flaeche, l[1].stil.typo.versal], ['Skizze', 'auto', undefined, false]);
+  gleich(Sk.leseSkizzen({}), []);
+  const s = Sk.skizzenSchema(4).properties.skizzen;
+  gleich([s.minItems, s.maxItems, s.items.properties.regel.enum.length, s.items.properties.flaeche.enum], [4, 4, 6, Object.keys(St.FLAECHEN)]);
+});
+test('Skizzen: Prompt denkt vom Bild aus und kennt in Runde zwei die Kritik', () => {
+  const p1 = Sk.skizzenPrompt(MOTIV, TEXTE, { anzahl: 6 });
+  assert(p1.includes('Straßenfest-Glaube-Leben') && p1.includes('Das Motiv liegt eher links') && p1.includes('uebergross') && p1.includes('Skizziere 6'), 'erste Runde');
+  const vorher = [{ name: 'Sockel', regel: 'auto', stil: { flaeche: { art: 'sockel' } }, wertung: Sk.leseBewertung({ lesbarkeit: 5, motiv: 3, spannung: 2, urteil: 'Gut lesbar, aber brav.', verbessern: 'Mehr Spannung durch eine Diagonale.' }) }];
+  const p2 = Sk.skizzenPrompt(MOTIV, TEXTE, { anzahl: 4, vorher });
+  assert(p2.includes('„Sockel“') && p2.includes('10 von 15') && p2.includes('Mehr Spannung') && p2.includes('Entwickle daraus 4'), 'zweite Runde');
+});
+test('Skizzen: Urteile werden begrenzt und sortiert', () => {
+  gleich(Sk.leseBewertung({ lesbarkeit: 9, motiv: 'abc', spannung: 3.6, urteil: ' ok ', verbessern: '' }), { lesbarkeit: 5, motiv: 1, spannung: 4, urteil: 'ok', verbessern: '', summe: 10 });
+  const w = (l, m, sp) => Sk.leseBewertung({ lesbarkeit: l, motiv: m, spannung: sp });
+  const r = Sk.rangfolge([{ name: 'a', wertung: w(3, 3, 3) }, { name: 'b' }, { name: 'c', wertung: w(5, 4, 4) }, { name: 'd', wertung: w(4, 3, 2) }]);
+  gleich(r.map(s => s.name), ['c', 'd', 'a', 'b'], 'Punkte, bei Gleichstand Lesbarkeit, ohne Urteil zuletzt');
+  assert(Sk.bewertungPrompt({ idee: 'Hand weist nach rechts' }, TEXTE).includes('Hand weist nach rechts'), 'Prompt nennt die Idee');
 });
 test('Design: die KI wählt nur zwischen geprüften Varianten und gemessenen Farben', () => {
   const k = G.komponiere(ANALYSE, TEXTE), s = G.designSchema(ANALYSE, k);
