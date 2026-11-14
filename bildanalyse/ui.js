@@ -243,6 +243,7 @@ function zeichneFrei(img, A, L, breite = 768) {
     if (f.art === 'linie') { x.lineWidth = Math.max(1, f.staerke * W / 1000); x.beginPath(); x.moveTo(X(f.x), Y(f.y)); x.lineTo(X(f.x + f.breite), Y(f.y + f.hoehe)); x.stroke(); }
     else {
       const b = X(f.breite), h = f.art === 'kreis' ? b : Y(f.hoehe);
+      if (f.weich) x.filter = `blur(${3.5 * u}px)`;
       x.translate(X(f.x) + b / 2, Y(f.y) + h / 2); x.rotate(rad(f.drehung)); x.beginPath();
       if (f.art === 'kreis') x.ellipse(0, 0, Math.abs(b / 2), Math.abs(b / 2), 0, 0, 2 * Math.PI); else x.rect(-b / 2, -h / 2, b, h);
       if (f.gefuellt) x.fill(); else { x.lineWidth = Math.max(1, f.staerke / 10 * u); x.stroke(); }
@@ -261,6 +262,8 @@ function zeichneFrei(img, A, L, breite = 768) {
   return c;
 }
 const skizzenVorschlag = (id, s) => G.pruefeVorschlag(Z().analysen[id], {}, texte(), { fertig: komponiert(id, s.regel, s.stil) });
+/* Die Idee der KI sauber setzen (Reinzeichnung) und festhalten, was dabei geändert wurde */
+const setzeSauber = A => s => { const r = F.reinzeichnen(A, s.layout, messe); s.layout = r.layout; s.rein = r.aenderungen; return s; };
 const inhalt = () => ({ ...texte(), datum: stilVoll(Z().stil).datum });
 /* Layout einer Skizze, gleich ob frei entworfen oder aus dem Baukasten */
 const layoutVon = (id, s) => (s.frei ? s.layout : F.ausVorschlag(Z().analysen[id], skizzenVorschlag(id, s)));
@@ -278,7 +281,7 @@ function skizziere(weiter) {
     const foto = alsJpeg(img, 0, 0, img.naturalWidth, img.naturalHeight, 1024);
     if (!weiter) {
       fortschritt('Die KI sieht das Foto und entwirft frei');
-      const frei = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.freiPrompt(A, inhalt(), 5), schema: F.freiSchema(5), art: 'bild_frei', bilder: [foto], modell, denken: false }));
+      const frei = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.freiPrompt(A, inhalt(), 5), schema: F.freiSchema(5), art: 'bild_frei', bilder: [foto], modell, denken: false })).map(setzeSauber(A));
       const jetzt = stilVoll(z.stil);
       const grund = Sk.eigeneSkizzen(A).map(s => ({ ...s, stil: { ...s.stil, datum: jetzt.datum, typo: { ...(s.stil.typo || {}), cta: jetzt.typo.cta } } }));
       const neu = [...frei, ...grund];
@@ -296,7 +299,7 @@ function skizziere(weiter) {
         fortschritt(`Skizze ${i + 1} von ${beste.length} überarbeiten: ${s.name}`);
         const [n] = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.ueberarbeitePrompt(A, inhalt(), basis, { wertung: s.wertung, messung: F.messeLayout(A, basis.layout, messe) }), schema: F.FREI_EINZEL_SCHEMA, art: 'bild_frei2', bilder: [zeichneFrei(img, A, basis.layout).toDataURL('image/jpeg', 0.88)], modell, denken: false }));
         if (!n) continue;
-        n.runde = runde; n.basis = s.name;
+        setzeSauber(A)(n); n.runde = runde; n.basis = s.name;
         fortschritt(`Überarbeitete Skizze ansehen und beurteilen: ${n.name}`);
         await beurteile(n, zeichneFrei(img, A, n.layout).toDataURL('image/jpeg', 0.88), modell);
         blatt.push(n); save();
@@ -309,7 +312,7 @@ function skizziere(weiter) {
 function nimmSkizze(i) {
   const z = Z(), a = asset(), s = a && (z.skizzen[a.id] || [])[i];
   if (!s) return;
-  if (s.frei) { z.frei[a.id] = JSON.parse(JSON.stringify({ name: s.name, idee: s.idee, layout: s.layout })); ui.bfWahl = ''; }
+  if (s.frei) { z.frei[a.id] = JSON.parse(JSON.stringify({ name: s.name, idee: s.idee, layout: s.layout, rein: s.rein || [] })); ui.bfWahl = ''; }
   else {
     delete z.frei[a.id];
     z.regel = s.regel; z.stil = JSON.parse(JSON.stringify({ farben: {}, flaeche: { art: 'keine' }, schmuck: {}, ...s.stil, datum: z.stil.datum || '' }));
@@ -333,7 +336,8 @@ function freiWunsch() {
     const img = await ladeBild(ui.assetURL[a.id]);
     const [n] = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.ueberarbeitePrompt(A, inhalt(), f, { messung: F.messeLayout(A, f.layout, messe), wunsch }), schema: F.FREI_EINZEL_SCHEMA, art: 'bild_frei2', bilder: [zeichneFrei(img, A, f.layout).toDataURL('image/jpeg', 0.88)], modell: vlmName(), denken: false }));
     if (!n) throw new Error('Das Modell hat kein brauchbares Layout geliefert. Versuch es noch einmal.');
-    z.frei[a.id] = { name: n.name, idee: n.idee, layout: n.layout, davor: { name: f.name, idee: f.idee, layout: f.layout } }; ui.bfWahl = '';
+    setzeSauber(A)(n);
+    z.frei[a.id] = { name: n.name, idee: n.idee, layout: n.layout, rein: n.rein, davor: { name: f.name, idee: f.idee, layout: f.layout } }; ui.bfWahl = '';
   });
 }
 
@@ -547,7 +551,7 @@ function viewFrei(a, A, f) {
   return `
     <div class="ds-toolbar">
       <span><b>${esc(f.name)}</b> <span class="small muted">· freier Entwurf</span></span><span class="spacer"></span>
-      ${f.davor ? '<button class="btn tiny" data-bd="freidavor">Vorherige Fassung</button>' : ''}<button class="btn tiny" data-bd="freihtml">HTML speichern</button><button class="btn tiny" data-bd="freijson">JSON speichern</button><button class="btn tiny" data-bd="freiweg">Zurück zum Baukasten</button>
+      ${f.davor ? '<button class="btn tiny" data-bd="freidavor">Vorherige Fassung</button>' : ''}<button class="btn tiny" data-bd="freisauber" title="Texte ins Bild holen, Überdeckungen lösen, dem Motiv ausweichen, Kontrast sichern">Sauber setzen</button><button class="btn tiny" data-bd="freihtml">HTML speichern</button><button class="btn tiny" data-bd="freijson">JSON speichern</button><button class="btn tiny" data-bd="freiweg">Zurück zum Baukasten</button>
     </div>
     ${f.idee ? `<p class="small muted bd-regelinfo">${esc(f.idee)}</p>` : ''}
     <div class="bd-stage frei" id="bd-stage">${freiBuehne(a, A, f)}</div>
@@ -558,7 +562,8 @@ function viewFrei(a, A, f) {
         ${el ? `${FELDER[art].filter(([k]) => !(art === 'formen' && el.art === 'linie' && k === 'gefuellt')).map(feld).join('')}<div class="row" style="gap:6px;margin-top:6px"><button class="btn tiny" data-bd="freivor">Nach vorn</button><button class="btn tiny" data-bd="freiloeschen">Löschen</button></div>` : '<p class="small muted">Kein Element gewählt.</p>'}
         <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn tiny" data-bd="freitext">Text hinzufügen</button><button class="btn tiny" data-bd="freiflaeche">Fläche hinzufügen</button><button class="btn tiny" data-bd="freilinie">Linie hinzufügen</button></div></div>
       <div class="m-box"><h4>Was die App misst</h4>${hinweise ? `<ul class="mlist">${hinweise.split('\n').map(x => `<li>${esc(x.replace(/^- /, ''))}</li>`).join('')}</ul>` : '<p class="small muted">Nichts Auffälliges.</p>'}
-        <p class="small muted" style="margin-top:8px">Das sind Hinweise, keine Regeln: Hier entscheidest du, nicht die App. Kontrast ab 4,5 : 1 gilt als gut lesbar.</p></div>
+        ${f.rein && f.rein.length ? `<h4 style="margin-top:12px">Von der App sauber gesetzt</h4><ul class="mlist">${f.rein.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        <p class="small muted" style="margin-top:8px">Was du von Hand verschiebst, lässt die App in Ruhe. „Sauber setzen“ räumt auf Wunsch wieder auf. Kontrast ab 4,5 : 1 gilt als gut lesbar.</p></div>
     </div>`;
 }
 function viewVorschlag(a, A) {
@@ -600,13 +605,14 @@ function viewVorschlag(a, A) {
 function viewSkizzen(a, A) {
   const z = Z(), blatt = z.skizzen[a.id] || [];
   if (!A.free_map) return viewVorschlag(a, A);
-  if (!blatt.length) return `<div class="ds-empty"><h2>Ausprobieren wie auf Papier</h2><p class="muted">Das Vision-Modell (${esc(vlmName() || 'kein Modell')}) sieht das Foto und entwirft frei: Es setzt Texte, Flächen und Linien selbst, ohne Raster und ohne Regeln der App. Daneben liegen sechs Grundskizzen der App zum Vergleich. Danach sieht sich das Modell jede fertige Skizze an und beurteilt sie. „Beste weiterentwickeln“ lässt es die stärksten Skizzen anhand der Kritik frei überarbeiten.</p><button class="btn primary" data-bd="skizzen">Skizzen ausprobieren</button></div>`;
+  if (!blatt.length) return `<div class="ds-empty"><h2>Ausprobieren wie auf Papier</h2><p class="muted">Das Vision-Modell (${esc(vlmName() || 'kein Modell')}) sieht das Foto und entwirft frei: Es bestimmt Idee, Bausteine, Größen, Farben und ungefähre Lage selbst. Die App setzt das Ergebnis sauber: Texte bleiben im Bild, überdecken sich nicht und weichen dem Motiv aus. Daneben liegen sechs Grundskizzen der App zum Vergleich. Danach sieht sich das Modell jede fertige Skizze an und beurteilt sie. „Beste weiterentwickeln“ lässt es die stärksten Skizzen anhand der Kritik frei überarbeiten.</p><button class="btn primary" data-bd="skizzen">Skizzen ausprobieren</button></div>`;
   const karte = s => { const w = s.wertung, i = blatt.indexOf(s), v = s.frei ? null : skizzenVorschlag(a.id, s);
     return `<article class="bd-skizze">
       <button class="bd-skizze-bild" data-bdskizze="${i}" title="Als Entwurf übernehmen">${s.frei ? F.freiHTML(A, s.layout, ui.assetURL[a.id]) : G.ansichtHTML(A, v.variant, v.texts, ui.assetURL[a.id], { stil: v.style })}</button>
       <div class="bd-skizze-kopf"><b>${esc(s.name)}</b><span class="bd-marke ${w && w.summe >= 12 ? 'ok' : ''}">${w ? `${w.summe} / 15` : 'ohne Urteil'}</span></div>
       <p class="small muted">${s.frei ? (s.basis ? `Von der KI überarbeitet aus „${esc(s.basis)}“` : 'Frei entworfen von der KI') : `Grundskizze der App · ${esc(G.REGELN[s.regel].name)}`}${(s.runde || 1) > 1 ? ` · Runde ${s.runde}` : ''}</p>
       <p class="small">${esc(s.idee)}</p>
+      ${s.frei && s.rein && s.rein.length ? `<p class="small muted" title="${esc(s.rein.join(' · '))}">Von der App sauber gesetzt (${s.rein.length} ${s.rein.length === 1 ? 'Baustein' : 'Bausteine'} angepasst)</p>` : ''}
       ${w ? `<p class="small muted">Lesbarkeit ${w.lesbarkeit} · Motiv ${w.motiv} · Spannung ${w.spannung}</p><p class="small"><b>Urteil:</b> ${esc(w.urteil)}</p><p class="small"><b>Nächster Schritt:</b> ${esc(w.verbessern)}</p>` : ''}
       <button class="btn tiny" data-bdskizze="${i}">Als Entwurf übernehmen</button></article>`; };
   return `<div class="ds-toolbar"><span class="small muted">${blatt.length} Skizzen, die besten zuerst. Die Urteile stammen vom Vision-Modell und sind ein Anhaltspunkt, kein Ersatz für dein Auge.</span><span class="spacer"></span>
@@ -695,6 +701,7 @@ function klick(e) {
     case 'freiweg': delete z.frei[a.id]; ui.bfWahl = ''; save(); return render();
     case 'freidavor': { const f = z.frei[a.id]; if (f && f.davor) { z.frei[a.id] = f.davor; ui.bfWahl = ''; save(); render(); } return; }
     case 'freiwunsch': return ui.busy ? null : freiWunsch();
+    case 'freisauber': { const f = z.frei[a.id], r = F.reinzeichnen(z.analysen[a.id], f.layout, messe); z.frei[a.id] = { ...f, layout: r.layout, rein: r.aenderungen, davor: { name: f.name, idee: f.idee, layout: f.layout } }; ui.bfWahl = ''; save(); render(); return toast(r.aenderungen.length ? `${r.aenderungen.length} Bausteine angepasst` : 'Alles sitzt schon sauber'); }
     case 'freihtml': return speichere(`${stamm(a)}-entwurf.html`, F.freiDatei(z.analysen[a.id], z.frei[a.id], ui.assetURL[a.id], G.ANSICHT_CSS, G.ANSICHT_SCHRIFT), 'text/html');
     case 'freijson': return speichere(`${stamm(a)}-entwurf.json`, JSON.stringify({ image: z.analysen[a.id].image, name: z.frei[a.id].name, idea: z.frei[a.id].idee, layout: z.frei[a.id].layout, measured: F.messeLayout(z.analysen[a.id], z.frei[a.id].layout, messe) }, null, 2), 'application/json');
     case 'freitext': case 'freiflaeche': case 'freilinie': {

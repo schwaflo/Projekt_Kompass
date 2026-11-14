@@ -130,7 +130,7 @@ Hat ein Bild keine ruhige Fläche, in die der Block passt, steht er unten links 
 
 Kacheln messen und das Gesamtbild beschreiben reicht nicht für einen guten Entwurf. Der Reiter **Skizzen** probiert deshalb mehrere Richtungen nebeneinander aus, sieht sie sich an und urteilt:
 
-1. **Freie Entwürfe der KI.** Das Vision-Modell sieht das Foto und gestaltet fünf Entwürfe frei. Es setzt Textbausteine, Flächen und Linien selbst: Position, Größe, Drehung, Farbe, Umbruch. Es darf die Headline teilen, Wörter verschieden groß setzen, drehen, anschneiden und über das Motiv legen. Die App gibt ihm kein Raster, keine Ränder und keine Kontrastregel vor; sie bringt die Antwort nur in eine zeichenbare Form (gültige Farben, Zahlen im zeichenbaren Bereich).
+1. **Freie Entwürfe der KI.** Das Vision-Modell sieht das Foto und gestaltet fünf Entwürfe frei. Es setzt Textbausteine, Flächen und Linien selbst: Position, Größe, Drehung, Farbe, Umbruch. Es darf die Headline teilen, Wörter verschieden groß setzen, stapeln und um 90 Grad drehen. Idee, Bausteine, Größen, Farben und ungefähre Lage kommen von der KI; die App setzt das Ergebnis danach sauber (siehe „Reinzeichnung“).
 2. **Grundskizzen der App** zum Vergleich: sechs Richtungen aus dem Baukasten (ruhig neben dem Motiv, Sockel, Band über dem Motiv, diagonaler Schnitt, Plakat in Versalien, Goldener Schnitt).
 3. **Ansehen und urteilen.** Die App zeichnet jede fertige Skizze als Bild. Das Vision-Modell sieht dieses Bild und vergibt je 1 bis 5 Punkte für Lesbarkeit, Bezug zum Motiv und Spannung, dazu einen Satz Urteil und einen Satz, was es als Nächstes ändern würde.
 4. **Weiterentwickeln.** „Beste weiterentwickeln“ nimmt die drei besten Skizzen. Für jede sieht die KI ihre gezeichnete Skizze, die Kritik und die Messwerte der App und überarbeitet das Layout frei: Positionen, Größen, Farben, Umbrüche, Flächen. Das gilt auch für Grundskizzen aus dem Baukasten; sie werden dafür in ein freies Layout verwandelt.
@@ -138,13 +138,25 @@ Kacheln messen und das Gesamtbild beschreiben reicht nicht für einen guten Entw
 
 Ein Blatt braucht mit `gemma4:12b-mlx` rund anderthalb Minuten (davon gut eine halbe für die freien Entwürfe), eine Runde Weiterentwickeln rund 40 Sekunden. Die Urteile sind ein Anhaltspunkt: Das Modell sieht eine verkleinerte Zeichnung der Skizze (768 px breit) und irrt sich, wie jedes Modell.
 
+### Reinzeichnung
+
+Ein kleines lokales Modell trifft Positionen nur grob: Ohne Nacharbeit liegen Texte übereinander, auf Händen oder halb außerhalb des Bildes. Deshalb setzt die App jeden freien Entwurf der KI sauber, ohne die Idee zu ändern. Wortlaut, Aufteilung, Größenverhältnisse und Flächen bleiben; jeder Baustein rückt nur so weit wie nötig:
+
+- **Im Bild:** Jeder Text steht vollständig im Bild, mit 5 % der kurzen Seite Rand. Was zu breit ist, wird umbrochen oder kleiner.
+- **Keine Überdeckung:** Kein Text liegt auf einem anderen. Der größere hat Vorrang und bleibt, wo er ist.
+- **Motiv frei:** Text weicht auf die nächste ruhige Stelle aus, außer die KI hat eine Fläche darunter gesetzt.
+- **Lesbar:** Kleingedrucktes bekommt eine Mindestgröße. Reicht der Kontrast nicht (4,5 : 1, bei großer Schrift 3 : 1), wechselt die Farbe auf einen hellen oder dunklen Ton des Bildes; reicht auch das nicht, kommt ein weicher Schleier darunter.
+- **Drehung:** nur 0 oder 90 Grad.
+
+Was dabei geändert wurde, steht an der Skizze und im Entwurf unter „Von der App sauber gesetzt“. Was du selbst von Hand verschiebst, lässt die App in Ruhe; „Sauber setzen“ im Entwurf räumt auf Wunsch wieder auf.
+
 ### Freier Entwurf
 
-Ein freier Entwurf gehört dir und der KI, nicht den Regeln der App:
+Nach dem Übernehmen einer freien Skizze:
 
 - **Anfassen und verschieben:** Jedes Element lässt sich in der Ansicht greifen und bewegen. Ein Klick wählt es aus; darunter stehen seine Werte (Text, Größe, Zeilenbreite, Drehung, Farbe, Schnitt, Ausrichtung, Versalien; bei Formen Breite, Höhe, Deckkraft, Strichstärke). Elemente lassen sich hinzufügen, löschen und nach vorn holen.
 - **Überarbeiten lassen:** Du schreibst, was sich ändern soll; die KI sieht den aktuellen Stand als Bild und gibt ein neues Layout zurück. „Vorherige Fassung“ holt den Stand davor zurück.
-- **Was die App misst:** Kontrast jedes Textbausteins zum Untergrund, Anteil über dem Motiv, Anschnitt und Überdeckungen. Das sind Hinweise, keine Regeln; die App ändert nichts von selbst. Die Messwerte gehen als Rückmeldung an die KI, wenn sie überarbeitet.
+- **Was die App misst:** Kontrast jedes Textbausteins zum Untergrund, Anteil über dem Motiv, Anschnitt und Überdeckungen. Die Messwerte gehen als Rückmeldung an die KI, wenn sie überarbeitet. Bei deinen eigenen Änderungen sind sie nur Hinweise.
 - **Frei bearbeiten** im Baukasten-Entwurf verwandelt auch diesen in ein freies Layout.
 
 Das Format eines freien Layouts (im JSON unter `layout`): `texte` mit `text`, `x`, `y` (Ankerpunkt in Prozent des Bildes), `groesse` und `breite` (Prozent der Bildbreite), `farbe`, `gewicht`, `versal`, `ausrichtung`, `drehung`; `formen` mit `art` (rechteck, kreis, linie), `x`, `y`, `breite`, `hoehe`, `farbe`, `deckkraft`, `gefuellt`, `staerke`, `drehung`.

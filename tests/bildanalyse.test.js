@@ -393,6 +393,44 @@ test('Frei: die App misst nach und meldet, statt zu ändern', () => {
   const t = F.messungText(schwach);
   assert(t.includes('kaum lesbar') && t.includes('überdecken sich') && t.includes('ragen aus dem Bild'), t);
 });
+test('Frei: Reinzeichnung holt Texte ins Bild, löst Überdeckungen und weicht dem Motiv aus', () => {
+  const t = (text, x, y, groesse, o = {}) => ({ text, x, y, groesse, breite: 0, farbe: '#FFFFFF', gewicht: 'fett', versal: false, ausrichtung: 'links', drehung: 0, ...o });
+  /* wie im Fehlerbild: Wort halb aus dem Bild, zwei Texte aufeinander, Kleines auf dem Motiv, schiefe Drehung, Schrift in Grundfarbe */
+  const roh = F.leseLayout({ formen: [], texte: [t('CAFÉ', 0, 40, 18, { ausrichtung: 'mitte' }), t('Flyer für', 55, 42, 4), t('kommt vorbei, es gibt Kaffee', 10, 50, 1.2), t('01.09.26', 60, 44, 2, { drehung: -75 }), t('Heute', 60, 80, 3, { farbe: '#1E2D50' })] });
+  const { layout: L, aenderungen } = F.reinzeichnen(MOTIV, roh), verh = 400 / 640, m = F.messeLayout(MOTIV, L), u = L.texte.map(x => F.umriss(x, verh));
+  gleich(L.texte.map(x => x.text), roh.texte.map(x => x.text), 'Wortlaut und Reihenfolge bleiben');
+  for (const [i, b] of u.entries()) assert(b.x >= 3 && b.y >= 4.9 && b.x + b.b <= 97 && b.y + b.h <= 95.1, `${L.texte[i].text}: ganz im Bild (${JSON.stringify(b)})`);
+  for (let a = 0; a < u.length; a++) for (let b = a + 1; b < u.length; b++) assert(u[a].x >= u[b].x + u[b].b || u[b].x >= u[a].x + u[a].b || u[a].y >= u[b].y + u[b].h || u[b].y >= u[a].y + u[a].h, `${L.texte[a].text} und ${L.texte[b].text} überdecken sich nicht`);
+  gleich(m.ueberlappungen.length, 0);
+  for (const x of m.texte) { assert(x.ueberMotiv <= 0.12, `${x.text}: nicht auf dem Motiv (${x.ueberMotiv})`); assert(x.ausserhalb === 0, `${x.text}: nichts ragt hinaus`); assert(x.kontrast >= 3, `${x.text}: Kontrast ${x.kontrast}`); }
+  assert(L.texte[2].groesse >= 1.7, 'Kleingedrucktes bekommt eine Mindestgröße');
+  gleich(L.texte[3].drehung, -90, 'schiefe Drehung wird senkrecht');
+  /* Gedrehter Text mit mittiger Ausrichtung (so liefert es das Modell) bleibt ganz im Bild */
+  const senk = F.reinzeichnen(MOTIV, F.leseLayout({ formen: [], texte: [t('Flyer für\nCafé', 85, 16, 10, { ausrichtung: 'mitte', drehung: 90, versal: true })] })).layout.texte[0], us = F.umriss(senk, verh);
+  gleich([senk.ausrichtung, senk.drehung], ['links', 90]);
+  assert(us.y >= 4.9 && us.y + us.h <= 95.1 && us.x >= 3 && us.x + us.b <= 97, `senkrechter Text im Bild: ${JSON.stringify(us)}`);
+  assert(L.texte[4].farbe !== '#1E2D50' && m.texte[4].kontrast >= 4.5, 'Schrift in Grundfarbe wird lesbar');
+  assert(aenderungen.length >= 4 && aenderungen.some(a => a.includes('verschoben')) && aenderungen.some(a => a.includes('Farbe')), aenderungen.join(' | '));
+});
+test('Frei: Reinzeichnung lässt in Ruhe, was schon sitzt, und hält sich an die Idee', () => {
+  const gut = F.leseLayout({ formen: [], texte: [{ text: 'Sommerfest', x: 50, y: 20, groesse: 6, breite: 0, farbe: '#FFFFFF', gewicht: 'fett', versal: false, ausrichtung: 'links', drehung: 0 }, { text: 'Samstag ab 15 Uhr', x: 50, y: 40, groesse: 2.4, breite: 0, farbe: '#FFFFFF', gewicht: 'normal', versal: false, ausrichtung: 'links', drehung: 0 }] });
+  const r = F.reinzeichnen(MOTIV, gut);
+  gleich(r.layout, gut, 'unverändert'); gleich(r.aenderungen, []);
+  /* Ein Wort knapp auf dem Motiv rückt nur so weit wie nötig */
+  const nah = F.leseLayout({ formen: [], texte: [{ ...gut.texte[0], x: 30 }] }), n = F.reinzeichnen(MOTIV, nah).layout.texte[0];
+  assert(n.x > 30 && n.x < 46 && Math.abs(n.y - 20) < 8, `bleibt in der Nähe: ${n.x} / ${n.y}`);
+  /* Liegt eine Fläche der KI unter dem Text, darf er auf dem Motiv bleiben */
+  const mitFlaeche = F.leseLayout({ formen: [{ art: 'rechteck', x: 0, y: 0, breite: 45, hoehe: 100, farbe: '#101820', deckkraft: 100, gefuellt: true, staerke: 2, drehung: 0 }], texte: [{ ...gut.texte[0], x: 5, y: 30, groesse: 5 }] });
+  gleich(F.reinzeichnen(MOTIV, mitFlaeche).layout.texte[0].x, 5, 'auf der eigenen Fläche bleibt der Text stehen');
+  /* Mittlerer Bildton: weder hell noch dunkel reicht. Dann hilft ein weicher Schleier, kein Kasten. */
+  const mittel = K.analysiereBild(bild(480, 320, () => [165, 110, 88]), { raster: ['2x2'] });
+  const ms = F.reinzeichnen(mittel, F.leseLayout({ formen: [], texte: [{ ...gut.texte[1], x: 20, y: 40 }] }));
+  gleich([ms.layout.formen.length, ms.layout.formen[0].weich, ms.layout.formen[0].deckkraft <= 40], [1, true, true], 'ein weicher Schleier mit wenig Deckkraft');
+  assert(F.messeLayout(mittel, ms.layout).texte[0].kontrast >= 4.5 && F.freiHTML(mittel, ms.layout, '').includes('filter:blur('), 'lesbar, Rand läuft aus');
+  /* Zu langer Text wird umbrochen statt aus dem Bild zu laufen */
+  const lang = F.leseLayout({ formen: [], texte: [{ ...gut.texte[0], text: 'Ein sehr langer Titel der niemals in eine Zeile passt', x: 50, groesse: 8 }] }), l = F.reinzeichnen(MOTIV, lang).layout.texte[0];
+  assert(l.breite > 0 && F.umriss(l, 0.625).b <= 95, 'umbrochen und im Bild');
+});
 test('Frei: Zeilenumbruch und Umriss', () => {
   const t = { text: 'eins zwei drei vier fünf sechs', groesse: 4, breite: 20, gewicht: 'normal', versal: false, ausrichtung: 'mitte', x: 50, y: 10, drehung: 0 };
   const z = F.zeilen(t); assert(z.length >= 2 && z.join(' ') === t.text, z.join('|'));
@@ -402,7 +440,7 @@ test('Frei: Zeilenumbruch und Umriss', () => {
 });
 test('Frei: Prompts geben Freiheit, Inhalt und Rückmeldung mit', () => {
   const p = F.freiPrompt(MOTIV, { ...TEXTE, datum: '14.06.' }, 4);
-  assert(p.includes('Straßenfest-Glaube-Leben') && p.includes('14.06.') && p.includes('keine Vorgaben zu Raster') && p.includes('4 Entwürfe'), 'Freiheit und Inhalt');
+  assert(p.includes('Straßenfest-Glaube-Leben') && p.includes('14.06.') && p.includes('keine Vorgaben zu Raster') && p.includes('kein Text überdeckt einen anderen') && p.includes('4 Entwürfe'), 'Freiheit und Inhalt');
   gleich(F.kartenText(MOTIV).split('\n').length, MOTIV.free_map.rows);
   assert(/^#+\.+$/.test(F.kartenText(MOTIV).split('\n')[2]), 'Karte: Motiv links, ruhig rechts');
   const s = F.leseFrei(FREI)[0], w = Sk.leseBewertung({ lesbarkeit: 2, motiv: 4, spannung: 4, urteil: 'Spannend, aber schwer lesbar.', verbessern: 'Unterzeile größer.' });

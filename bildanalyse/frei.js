@@ -2,16 +2,19 @@
    Bildanalyse – freies Layout
    Hier entscheidet die KI selbst: Sie sieht das Foto und setzt
    Texte, Flächen und Linien frei aufs Bild (Position, Größe,
-   Drehung, Farbe). Es gibt kein Raster und keine Regel, die die
-   App durchsetzt. Die App
-   - bringt die Antwort nur in eine zeichenbare Form,
-   - zeichnet sie,
-   - misst nach (Kontrast, Lage zum Motiv, Anschnitt) und gibt
-     das als Rückmeldung für die nächste Fassung mit.
+   Drehung, Farbe). Die Idee und die ungefähre Lage kommen von
+   der KI. Die App
+   - bringt die Antwort in eine zeichenbare Form,
+   - setzt sie sauber (Reinzeichnung): Texte bleiben im Bild,
+     überdecken sich nicht, weichen dem Motiv aus und bleiben
+     lesbar; jeder Baustein bleibt so nah wie möglich an der
+     Stelle, die die KI gewählt hat,
+   - misst nach und gibt das als Rückmeldung für die nächste
+     Fassung mit.
    Alles ohne Browser lauffähig.
    ============================================================ */
-import { istHex, hexNorm, hexZuRgb, kontrast, mische } from './kern.js';
-import { breiteEm } from './design.js';
+import { istHex, hexNorm, hexZuRgb, kontrast, mische, konfig } from './kern.js';
+import { breiteEm, schriftToene } from './design.js';
 
 const S = { type: 'string' }, I = { type: 'integer' }, B = { type: 'boolean' };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -39,7 +42,7 @@ export const FREI_EINZEL_SCHEMA = SKIZZE;
 /* ---------- Prompts ---------- */
 export const FREI_SYSTEM = 'Du bist ein eigenständiger Grafikdesigner mit starker Handschrift. Du siehst das Foto und gestaltest frei: Du entscheidest selbst, was gut aussieht. Antworte ausschließlich mit JSON, Namen und Ideen auf Deutsch.';
 const FORMAT = `SO BESCHREIBST DU EIN LAYOUT
-Koordinaten in Prozent: x von 0 (linker Bildrand) bis 100 (rechter), y von 0 (oben) bis 100 (unten). Werte unter 0 oder über 100 schneiden etwas am Rand an; das ist erlaubt.
+Koordinaten in Prozent: x von 0 (linker Bildrand) bis 100 (rechter), y von 0 (oben) bis 100 (unten).
 texte: jedes Element ist ein eigener Textbaustein.
 - text: der Wortlaut. Zeilenumbruch mit \\n.
 - x, y: der Ankerpunkt an der Oberkante. Bei ausrichtung "links" ist x die linke Kante, bei "mitte" die Mitte, bei "rechts" die rechte Kante.
@@ -75,8 +78,9 @@ ${bildInfo(analyse, texte)}
 ${FORMAT}
 
 DEINE FREIHEIT
-- Es gibt keine Vorgaben zu Raster, Rand, Größe oder Zahl der Elemente. Du entscheidest.
-- Du darfst die Headline auf mehrere Bausteine verteilen, Wörter unterschiedlich groß setzen, stapeln, drehen, anschneiden, über das Motiv legen oder ihm ausweichen.
+- Es gibt keine Vorgaben zu Raster, Größe oder Zahl der Elemente. Du entscheidest.
+- Du darfst die Headline auf mehrere Bausteine verteilen, Wörter unterschiedlich groß setzen, stapeln oder um 90 Grad drehen.
+- Handwerk, das immer gilt: Jeder Text steht vollständig im Bild, kein Text überdeckt einen anderen, und Text liegt auf ruhigen Stellen (in der Karte mit . markiert) oder auf einer Fläche, die du dafür setzt, nicht auf Händen, Gesichtern oder anderen Details des Motivs. Die App rückt Bausteine zurecht, die das nicht einhalten.
 - Flächen und Linien nur, wenn sie dem Entwurf etwas geben. Farben frei, aus dem Foto oder bewusst dagegen.
 - Verwende den Inhalt oben wörtlich (Aufteilen und Umbrechen ist erlaubt), erfinde keine neuen Aussagen. Unterzeile, Aufruf und Datum dürfen in einem Entwurf fehlen, wenn er dadurch stärker wird.
 - Die ${anzahl} Entwürfe sollen sich deutlich unterscheiden: nicht viermal dieselbe Idee.
@@ -119,7 +123,8 @@ export function leseLayout(roh = {}) {
     art: f.art, x: runde(zahl(f.x, -60, 160, 0), 1), y: runde(zahl(f.y, -60, 160, 0), 1),
     breite: runde(zahl(f.breite, -200, 260, 20), 1), hoehe: runde(zahl(f.hoehe, -200, 260, 20), 1),
     farbe: farbe(f.farbe, '#FFFFFF'), deckkraft: Math.round(zahl(f.deckkraft, 0, 100, 100)), gefuellt: f.gefuellt !== false,
-    staerke: runde(zahl(f.staerke, 0.5, 40, 2), 1), drehung: Math.round(zahl(f.drehung, -180, 180, 0))
+    staerke: runde(zahl(f.staerke, 0.5, 40, 2), 1), drehung: Math.round(zahl(f.drehung, -180, 180, 0)),
+    ...(f.weich === true ? { weich: true } : {})   /* weicher Schleier der Reinzeichnung: Rand läuft aus */
   }));
   return { formen, texte };
 }
@@ -143,7 +148,7 @@ export function freiHTML(analyse, layout, bildURL = '', { bearbeiten = false, ge
   layout.formen.forEach((f, i) => {
     if (f.art === 'linie') return linien.push(`<line${k('formen', i)} x1="${runde(f.x * W / 100, 1)}" y1="${runde(f.y * H / 100, 1)}" x2="${runde((f.x + f.breite) * W / 100, 1)}" y2="${runde((f.y + f.hoehe) * H / 100, 1)}" stroke="${f.farbe}" stroke-opacity="${runde(f.deckkraft / 100)}" stroke-width="${runde(f.staerke * W / 1000, 1)}"${bearbeiten ? ' style="pointer-events:stroke"' : ''}/>`);
     const mass = f.art === 'kreis' ? `width:${f.breite}cqw;height:${f.breite}cqw;border-radius:50%` : `width:${f.breite}%;height:${f.hoehe}%`;
-    flaechen.push(`<i class="bf-form"${k('formen', i)} style="left:${f.x}%;top:${f.y}%;${mass};${f.gefuellt ? `background:${rgba(f.farbe, f.deckkraft)}` : `border:${runde(f.staerke / 10)}cqw solid ${rgba(f.farbe, f.deckkraft)}`}${f.drehung ? `;transform:rotate(${f.drehung}deg)` : ''}"></i>`);
+    flaechen.push(`<i class="bf-form"${k('formen', i)} style="left:${f.x}%;top:${f.y}%;${mass};${f.gefuellt ? `background:${rgba(f.farbe, f.deckkraft)}` : `border:${runde(f.staerke / 10)}cqw solid ${rgba(f.farbe, f.deckkraft)}`}${f.drehung ? `;transform:rotate(${f.drehung}deg)` : ''}${f.weich ? ';filter:blur(3.5cqw);pointer-events:none' : ''}"></i>`);
   });
   const texte = layout.texte.map((t, i) => `<p class="bf-text${t.versal ? ' versal' : ''}"${k('texte', i)} style="left:${t.x}%;top:${t.y}%;font-size:${t.groesse}cqw;font-weight:${GEWICHT[t.gewicht]};color:${t.farbe};text-align:${{ links: 'left', mitte: 'center', rechts: 'right' }[t.ausrichtung]};${t.breite ? `width:${t.breite}cqw;` : 'white-space:pre;'}transform-origin:${URSPRUNG[t.ausrichtung]};transform:${SCHUB[t.ausrichtung]}rotate(${t.drehung}deg)">${esc(t.text)}</p>`);
   return `<div class="bd-ansicht bd-frei" style="aspect-ratio:${W}/${H};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${flaechen.join('')}${linien.length ? `<svg class="bf-linien" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${linien.join('')}</svg>` : ''}${texte.join('')}</div>`;
@@ -164,7 +169,8 @@ export function zeilen(t, messe = breiteEm) {
 /* Umriss eines Textbausteins in Prozent des Bildes (Drehung grob: ab 45° stehen Breite und Höhe vertauscht) */
 export function umriss(t, verh, messe = breiteEm) {
   const zl = zeilen(t, messe), fett = t.gewicht !== 'normal';
-  let b = Math.max(...zl.map(z => messe(z, fett) * (t.versal ? 1.06 : 1))) * t.groesse, h = zl.length * t.groesse * 1.08 / verh;
+  /* Versalien sind gesperrt: je Zeichen kommen 0,04 Geviert dazu */
+  let b = Math.max(...zl.map(z => messe(z, fett) + (t.versal ? 0.04 * [...z].length : 0))) * t.groesse, h = zl.length * t.groesse * 1.08 / verh;
   let x = t.ausrichtung === 'mitte' ? t.x - b / 2 : t.ausrichtung === 'rechts' ? t.x - b : t.x, y = t.y;
   const d = ((t.drehung % 360) + 360) % 360;
   if (d > 45 && d < 135) { const bb = h * verh, hh = b / verh; x = t.x - bb; y = t.y; b = bb; h = hh; }
@@ -174,17 +180,7 @@ export function umriss(t, verh, messe = breiteEm) {
 /* Was die App an einem freien Layout misst. Das sind Hinweise, keine Regeln. */
 export function messeLayout(analyse, layout, messe = breiteEm) {
   const m = analyse.free_map, verh = analyse.image.height / analyse.image.width, zb = 100 / m.cols, zh = 100 / m.rows;
-  /* Untergrund je Zelle: Foto, darüber die Flächen */
-  const grund = m.color.slice(), bedeckt = m.color.map(() => false);
-  for (const f of layout.formen) {
-    if (f.art === 'linie' || !f.gefuellt || f.deckkraft < 5) continue;
-    const hoehe = f.art === 'kreis' ? f.breite / verh : f.hoehe;
-    for (let cy = 0; cy < m.rows; cy++) for (let cx = 0; cx < m.cols; cx++) {
-      const px = (cx + 0.5) * zb, py = (cy + 0.5) * zh;
-      const drin = f.art === 'kreis' ? ((px - f.x - f.breite / 2) / (f.breite / 2)) ** 2 + ((py - f.y - hoehe / 2) / (hoehe / 2)) ** 2 <= 1 : px >= f.x && px <= f.x + f.breite && py >= f.y && py <= f.y + f.hoehe;
-      if (drin) { const i = cy * m.cols + cx; grund[i] = mische(f.farbe, grund[i], f.deckkraft / 100); if (f.deckkraft >= 80) bedeckt[i] = true; }
-    }
-  }
+  const { grund, bedeckt } = untergrund(analyse, layout.formen);
   const boxen = layout.texte.map(t => umriss(t, verh, messe));
   const texte = layout.texte.map((t, n) => {
     const u = boxen[n], zellen = []; let motiv = 0;
@@ -198,6 +194,88 @@ export function messeLayout(analyse, layout, messe = breiteEm) {
     if (w > 0 && h > 0 && w * h > 0.25 * Math.min(A.b * A.h, Bx.b * Bx.h)) ueberlappungen.push([texte[a].text, texte[b].text]);
   }
   return { texte, ueberlappungen };
+}
+
+/* ---------- Reinzeichnung ---------- */
+/* Untergrund je Zelle der Freiraum-Karte: Foto, darüber die gefüllten Flächen des Layouts */
+function untergrund(analyse, formen) {
+  const m = analyse.free_map, verh = analyse.image.height / analyse.image.width, zb = 100 / m.cols, zh = 100 / m.rows;
+  const grund = m.color.slice(), bedeckt = m.color.map(() => false);
+  for (const f of formen) {
+    if (f.art === 'linie' || !f.gefuellt || f.deckkraft < 5) continue;
+    const hoehe = f.art === 'kreis' ? f.breite / verh : f.hoehe;
+    for (let cy = 0; cy < m.rows; cy++) for (let cx = 0; cx < m.cols; cx++) {
+      const px = (cx + 0.5) * zb, py = (cy + 0.5) * zh;
+      const drin = f.art === 'kreis' ? ((px - f.x - f.breite / 2) / (f.breite / 2)) ** 2 + ((py - f.y - hoehe / 2) / (hoehe / 2)) ** 2 <= 1 : px >= f.x && px <= f.x + f.breite && py >= f.y && py <= f.y + f.hoehe;
+      if (drin) { const i = cy * m.cols + cx; grund[i] = mische(f.farbe, grund[i], f.deckkraft / 100); if (f.deckkraft >= 80) bedeckt[i] = true; }
+    }
+  }
+  return { grund, bedeckt };
+}
+/* Die Idee der KI sauber setzen. Nichts wird neu erfunden: Jeder Textbaustein behält Wortlaut und
+   Charakter und rückt nur so weit, wie es das Handwerk verlangt.
+   - ganz im Bild, mit Rand (5 % der kurzen Seite); zu Großes wird umbrochen oder kleiner,
+   - kein Text überdeckt einen anderen; der größere hat Vorrang und bleibt, wo er ist,
+   - Text weicht dem Motiv aus, außer es liegt eine Fläche darunter,
+   - Drehung nur 0 oder 90 Grad, Mindestgröße für Kleines,
+   - Farbe mit lesbarem Kontrast; reicht keine, kommt eine ruhige Fläche darunter.
+   Zurück kommt das gesetzte Layout und in Worten, was geändert wurde. */
+export function reinzeichnen(analyse, layout, messe = breiteEm) {
+  const cfg = konfig(analyse.config || {}), m = analyse.free_map, W = analyse.image.width, H = analyse.image.height, verh = H / W, kurz = Math.min(W, H);
+  const rx = 5 * kurz / W, ry = 5 * kurz / H, zb = 100 / m.cols, zh = 100 / m.rows, klein = 1.7 * Math.max(1, Math.min(1.8, Math.sqrt(verh) / 0.8));
+  const L = JSON.parse(JSON.stringify(layout)), toene = schriftToene(analyse, cfg), aenderungen = [], gesetzt = [];
+  const name = t => `„${t.text.replace(/\n/g, ' ').slice(0, 28)}“`;
+  const zellen = u => { const z = []; for (let cy = Math.max(0, Math.floor(u.y / zh)); cy <= Math.min(m.rows - 1, Math.floor((u.y + u.h - 0.01) / zh)); cy++) for (let cx = Math.max(0, Math.floor(u.x / zb)); cx <= Math.min(m.cols - 1, Math.floor((u.x + u.b - 0.01) / zb)); cx++) z.push(cy * m.cols + cx); return z; };
+  /* Schritte, in denen ein Baustein verschoben werden darf: nächstliegende zuerst */
+  const schritte = [];
+  for (let dy = -100; dy <= 100; dy += zh / 2) for (let dx = -100; dx <= 100; dx += zb / 2) schritte.push([dx, dy, Math.hypot(dx, dy * verh)]);
+  schritte.sort((a, b) => a[2] - b[2]);
+  const reihenfolge = L.texte.map((_, i) => i).sort((a, b) => L.texte[b].groesse - L.texte[a].groesse);
+  for (const i of reihenfolge) {
+    const t = L.texte[i], vor = { ...t }, was = [];
+    /* Drehung und Größe */
+    t.drehung = Math.abs(t.drehung) < 30 || Math.abs(t.drehung) > 150 ? 0 : t.drehung > 0 ? 90 : -90;
+    /* Gedrehter Text läuft als eine Zeile vom Ankerpunkt weg: so ist seine Lage eindeutig */
+    if (t.drehung) { t.breite = 0; t.ausrichtung = 'links'; }
+    if (t.groesse < klein) t.groesse = runde(klein);
+    const maxB = 100 - 2 * rx, maxH = 100 - 2 * ry;
+    for (let n = 0; n < 14; n++) {
+      const u = umriss(t, verh, messe);
+      if (u.b > maxB + 0.01) { if (!t.drehung && (!t.breite || t.breite > maxB) && /\s/.test(t.text.trim())) { t.breite = runde(maxB, 1); continue; } t.groesse = runde(t.groesse * Math.max(0.5, maxB / u.b) * 0.98); if (t.breite > maxB) t.breite = runde(maxB, 1); continue; }
+      if (u.h > maxH + 0.01) { t.groesse = runde(t.groesse * Math.max(0.5, maxH / u.h) * 0.98); continue; }
+      break;
+    }
+    if (t.groesse !== vor.groesse) was.push(t.groesse > vor.groesse ? 'größer gesetzt' : 'verkleinert, damit es ins Bild passt');
+    if (t.drehung !== vor.drehung) was.push('gerade gestellt');
+    /* Lage: im Bild, frei von anderen Texten, möglichst nicht auf dem Motiv */
+    const { grund, bedeckt } = untergrund(analyse, L.formen), u0 = umriss(t, verh, messe);
+    const motiv = u => { const z = zellen(u); return z.length ? z.filter(c => !m.free[c] && !bedeckt[c]).length / z.length : 0; };
+    const passt = (dx, dy, streng) => {
+      const u = { x: u0.x + dx, y: u0.y + dy, b: u0.b, h: u0.h };
+      if (u.x < rx - 0.01 || u.y < ry - 0.01 || u.x + u.b > 100 - rx + 0.01 || u.y + u.h > 100 - ry + 0.01) return false;
+      if (gesetzt.some(g => u.x < g.x + g.b + 1.2 && g.x < u.x + u.b + 1.2 && u.y < g.y + g.h + 1.2 / verh && g.y < u.y + u.h + 1.2 / verh)) return false;
+      return !streng || motiv(u) <= 0.12;
+    };
+    const wahl = schritte.find(([dx, dy]) => passt(dx, dy, true)) || schritte.find(([dx, dy]) => passt(dx, dy, false));
+    if (wahl) { t.x = runde(t.x + wahl[0], 1); t.y = runde(t.y + wahl[1], 1); if (wahl[2] > 1.5) was.push('verschoben'); }
+    const u = umriss(t, verh, messe); gesetzt.push(u);
+    /* Farbe */
+    const unter = zellen(u).map(c => grund[c]), k = f => (unter.length ? Math.min(...unter.map(g => kontrast(f, g))) : 21), ziel = t.groesse >= 5 ? 3 : cfg.kontrast_min;
+    if (k(t.farbe) < ziel) {
+      const ton = k(toene.dunkel) >= k(toene.hell) ? toene.dunkel : toene.hell;
+      if (k(ton) >= ziel) { t.farbe = ton; was.push('Farbe für lesbaren Kontrast geändert'); }
+      else {
+        /* keine Farbe reicht ganz: ein weicher Schleier in der Gegenfarbe hebt den Kontrast, ohne als Kasten aufzufallen */
+        const schein = ton === toene.dunkel ? toene.hell : toene.dunkel;
+        let a = 0.08; while (a < 0.6 && Math.min(...unter.map(g => kontrast(ton, mische(schein, g, a)))) < ziel) a += 0.04;
+        const p = 5;
+        L.formen.push({ art: 'rechteck', x: runde(u.x - p, 1), y: runde(u.y - p / verh, 1), breite: runde(u.b + 2 * p, 1), hoehe: runde(u.h + 2 * p / verh, 1), farbe: schein, deckkraft: Math.round(a * 100), gefuellt: true, staerke: 2, drehung: 0, weich: true });
+        t.farbe = ton; was.push(`weicher Schleier untergelegt (${Math.round(a * 100)} %), damit die Schrift lesbar ist`);
+      }
+    }
+    if (was.length) aenderungen.push(`${name(t)}: ${was.join(', ')}`);
+  }
+  return { layout: L, aenderungen };
 }
 
 /* ---------- Aus einem Baukasten-Entwurf ein freies Layout machen ---------- */
