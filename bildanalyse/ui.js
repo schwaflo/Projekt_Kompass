@@ -13,16 +13,18 @@ import { STANDARD, konfig, analysiereBild, parseRaster, parseRasterListe, alleKa
 import * as G from './design.js';
 import { FLAECHEN, SCHMUCK, stilVoll } from './stil.js';
 import * as Sk from './skizzen.js';
+import * as F from './frei.js';
 
 Object.assign(KIND, {
   bild_gesamt: { name: 'Gesamtbild beschreiben', expect: 500 },
   bild_kachel: { name: 'Kachel beschreiben', expect: 160 },
   bild_design: { name: 'Design-Vorschlag zusammenführen', expect: 700 },
   bild_farben: { name: 'Farbwelt vorschlagen', expect: 120 },
-  bild_skizzen: { name: 'Ideen aus dem Bild entwickeln', expect: 2400 },
+  bild_frei: { name: 'Frei entwerfen', expect: 3400 },
+  bild_frei2: { name: 'Entwurf überarbeiten', expect: 900 },
   bild_urteil: { name: 'Skizze ansehen und beurteilen', expect: 320 }
 });
-Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000, bild_farben: 300, bild_skizzen: 3200, bild_urteil: 500 });
+Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000, bild_farben: 300, bild_frei: 4600, bild_frei2: 1800, bild_urteil: 500 });
 
 const RASTER_FEST = ['2x2', '4x2', '4x4'];
 const VLM_WUNSCH = /qwen2\.5-?vl/i, DESIGN_WUNSCH = /gemma-?4/i;
@@ -32,10 +34,11 @@ function Z() {
   const D = designState();
   if (!D.bild) D.bild = { asset: '', raster: ['2x2', '4x2'], eigene: [], beschreiben: true, vlm: '', modell: '', cfg: {}, analysen: {}, vorschlaege: {}, tab: 'analyse', grid: '' };
   if (!D.bild.skizzen) D.bild.skizzen = {};
+  if (!D.bild.frei) D.bild.frei = {};
   if (!D.bild.stil) D.bild.stil = { farben: {}, flaeche: { art: 'keine' }, schmuck: {}, datum: '' };
   /* Analysen entfernter Bilder nicht weiter mitspeichern */
   const da = new Set(D.assets.map(a => a.id));
-  for (const feld of ['analysen', 'vorschlaege', 'skizzen']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
+  for (const feld of ['analysen', 'vorschlaege', 'skizzen', 'frei']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
   return D.bild;
 }
 const an = () => S.screen === 'design' && S.design && S.design.modus === 'bild';
@@ -213,25 +216,74 @@ function zeichneSkizze(img, A, v, breite = 768) {
   }
   return c;
 }
+/* Ein freies Layout als Bild zeichnen */
+function zeichneFrei(img, A, L, breite = 768) {
+  const W = breite, H = Math.round(breite * A.image.height / A.image.width), c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), u = W / 100, X = p => p * W / 100, Y = p => p * H / 100, rad = d => d * Math.PI / 180;
+  x.drawImage(img, 0, 0, W, H);
+  for (const f of L.formen) {
+    x.save(); x.globalAlpha = f.deckkraft / 100; x.fillStyle = x.strokeStyle = f.farbe;
+    if (f.art === 'linie') { x.lineWidth = Math.max(1, f.staerke * W / 1000); x.beginPath(); x.moveTo(X(f.x), Y(f.y)); x.lineTo(X(f.x + f.breite), Y(f.y + f.hoehe)); x.stroke(); }
+    else {
+      const b = X(f.breite), h = f.art === 'kreis' ? b : Y(f.hoehe);
+      x.translate(X(f.x) + b / 2, Y(f.y) + h / 2); x.rotate(rad(f.drehung)); x.beginPath();
+      if (f.art === 'kreis') x.ellipse(0, 0, Math.abs(b / 2), Math.abs(b / 2), 0, 0, 2 * Math.PI); else x.rect(-b / 2, -h / 2, b, h);
+      if (f.gefuellt) x.fill(); else { x.lineWidth = Math.max(1, f.staerke / 10 * u); x.stroke(); }
+    }
+    x.restore();
+  }
+  for (const t of L.texte) {
+    const g = t.groesse * u;
+    x.save(); x.translate(X(t.x), Y(t.y)); x.rotate(rad(t.drehung));
+    x.font = `${{ normal: 500, halbfett: 600, fett: 700 }[t.gewicht]} ${g}px "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif`;
+    x.fillStyle = t.farbe; x.textBaseline = 'top'; x.textAlign = { links: 'left', mitte: 'center', rechts: 'right' }[t.ausrichtung];
+    if ('letterSpacing' in x) x.letterSpacing = t.versal ? `${0.04 * g}px` : '0px';
+    F.zeilen(t, messe).forEach((z, i) => x.fillText(z, 0, i * g * 1.08 + g * 0.06));
+    x.restore();
+  }
+  return c;
+}
 const skizzenVorschlag = (id, s) => G.pruefeVorschlag(Z().analysen[id], {}, texte(), { fertig: komponiert(id, s.regel, s.stil) });
-/* weiter = false: neues Blatt. weiter = true: aus den besten und ihrer Kritik eine neue Runde. */
+const inhalt = () => ({ ...texte(), datum: stilVoll(Z().stil).datum });
+/* Layout einer Skizze, gleich ob frei entworfen oder aus dem Baukasten */
+const layoutVon = (id, s) => (s.frei ? s.layout : F.ausVorschlag(Z().analysen[id], skizzenVorschlag(id, s)));
+async function beurteile(s, bild, modell) {
+  s.wertung = Sk.leseBewertung(await frage({ system: Sk.BEWERTUNG_SYSTEM, prompt: Sk.bewertungPrompt(s, texte()), schema: Sk.BEWERTUNG_SCHEMA, art: 'bild_urteil', bilder: [bild], modell, denken: false }));
+}
+/* weiter = false: neues Blatt (freie Entwürfe der KI und Grundskizzen der App).
+   weiter = true: Die KI sieht ihre besten Skizzen samt Kritik und Messwerten und überarbeitet sie frei. */
 function skizziere(weiter) {
   const z = Z(), a = asset(), A = a && z.analysen[a.id];
   if (!A || !A.free_map) return;
   run(weiter ? 'Skizzen werden weiterentwickelt …' : 'Skizzen entstehen …', async () => {
-    const alt = weiter ? z.skizzen[a.id] || [] : [], runde = alt.reduce((m, s) => Math.max(m, s.runde || 1), 0) + 1, anzahl = weiter ? 4 : 6;
-    fortschritt('Ideen aus dem Bild entwickeln');
-    const roh = await frage({ system: Sk.SKIZZEN_SYSTEM, prompt: Sk.skizzenPrompt(A, texte(), { anzahl, vorher: Sk.rangfolge(alt).slice(0, 3) }), schema: Sk.skizzenSchema(anzahl), art: 'bild_skizzen', modell: designName(), denken: false });
-    const neu = [...(weiter ? [] : Sk.eigeneSkizzen(A)), ...Sk.leseSkizzen(roh)];
-    const jetzt = stilVoll(z.stil);
-    neu.forEach(s => { s.runde = runde; s.stil = { ...s.stil, datum: jetzt.datum, typo: { ...(s.stil.typo || {}), cta: jetzt.typo.cta } }; });
+    const alt = weiter ? z.skizzen[a.id] || [] : [], runde = alt.reduce((m, s) => Math.max(m, s.runde || 1), 0) + 1;
     const blatt = z.skizzen[a.id] = [...alt], img = await ladeBild(ui.assetURL[a.id]), modell = vlmName();
-    for (const [i, s] of neu.entries()) {
-      const v = skizzenVorschlag(a.id, s);
-      if (!v.variant) continue;   /* lässt sich mit diesem Bild nicht setzen */
-      fortschritt(`Skizze ${i + 1} von ${neu.length} ansehen und beurteilen: ${s.name}`);
-      s.wertung = Sk.leseBewertung(await frage({ system: Sk.BEWERTUNG_SYSTEM, prompt: Sk.bewertungPrompt(s, v.texts), schema: Sk.BEWERTUNG_SCHEMA, art: 'bild_urteil', bilder: [zeichneSkizze(img, A, v).toDataURL('image/jpeg', 0.88)], modell, denken: false }));
-      blatt.push(s); save();
+    const foto = alsJpeg(img, 0, 0, img.naturalWidth, img.naturalHeight, 1024);
+    if (!weiter) {
+      fortschritt('Die KI sieht das Foto und entwirft frei');
+      const frei = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.freiPrompt(A, inhalt(), 5), schema: F.freiSchema(5), art: 'bild_frei', bilder: [foto], modell, denken: false }));
+      const jetzt = stilVoll(z.stil);
+      const grund = Sk.eigeneSkizzen(A).map(s => ({ ...s, stil: { ...s.stil, datum: jetzt.datum, typo: { ...(s.stil.typo || {}), cta: jetzt.typo.cta } } }));
+      const neu = [...frei, ...grund];
+      for (const [i, s] of neu.entries()) {
+        s.runde = runde;
+        if (!s.frei && !skizzenVorschlag(a.id, s).variant) continue;   /* lässt sich mit diesem Bild nicht setzen */
+        fortschritt(`Skizze ${i + 1} von ${neu.length} ansehen und beurteilen: ${s.name}`);
+        await beurteile(s, zeichneFrei(img, A, layoutVon(a.id, s)).toDataURL('image/jpeg', 0.88), modell);
+        blatt.push(s); save();
+      }
+    } else {
+      const beste = Sk.rangfolge(alt).slice(0, 3);
+      for (const [i, s] of beste.entries()) {
+        const basis = { name: s.name, idee: s.idee, layout: layoutVon(a.id, s) };
+        fortschritt(`Skizze ${i + 1} von ${beste.length} überarbeiten: ${s.name}`);
+        const [n] = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.ueberarbeitePrompt(A, inhalt(), basis, { wertung: s.wertung, messung: F.messeLayout(A, basis.layout, messe) }), schema: F.FREI_EINZEL_SCHEMA, art: 'bild_frei2', bilder: [zeichneFrei(img, A, basis.layout).toDataURL('image/jpeg', 0.88)], modell, denken: false }));
+        if (!n) continue;
+        n.runde = runde; n.basis = s.name;
+        fortschritt(`Überarbeitete Skizze ansehen und beurteilen: ${n.name}`);
+        await beurteile(n, zeichneFrei(img, A, n.layout).toDataURL('image/jpeg', 0.88), modell);
+        blatt.push(n); save();
+      }
     }
     z.tab = 'skizzen';
     addLog(weiter ? 'Skizzen weiterentwickelt' : 'Skizzen ausprobiert', `${blatt.length} Entwürfe für ${a.name}`);
@@ -240,10 +292,32 @@ function skizziere(weiter) {
 function nimmSkizze(i) {
   const z = Z(), a = asset(), s = a && (z.skizzen[a.id] || [])[i];
   if (!s) return;
-  z.regel = s.regel; z.stil = JSON.parse(JSON.stringify({ farben: {}, flaeche: { art: 'keine' }, schmuck: {}, ...s.stil, datum: z.stil.datum || '' }));
-  z.farbname = s.stil.farben && (s.stil.farben.schrift || s.stil.farben.akzent) ? s.name : '';
-  const v = z.vorschlaege[a.id]; if (v && v.wahl && typeof v.wahl === 'object') delete v.wahl[s.regel];
+  if (s.frei) { z.frei[a.id] = JSON.parse(JSON.stringify({ name: s.name, idee: s.idee, layout: s.layout })); ui.bfWahl = ''; }
+  else {
+    delete z.frei[a.id];
+    z.regel = s.regel; z.stil = JSON.parse(JSON.stringify({ farben: {}, flaeche: { art: 'keine' }, schmuck: {}, ...s.stil, datum: z.stil.datum || '' }));
+    z.farbname = s.stil.farben && (s.stil.farben.schrift || s.stil.farben.akzent) ? s.name : '';
+    const v = z.vorschlaege[a.id]; if (v && v.wahl && typeof v.wahl === 'object') delete v.wahl[s.regel];
+  }
   z.tab = 'vorschlag'; save(); render(); zuTabs(); toast(`Skizze „${s.name}“ übernommen`);
+}
+/* Den Baukasten-Entwurf in ein freies Layout verwandeln, um ihn von Hand zu verschieben */
+function loeseEntwurf() {
+  const z = Z(), a = asset(), v = a && vorschlag(a.id);
+  if (!v || !v.variant) return;
+  z.frei[a.id] = { name: 'Freier Entwurf', idee: '', layout: F.ausVorschlag(z.analysen[a.id], v) }; ui.bfWahl = ''; save(); render();
+}
+/* Freien Entwurf nach einem Wunsch überarbeiten lassen: die KI sieht den aktuellen Stand */
+function freiWunsch() {
+  const z = Z(), a = asset(), A = a && z.analysen[a.id], f = a && z.frei[a.id], feld = document.getElementById('bd-freiwunsch'), wunsch = feld ? feld.value.trim() : '';
+  if (!f) return;
+  run('Entwurf wird überarbeitet …', async () => {
+    fortschritt(wunsch ? 'Die KI sieht den Entwurf und setzt deinen Wunsch um' : 'Die KI sieht den Entwurf und überarbeitet ihn');
+    const img = await ladeBild(ui.assetURL[a.id]);
+    const [n] = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.ueberarbeitePrompt(A, inhalt(), f, { messung: F.messeLayout(A, f.layout, messe), wunsch }), schema: F.FREI_EINZEL_SCHEMA, art: 'bild_frei2', bilder: [zeichneFrei(img, A, f.layout).toDataURL('image/jpeg', 0.88)], modell: vlmName(), denken: false }));
+    if (!n) throw new Error('Das Modell hat kein brauchbares Layout geliefert. Versuch es noch einmal.');
+    z.frei[a.id] = { name: n.name, idee: n.idee, layout: n.layout, davor: { name: f.name, idee: f.idee, layout: f.layout } }; ui.bfWahl = '';
+  });
 }
 
 /* ---------- Farbwelt ---------- */
@@ -438,7 +512,39 @@ function viewAnalyse(a, A) {
     </div>
     <div class="bd-tabelle"><table><thead><tr><th>Kachel</th><th>Farben</th><th>Helligkeit</th><th>Schärfe</th><th>Freiraum</th><th>Schrift</th><th>Inhalt</th></tr></thead><tbody>${A.grids[g].map(zeile).join('')}</tbody></table></div>`;
 }
+/* Freier Entwurf: Elemente anfassen und verschieben, rechts daneben anpassen, per Wunsch überarbeiten lassen */
+const FELDER = {
+  texte: [['text', 'Text', 'text'], ['groesse', 'Größe', [0.8, 30, 0.1]], ['breite', 'Zeilenbreite (0 = frei)', [0, 100, 1]], ['drehung', 'Drehung', [-180, 180, 1]], ['farbe', 'Farbe', 'farbe'], ['gewicht', 'Schnitt', { normal: 'Mittel', halbfett: 'Halbfett', fett: 'Fett' }], ['ausrichtung', 'Ausrichtung', { links: 'links', mitte: 'mittig', rechts: 'rechts' }], ['versal', 'Versalien', 'haken']],
+  formen: [['art', 'Form', { rechteck: 'Rechteck', kreis: 'Kreis', linie: 'Linie' }], ['breite', 'Breite', [-150, 200, 1]], ['hoehe', 'Höhe', [-150, 200, 1]], ['drehung', 'Drehung', [-180, 180, 1]], ['deckkraft', 'Deckkraft', [0, 100, 1]], ['staerke', 'Strichstärke', [0.5, 30, 0.5]], ['farbe', 'Farbe', 'farbe'], ['gefuellt', 'Gefüllt', 'haken']]
+};
+const freiBuehne = (a, A, f) => F.freiHTML(A, f.layout, ui.assetURL[a.id], { bearbeiten: true, gewaehlt: ui.bfWahl || '' });
+function viewFrei(a, A, f) {
+  const [art, nr] = (ui.bfWahl || '').split('.'), el = art && f.layout[art] ? f.layout[art][+nr] : null, m = F.messeLayout(A, f.layout, messe), hinweise = F.messungText(m);
+  const feld = ([k, name, typ]) => { const pfad = `${art}.${nr}.${k}`, w = el[k];
+    if (typ === 'text') return `<label class="ds-l">${name}<textarea class="input" rows="2" data-bfe="${pfad}">${esc(w)}</textarea></label>`;
+    if (typ === 'farbe') return `<div class="bd-farbwahl"><input type="color" data-bfe="${pfad}" value="${w}" aria-label="${name}"><span>${name}<small>${w}</small></span></div>`;
+    if (typ === 'haken') return `<label class="bd-check"><input type="checkbox" data-bfe="${pfad}" ${w ? 'checked' : ''}> ${name}</label>`;
+    if (Array.isArray(typ)) return `<label class="bd-regler"><span>${name}</span><input type="range" min="${typ[0]}" max="${typ[1]}" step="${typ[2]}" data-bfe="${pfad}" value="${w}"><output>${zahl(w)}</output></label>`;
+    return `<label class="bd-regler"><span>${name}</span><select class="input" data-bfe="${pfad}">${Object.entries(typ).map(([o, n]) => `<option value="${o}" ${o === w ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`; };
+  return `
+    <div class="ds-toolbar">
+      <span><b>${esc(f.name)}</b> <span class="small muted">· freier Entwurf</span></span><span class="spacer"></span>
+      ${f.davor ? '<button class="btn tiny" data-bd="freidavor">Vorherige Fassung</button>' : ''}<button class="btn tiny" data-bd="freihtml">HTML speichern</button><button class="btn tiny" data-bd="freijson">JSON speichern</button><button class="btn tiny" data-bd="freiweg">Zurück zum Baukasten</button>
+    </div>
+    ${f.idee ? `<p class="small muted bd-regelinfo">${esc(f.idee)}</p>` : ''}
+    <div class="bd-stage frei" id="bd-stage">${freiBuehne(a, A, f)}</div>
+    <p class="small muted" style="margin:8px 0 0">Elemente anfassen und verschieben. Ein Klick wählt ein Element aus, darunter passt du es an.</p>
+    <div class="bd-refine"><textarea id="bd-freiwunsch" class="input" rows="2" placeholder="Was soll die KI ändern? z. B. Headline größer und in den Anschnitt, Datum senkrecht an den rechten Rand, weniger Elemente"></textarea><button class="btn primary" data-bd="freiwunsch" ${ui.busy ? 'disabled' : ''}>Überarbeiten lassen</button></div>
+    <div class="ds-info">
+      <div class="m-box"><h4>${el ? (art === 'texte' ? 'Textbaustein' : 'Form') : 'Elemente'}</h4>
+        ${el ? `${FELDER[art].filter(([k]) => !(art === 'formen' && el.art === 'linie' && k === 'gefuellt')).map(feld).join('')}<div class="row" style="gap:6px;margin-top:6px"><button class="btn tiny" data-bd="freivor">Nach vorn</button><button class="btn tiny" data-bd="freiloeschen">Löschen</button></div>` : '<p class="small muted">Kein Element gewählt.</p>'}
+        <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn tiny" data-bd="freitext">Text hinzufügen</button><button class="btn tiny" data-bd="freiflaeche">Fläche hinzufügen</button><button class="btn tiny" data-bd="freilinie">Linie hinzufügen</button></div></div>
+      <div class="m-box"><h4>Was die App misst</h4>${hinweise ? `<ul class="mlist">${hinweise.split('\n').map(x => `<li>${esc(x.replace(/^- /, ''))}</li>`).join('')}</ul>` : '<p class="small muted">Nichts Auffälliges.</p>'}
+        <p class="small muted" style="margin-top:8px">Das sind Hinweise, keine Regeln: Hier entscheidest du, nicht die App. Kontrast ab 4,5 : 1 gilt als gut lesbar.</p></div>
+    </div>`;
+}
 function viewVorschlag(a, A) {
+  if (Z().frei[a.id] && A.free_map) return viewFrei(a, A, Z().frei[a.id]);
   const z = Z(), v = vorschlag(a.id), ki = z.vorschlaege[a.id] || {}, r = regel(), R = G.REGELN;
   if (!v) return `<div class="ds-empty"><h2>Analyse erneuern</h2><p class="muted">Für dieses Bild fehlt die Freiraum-Karte. Starte die Analyse noch einmal.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
   const e = v.variant, p = v.palette, kiHier = ki.modell && (ki.kiRegel || 'auto') === r;
@@ -458,7 +564,7 @@ function viewVorschlag(a, A) {
     ${v.corrections.length ? `<div class="m-box warn"><h4>Hinweis der App</h4><ul class="mlist">${v.corrections.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     ${e ? `<div class="ds-toolbar bd-aktionen">
       <span class="small muted">${kiHier ? `Gewählt und begründet von ${esc(ki.modell)}` : 'Von der App berechnet, noch ohne KI'}</span><span class="spacer"></span>
-      <button class="btn tiny" data-bd="vorschlag">${kiHier ? 'KI neu wählen lassen' : 'KI wählen und begründen lassen'}</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
+      <button class="btn tiny" data-bd="vorschlag">${kiHier ? 'KI neu wählen lassen' : 'KI wählen und begründen lassen'}</button><button class="btn tiny" data-bd="freiloesen" title="Macht aus dem Entwurf ein freies Layout: jedes Element lässt sich dann anfassen und verschieben">Frei bearbeiten</button><button class="btn tiny" data-bd="html">HTML speichern</button><button class="btn tiny" data-bd="vjson">JSON speichern</button>
       ${ohneProjekt() || FORMATE[designState().format].web ? '' : '<button class="btn tiny primary" data-bd="flyer">In den Flyer übernehmen</button>'}
     </div>
     <div class="ds-info">
@@ -476,12 +582,12 @@ function viewVorschlag(a, A) {
 function viewSkizzen(a, A) {
   const z = Z(), blatt = z.skizzen[a.id] || [];
   if (!A.free_map) return viewVorschlag(a, A);
-  if (!blatt.length) return `<div class="ds-empty"><h2>Ausprobieren wie auf Papier</h2><p class="muted">Die KI entwickelt aus dem Bild mehrere Ideen, die App setzt sie nach den geprüften Regeln um und legt eigene Grundskizzen daneben. Danach sieht sich das Vision-Modell (${esc(vlmName() || 'kein Modell')}) jede fertige Skizze an und beurteilt Lesbarkeit, Bezug zum Motiv und Spannung. Rund 12 Entwürfe, etwa eine Minute.</p><button class="btn primary" data-bd="skizzen">Skizzen ausprobieren</button></div>`;
-  const karte = s => { const v = skizzenVorschlag(a.id, s), w = s.wertung, i = blatt.indexOf(s);
+  if (!blatt.length) return `<div class="ds-empty"><h2>Ausprobieren wie auf Papier</h2><p class="muted">Das Vision-Modell (${esc(vlmName() || 'kein Modell')}) sieht das Foto und entwirft frei: Es setzt Texte, Flächen und Linien selbst, ohne Raster und ohne Regeln der App. Daneben liegen sechs Grundskizzen der App zum Vergleich. Danach sieht sich das Modell jede fertige Skizze an und beurteilt sie. „Beste weiterentwickeln“ lässt es die stärksten Skizzen anhand der Kritik frei überarbeiten.</p><button class="btn primary" data-bd="skizzen">Skizzen ausprobieren</button></div>`;
+  const karte = s => { const w = s.wertung, i = blatt.indexOf(s), v = s.frei ? null : skizzenVorschlag(a.id, s);
     return `<article class="bd-skizze">
-      <button class="bd-skizze-bild" data-bdskizze="${i}" title="Als Entwurf übernehmen">${G.ansichtHTML(A, v.variant, v.texts, ui.assetURL[a.id], { stil: v.style })}</button>
+      <button class="bd-skizze-bild" data-bdskizze="${i}" title="Als Entwurf übernehmen">${s.frei ? F.freiHTML(A, s.layout, ui.assetURL[a.id]) : G.ansichtHTML(A, v.variant, v.texts, ui.assetURL[a.id], { stil: v.style })}</button>
       <div class="bd-skizze-kopf"><b>${esc(s.name)}</b><span class="bd-marke ${w && w.summe >= 12 ? 'ok' : ''}">${w ? `${w.summe} / 15` : 'ohne Urteil'}</span></div>
-      <p class="small muted">${s.quelle === 'ki' ? 'Idee der KI' : 'Grundskizze der App'}${(s.runde || 1) > 1 ? ` · Runde ${s.runde}` : ''} · ${esc(G.REGELN[s.regel].name)}</p>
+      <p class="small muted">${s.frei ? (s.basis ? `Von der KI überarbeitet aus „${esc(s.basis)}“` : 'Frei entworfen von der KI') : `Grundskizze der App · ${esc(G.REGELN[s.regel].name)}`}${(s.runde || 1) > 1 ? ` · Runde ${s.runde}` : ''}</p>
       <p class="small">${esc(s.idee)}</p>
       ${w ? `<p class="small muted">Lesbarkeit ${w.lesbarkeit} · Motiv ${w.motiv} · Spannung ${w.spannung}</p><p class="small"><b>Urteil:</b> ${esc(w.urteil)}</p><p class="small"><b>Nächster Schritt:</b> ${esc(w.verbessern)}</p>` : ''}
       <button class="btn tiny" data-bdskizze="${i}">Als Entwurf übernehmen</button></article>`; };
@@ -561,15 +667,41 @@ function klick(e) {
     case 'flyer': return uebernehmen();
     case 'farbwelt': return ui.busy ? null : farbweltKI();
     case 'farbprojekt': { const f = projektFarben(); if (f) { z.stil.farben = f; z.farbname = 'aus der Projektanalyse'; save(); render(); } return; }
+    case 'freiloesen': return loeseEntwurf();
+    case 'freiweg': delete z.frei[a.id]; ui.bfWahl = ''; save(); return render();
+    case 'freidavor': { const f = z.frei[a.id]; if (f && f.davor) { z.frei[a.id] = f.davor; ui.bfWahl = ''; save(); render(); } return; }
+    case 'freiwunsch': return ui.busy ? null : freiWunsch();
+    case 'freihtml': return speichere(`${stamm(a)}-entwurf.html`, F.freiDatei(z.analysen[a.id], z.frei[a.id], ui.assetURL[a.id], G.ANSICHT_CSS, G.ANSICHT_SCHRIFT), 'text/html');
+    case 'freijson': return speichere(`${stamm(a)}-entwurf.json`, JSON.stringify({ image: z.analysen[a.id].image, name: z.frei[a.id].name, idea: z.frei[a.id].idee, layout: z.frei[a.id].layout, measured: F.messeLayout(z.analysen[a.id], z.frei[a.id].layout, messe) }, null, 2), 'application/json');
+    case 'freitext': case 'freiflaeche': case 'freilinie': {
+      const L = z.frei[a.id].layout;
+      if (d.bd === 'freitext') { L.texte.push(F.leseLayout({ texte: [{ text: 'Neuer Text', x: 40, y: 45, groesse: 4, breite: 0, farbe: '#FFFFFF', gewicht: 'fett', ausrichtung: 'links', drehung: 0 }] }).texte[0]); ui.bfWahl = `texte.${L.texte.length - 1}`; }
+      else { L.formen.push(F.leseLayout({ formen: [d.bd === 'freilinie' ? { art: 'linie', x: 20, y: 50, breite: 60, hoehe: 0, farbe: '#FFFFFF', deckkraft: 100, gefuellt: false, staerke: 2, drehung: 0 } : { art: 'rechteck', x: 55, y: 55, breite: 35, hoehe: 30, farbe: '#FFFFFF', deckkraft: 90, gefuellt: true, staerke: 2, drehung: 0 }] }).formen[0]); ui.bfWahl = `formen.${L.formen.length - 1}`; }
+      save(); return render();
+    }
+    case 'freiloeschen': case 'freivor': {
+      const [art, nr] = (ui.bfWahl || '').split('.'), liste = z.frei[a.id] && z.frei[a.id].layout[art]; if (!liste || !liste[+nr]) return;
+      const [el] = liste.splice(+nr, 1); if (d.bd === 'freivor') { liste.push(el); ui.bfWahl = `${art}.${liste.length - 1}`; } else ui.bfWahl = '';
+      save(); return render();
+    }
     case 'skizzen': return ui.busy ? null : skizziere(false);
     case 'skizzenweiter': return ui.busy ? null : skizziere(true);
     case 'weiter': return blaettere(1);
     case 'zurueck': return blaettere(-1);
   }
 }
+/* Wert eines Felds des freien Entwurfs setzen; die Bühne folgt sofort */
+function freiSetze(t) {
+  const z = Z(), a = asset(), f = a && z.frei[a.id]; if (!f) return false;
+  setze(f.layout, t.dataset.bfe, t.type === 'range' ? parseFloat(t.value) : t.type === 'checkbox' ? t.checked : t.type === 'color' ? t.value.toUpperCase() : t.value);
+  const st = document.getElementById('bd-stage'); if (st) st.innerHTML = freiBuehne(a, z.analysen[a.id], f);
+  const o = t.parentElement.querySelector('output'); if (o) o.textContent = zahl(parseFloat(t.value));
+  return true;
+}
 function wechsel(e) {
   if (!an()) return;
   const t = e.target, z = Z();
+  if (t.dataset.bfe) { freiSetze(t); save(); return t.tagName === 'TEXTAREA' ? undefined : render(); }
   if (t.dataset.bds) {
     setze(z.stil, t.dataset.bds, stilWert(t)); save();
     /* Textfelder zeichnen nicht neu: die Ansicht ist beim Tippen schon mitgelaufen, und ein Neuzeichnen
@@ -591,6 +723,7 @@ const stilWert = t => (t.type === 'range' || t.type === 'number' ? parseFloat(t.
 function eingabe(e) {
   if (!an() || !e.target.dataset) return;
   const t = e.target;
+  if (t.dataset.bfe) return void freiSetze(t);
   if (t.dataset.bds) { setze(Z().stil, t.dataset.bds, stilWert(t)); const o = t.parentElement.querySelector('output'); if (o) o.textContent = zahl(parseFloat(t.value)) + (o.textContent.includes('%') ? ' %' : ''); }
   else if (!/^texte\./.test(t.dataset.d || '')) return;
   const st = document.getElementById('bd-stage'), a = asset(), v = a && vorschlag(a.id);
@@ -599,6 +732,12 @@ function eingabe(e) {
 
 /* ---------- Stile ---------- */
 const CSS = `${G.ANSICHT_CSS}
+${F.FREI_CSS}
+.bd-stage.frei [data-bf]{cursor:move;touch-action:none;user-select:none}
+.bd-stage.frei [data-bf][data-an]{outline:1.5px dashed #fff;outline-offset:3px;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.bd-stage.frei line[data-an]{filter:drop-shadow(0 0 2px #fff)}
+.bd-refine{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0}
+.bd-refine textarea{resize:vertical}
 .bd-modus{margin:-6px 0 18px}
 .bd-einstieg{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
 .bd-einstieg h3{margin:0 0 4px}.bd-einstieg p{margin:0}
@@ -683,13 +822,34 @@ const CSS = `${G.ANSICHT_CSS}
 .bd-leer img{max-width:min(100%,520px);max-height:320px;border-radius:12px;display:block;margin:0 auto 16px}
 `;
 
+/* ---------- Elemente des freien Entwurfs anfassen und verschieben ---------- */
+let zug = null;
+function fassAn(e) {
+  if (!an() || ui.busy) return;
+  const el = e.target.closest ? e.target.closest('#bd-stage.frei [data-bf]') : null, a = asset(), f = a && Z().frei[a.id];
+  if (!f || !e.target.closest || !e.target.closest('#bd-stage.frei')) return;
+  if (!el) { if (ui.bfWahl) { ui.bfWahl = ''; render(); } return; }
+  const [art, nr] = el.dataset.bf.split('.'), ding = f.layout[art][+nr], r = document.getElementById('bd-stage').getBoundingClientRect();
+  e.preventDefault();
+  zug = { a, f, ding, x0: e.clientX, y0: e.clientY, sx: ding.x, sy: ding.y, b: r.width, h: r.height, bewegt: false, neuGewaehlt: ui.bfWahl !== el.dataset.bf };
+  ui.bfWahl = el.dataset.bf;
+}
+function zieh(e) {
+  if (!zug) return;
+  const dx = (e.clientX - zug.x0) / zug.b * 100, dy = (e.clientY - zug.y0) / zug.h * 100;
+  if (!zug.bewegt && Math.abs(e.clientX - zug.x0) + Math.abs(e.clientY - zug.y0) < 3) return;
+  zug.bewegt = true; zug.ding.x = Math.round((zug.sx + dx) * 10) / 10; zug.ding.y = Math.round((zug.sy + dy) * 10) / 10;
+  const st = document.getElementById('bd-stage'); if (st) st.innerHTML = freiBuehne(zug.a, Z().analysen[zug.a.id], zug.f);
+}
+function lassLos() { if (!zug) return; const z = zug; zug = null; if (z.bewegt || z.neuGewaehlt) { save(); render(); } }
+
 /* ---------- Neuzeichnen ohne Sprung ---------- */
 /* Die App baut bei jeder Änderung die ganze Seite neu auf. Im Design-Studio bleibt dabei erhalten,
    wo man gerade ist: Position der Seite und der linken Spalte, auf- und zugeklappte Abschnitte
    und das Feld, in dem man steht. Gilt für das ganze Studio, nicht nur für das Bild-Design. */
 const zeichneRoh = window.render;
 window.render = function () {
-  const feld = el => (!el || !el.dataset ? '' : el.dataset.bds ? `[data-bds="${el.dataset.bds}"]` : el.dataset.bdcfg ? `[data-bdcfg="${el.dataset.bdcfg}"]` : el.dataset.d ? `[data-d="${el.dataset.d}"]` : el.id ? '#' + el.id : '');
+  const feld = el => (!el || !el.dataset ? '' : el.dataset.bds ? `[data-bds="${el.dataset.bds}"]` : el.dataset.bfe ? `[data-bfe="${el.dataset.bfe}"]` : el.dataset.bdcfg ? `[data-bdcfg="${el.dataset.bdcfg}"]` : el.dataset.d ? `[data-d="${el.dataset.d}"]` : el.id ? '#' + el.id : '');
   const spalte = S.screen === 'design' ? document.querySelector('.ds-panel') : null;
   if (!spalte) return zeichneRoh();
   const stand = { y: window.scrollY, oben: spalte.scrollTop, art: spalte.className, offen: [...spalte.querySelectorAll('details')].map(d => d.open), fokus: feld(document.activeElement) };
@@ -710,6 +870,9 @@ const app = document.getElementById('app');
 app.addEventListener('click', klick);
 app.addEventListener('change', wechsel);
 app.addEventListener('input', eingabe);
+app.addEventListener('pointerdown', fassAn);
+window.addEventListener('pointermove', zieh);
+window.addEventListener('pointerup', lassLos);
 window.BildDesign = { panel, main, umschalter, open, einstieg, aktiv: an };
 if (S.screen === 'design' || S.screen === 'start') render();
 /* Sobald die Schrift geladen ist, stimmen die gemessenen Breiten: dann neu zeichnen */

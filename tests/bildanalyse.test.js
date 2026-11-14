@@ -5,6 +5,7 @@ import * as K from '../bildanalyse/kern.js';
 import * as G from '../bildanalyse/design.js';
 import * as St from '../bildanalyse/stil.js';
 import * as Sk from '../bildanalyse/skizzen.js';
+import * as F from '../bildanalyse/frei.js';
 
 /* ---------- Testbilder ---------- */
 function bild(w, h, farbe) {
@@ -351,33 +352,72 @@ test('Skizzen: Grundskizzen unterscheiden sich und lassen sich alle setzen', () 
   gleich(g.find(s => s.name.startsWith('Band')).stil.flaeche.seite, 'links', 'Band liegt über dem Motiv');
   for (const s of g) { const v = G.pruefeVorschlag(MOTIV, {}, TEXTE, { regel: s.regel, stil: s.stil }); assert(v.variant && v.variant.contrast.text >= 4.5, `${s.name}: setzbar und lesbar`); }
 });
-test('Skizzen: Antwort der KI wird geprüft, Unbekanntes und Doppeltes fällt weg', () => {
-  const l = Sk.leseSkizzen({ skizzen: [
-    { name: 'Geste aufnehmen', idee: 'Die Hand weist nach rechts.', regel: 'golden', flaeche: 'band', flaeche_seite: 'links', flaeche_groesse: 24, schmuck: ['diagonale', 'quatsch'], linie: 'kreuz', versal: true, farbe_schrift: '#112233', farbe_akzent: 'rot', farbe_flaeche: 'fff' },
-    { name: 'Geste aufnehmen 2', idee: 'x', regel: 'golden', flaeche: 'band', flaeche_seite: 'links', flaeche_groesse: 24, schmuck: ['diagonale'], linie: 'kreuz', versal: true, farbe_schrift: '#112233', farbe_akzent: '', farbe_flaeche: '#FFFFFF' },
-    { name: '', idee: '', regel: 'erfunden', flaeche: 'erfunden', flaeche_seite: '', flaeche_groesse: 0, schmuck: 'nichts', linie: '', versal: 'ja' },
-    null
-  ] });
-  gleich(l.length, 2, 'Doppeltes und Leeres entfernt');
-  gleich(l[0], { name: 'Geste aufnehmen', idee: 'Die Hand weist nach rechts.', regel: 'golden', stil: { farben: { schrift: '#112233', akzent: '', flaeche: '#FFFFFF' }, schmuck: { diagonale: { an: true, richtung: 'kreuz' } }, typo: { versal: true }, flaeche: { art: 'band', seite: 'links', groesse: 24 } }, quelle: 'ki' });
-  gleich([l[1].name, l[1].regel, l[1].stil.flaeche, l[1].stil.typo.versal], ['Skizze', 'auto', undefined, false]);
-  gleich(Sk.leseSkizzen({}), []);
-  const s = Sk.skizzenSchema(4).properties.skizzen;
-  gleich([s.minItems, s.maxItems, s.items.properties.regel.enum.length, s.items.properties.flaeche.enum], [4, 4, 6, Object.keys(St.FLAECHEN)]);
-});
-test('Skizzen: Prompt denkt vom Bild aus und kennt in Runde zwei die Kritik', () => {
-  const p1 = Sk.skizzenPrompt(MOTIV, TEXTE, { anzahl: 6 });
-  assert(p1.includes('Straßenfest-Glaube-Leben') && p1.includes('Das Motiv liegt eher links') && p1.includes('uebergross') && p1.includes('Skizziere 6'), 'erste Runde');
-  const vorher = [{ name: 'Sockel', regel: 'auto', stil: { flaeche: { art: 'sockel' } }, wertung: Sk.leseBewertung({ lesbarkeit: 5, motiv: 3, spannung: 2, urteil: 'Gut lesbar, aber brav.', verbessern: 'Mehr Spannung durch eine Diagonale.' }) }];
-  const p2 = Sk.skizzenPrompt(MOTIV, TEXTE, { anzahl: 4, vorher });
-  assert(p2.includes('„Sockel“') && p2.includes('10 von 15') && p2.includes('Mehr Spannung') && p2.includes('Entwickle daraus 4'), 'zweite Runde');
-});
 test('Skizzen: Urteile werden begrenzt und sortiert', () => {
   gleich(Sk.leseBewertung({ lesbarkeit: 9, motiv: 'abc', spannung: 3.6, urteil: ' ok ', verbessern: '' }), { lesbarkeit: 5, motiv: 1, spannung: 4, urteil: 'ok', verbessern: '', summe: 10 });
   const w = (l, m, sp) => Sk.leseBewertung({ lesbarkeit: l, motiv: m, spannung: sp });
   const r = Sk.rangfolge([{ name: 'a', wertung: w(3, 3, 3) }, { name: 'b' }, { name: 'c', wertung: w(5, 4, 4) }, { name: 'd', wertung: w(4, 3, 2) }]);
   gleich(r.map(s => s.name), ['c', 'd', 'a', 'b'], 'Punkte, bei Gleichstand Lesbarkeit, ohne Urteil zuletzt');
   assert(Sk.bewertungPrompt({ idee: 'Hand weist nach rechts' }, TEXTE).includes('Hand weist nach rechts'), 'Prompt nennt die Idee');
+});
+/* ---------- Freies Layout ---------- */
+const FREI = { skizzen: [{ name: 'Geste führt', idee: 'Die Hand zeigt auf das Wort.', formen: [{ art: 'rechteck', x: 60, y: 0, breite: 40, hoehe: 100, farbe: '#FFFFFF', deckkraft: 100, gefuellt: true, staerke: 2, drehung: 0 }, { art: 'linie', x: 0, y: 80, breite: 100, hoehe: -40, farbe: '112233', deckkraft: 100, gefuellt: false, staerke: 2, drehung: 0 }, { art: 'stern' }],
+  texte: [{ text: 'Straßenfest\\nGlaube', x: 64, y: 20, groesse: 6, breite: 0, farbe: '#101820', gewicht: 'fett', versal: true, ausrichtung: 'links', drehung: 0 }, { text: 'Leben', x: 10, y: 90, groesse: 14, breite: 0, farbe: 'keinefarbe', gewicht: 'ultra', versal: false, ausrichtung: 'quer', drehung: -90 }, { text: '   ' }, { text: 'sei bereit für Begegnungen mit Gott', x: 64, y: 60, groesse: 2.2, breite: 30, farbe: '#101820', gewicht: 'normal', versal: false, ausrichtung: 'links', drehung: 0 }] }] };
+test('Frei: Antwort der KI wird nur in eine zeichenbare Form gebracht, nicht umgestaltet', () => {
+  const [s] = F.leseFrei(FREI), L = s.layout;
+  gleich([s.name, s.frei, L.formen.length, L.texte.length], ['Geste führt', true, 2, 3], 'unbekannte Form und leerer Text fallen weg');
+  gleich(L.texte[0], { text: 'Straßenfest\nGlaube', x: 64, y: 20, groesse: 6, breite: 0, farbe: '#101820', gewicht: 'fett', versal: true, ausrichtung: 'links', drehung: 0 }, 'Angaben der KI bleiben, wie sie sind');
+  gleich([L.texte[1].farbe, L.texte[1].gewicht, L.texte[1].ausrichtung, L.texte[1].drehung, L.texte[1].groesse], ['#FFFFFF', 'fett', 'links', -90, 14], 'nur Ungültiges wird ersetzt');
+  gleich(L.formen[1].farbe, '#112233');
+  gleich(F.leseFrei({ name: 'Einzeln', idee: 'x', formen: [], texte: [{ text: 'A', x: 1, y: 1, groesse: 500 }] })[0].layout.texte[0].groesse, 40, 'einzelne Skizze, Größe begrenzt');
+  gleich(F.leseFrei({ skizzen: [{ name: 'leer', texte: [] }] }), [], 'ohne Text keine Skizze');
+});
+test('Frei: Darstellung setzt jedes Element an seine Stelle, mit Drehung und Ausrichtung', () => {
+  const L = F.leseFrei(FREI)[0].layout, h = F.freiHTML(MOTIV, L, 'bild.jpg');
+  assert(h.includes("url('bild.jpg')") && h.includes('aspect-ratio:640/400'), 'Foto');
+  assert(h.includes('left:60%;top:0%;width:40%;height:100%;background:rgba(255,255,255,1)'), 'Fläche');
+  assert(/<line x1="0" y1="320" x2="640" y2="160" stroke="#112233"/.test(h), 'Linie in Bildpixeln');
+  assert(h.includes('class="bf-text versal"') && h.includes('left:64%;top:20%;font-size:6cqw;font-weight:700;color:#101820'), 'Text');
+  assert(h.includes('rotate(-90deg)') && h.includes('width:30cqw'), 'Drehung und Zeilenbreite');
+  assert(!h.includes('data-bf='), 'ohne Bearbeiten keine Kennungen');
+  const b = F.freiHTML(MOTIV, L, '', { bearbeiten: true, gewaehlt: 'texte.1' });
+  assert(b.includes('data-bf="texte.1" data-an="1"') && b.includes('data-bf="formen.0"'), 'Kennungen und Auswahl');
+  assert(F.freiHTML(MOTIV, { formen: [], texte: [{ ...L.texte[0], text: '<b>' }] }, '').includes('&lt;b&gt;'), 'maskiert');
+});
+test('Frei: die App misst nach und meldet, statt zu ändern', () => {
+  const L = F.leseFrei(FREI)[0].layout, vorher = JSON.stringify(L), m = F.messeLayout(MOTIV, L);
+  gleich(JSON.stringify(L), vorher, 'das Layout bleibt unangetastet');
+  assert(m.texte[0].kontrast > 10 && m.texte[0].ueberMotiv === 0, `dunkel auf der weißen Fläche: ${JSON.stringify(m.texte[0])}`);
+  assert(m.texte[1].ueberMotiv > 0.5, `gedrehtes Wort links liegt auf dem Motiv: ${JSON.stringify(m.texte[1])}`);
+  const schwach = F.messeLayout(MOTIV, { formen: [], texte: [{ ...L.texte[0], x: 50, farbe: '#22335A' }, { ...L.texte[0], x: 52, y: 22, farbe: '#22335A' }, { ...L.texte[0], x: 95, y: 50 }] });
+  assert(schwach.texte[0].kontrast < 2 && schwach.ueberlappungen.length === 1 && schwach.texte[2].ausserhalb > 0.5, 'schwacher Kontrast, Überdeckung, Anschnitt');
+  const t = F.messungText(schwach);
+  assert(t.includes('kaum lesbar') && t.includes('überdecken sich') && t.includes('ragen aus dem Bild'), t);
+});
+test('Frei: Zeilenumbruch und Umriss', () => {
+  const t = { text: 'eins zwei drei vier fünf sechs', groesse: 4, breite: 20, gewicht: 'normal', versal: false, ausrichtung: 'mitte', x: 50, y: 10, drehung: 0 };
+  const z = F.zeilen(t); assert(z.length >= 2 && z.join(' ') === t.text, z.join('|'));
+  gleich(F.zeilen({ ...t, breite: 0, text: 'A\nB', versal: true }), ['A', 'B']);
+  const u = F.umriss(t, 0.625); assert(u.x < 50 && u.x + u.b > 50 && u.b <= 20.5, `mittig um den Anker: ${JSON.stringify(u)}`);
+  const d = F.umriss({ ...t, breite: 0, ausrichtung: 'links', drehung: -90 }, 0.625); assert(d.h > d.b && d.y < 10, 'gedreht: hoch statt breit, nach oben');
+});
+test('Frei: Prompts geben Freiheit, Inhalt und Rückmeldung mit', () => {
+  const p = F.freiPrompt(MOTIV, { ...TEXTE, datum: '14.06.' }, 4);
+  assert(p.includes('Straßenfest-Glaube-Leben') && p.includes('14.06.') && p.includes('keine Vorgaben zu Raster') && p.includes('4 Entwürfe'), 'Freiheit und Inhalt');
+  gleich(F.kartenText(MOTIV).split('\n').length, MOTIV.free_map.rows);
+  assert(/^#+\.+$/.test(F.kartenText(MOTIV).split('\n')[2]), 'Karte: Motiv links, ruhig rechts');
+  const s = F.leseFrei(FREI)[0], w = Sk.leseBewertung({ lesbarkeit: 2, motiv: 4, spannung: 4, urteil: 'Spannend, aber schwer lesbar.', verbessern: 'Unterzeile größer.' });
+  const u = F.ueberarbeitePrompt(MOTIV, TEXTE, s, { wertung: w, messung: F.messeLayout(MOTIV, s.layout), wunsch: 'Datum senkrecht' });
+  assert(u.includes('Spannend, aber schwer lesbar.') && u.includes('MESSWERTE') && u.includes('Datum senkrecht') && u.includes('"groesse":14') && u.includes('entscheide selbst'), 'Kritik, Messwerte, Wunsch, bisheriges Layout');
+  gleich(F.freiSchema(5).properties.skizzen.maxItems, 5);
+});
+test('Frei: Baukasten-Entwurf lässt sich in ein freies Layout verwandeln', () => {
+  const v = G.pruefeVorschlag(MOTIV, {}, TEXTE, { stil: { flaeche: { art: 'sockel', farbe: '#FFFFFF' }, schmuck: { diagonale: { an: true, richtung: 'kreuz' }, rahmen: { an: true } }, datum: '30.03.19' } });
+  const L = F.ausVorschlag(MOTIV, v);
+  gleich(L.texte.map(t => t.text.split('\n')[0]), [v.variant.lines[0], TEXTE.subline, 'Mehr erfahren →', '30']);
+  gleich([L.texte[0].x, L.texte[0].y, L.texte[0].groesse, L.texte[0].farbe], [Math.round((v.variant.align === 'mitte' ? v.variant.block.x + v.variant.block.width / 2 : v.variant.block.x) * 10) / 10, Math.round(v.variant.block.y * 10) / 10, v.variant.sizes.headline, v.variant.colors.text]);
+  gleich(L.formen.map(f => f.art), ['rechteck', 'linie', 'linie', 'rechteck'], 'Sockel, zwei Diagonalen, Rahmen');
+  assert(L.formen[0].gefuellt && !L.formen[3].gefuellt, 'Fläche gefüllt, Rahmen als Umriss');
+  assert(F.freiDatei(MOTIV, { name: 'X', layout: L }, 'b.jpg', '', 'f.css').includes('<title>X</title>'), 'Datei');
 });
 test('Design: die KI wählt nur zwischen geprüften Varianten und gemessenen Farben', () => {
   const k = G.komponiere(ANALYSE, TEXTE), s = G.designSchema(ANALYSE, k);

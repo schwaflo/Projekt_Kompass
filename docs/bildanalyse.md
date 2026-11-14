@@ -130,15 +130,26 @@ Hat ein Bild keine ruhige Fläche, in die der Block passt, steht er unten links 
 
 Kacheln messen und das Gesamtbild beschreiben reicht nicht für einen guten Entwurf. Der Reiter **Skizzen** probiert deshalb mehrere Richtungen nebeneinander aus, sieht sie sich an und urteilt:
 
-1. **Grundskizzen der App.** Sechs Richtungen, die sich klar unterscheiden: ruhig neben dem Motiv, Sockel, Band über dem Motiv, diagonaler Schnitt, Plakat in Versalien, Goldener Schnitt.
-2. **Ideen der KI.** Das Design-Modell bekommt Bildbeschreibung, Bildbereiche, Farben und Texte und entwickelt sechs Konzepte. Jedes hat einen Namen, einen Satz dazu, worauf im Bild es sich bezieht (Geste, Blick, Linie, Farbe, Stimmung), und eine Kombination aus dem Baukasten: Layout-Regel, Farbfläche, Schmuck, Farbwelt, Versalien. Gesetzt wird jedes Konzept von der App, mit denselben Prüfungen wie jeder Entwurf.
+1. **Freie Entwürfe der KI.** Das Vision-Modell sieht das Foto und gestaltet fünf Entwürfe frei. Es setzt Textbausteine, Flächen und Linien selbst: Position, Größe, Drehung, Farbe, Umbruch. Es darf die Headline teilen, Wörter verschieden groß setzen, drehen, anschneiden und über das Motiv legen. Die App gibt ihm kein Raster, keine Ränder und keine Kontrastregel vor; sie bringt die Antwort nur in eine zeichenbare Form (gültige Farben, Zahlen im zeichenbaren Bereich).
+2. **Grundskizzen der App** zum Vergleich: sechs Richtungen aus dem Baukasten (ruhig neben dem Motiv, Sockel, Band über dem Motiv, diagonaler Schnitt, Plakat in Versalien, Goldener Schnitt).
 3. **Ansehen und urteilen.** Die App zeichnet jede fertige Skizze als Bild. Das Vision-Modell sieht dieses Bild und vergibt je 1 bis 5 Punkte für Lesbarkeit, Bezug zum Motiv und Spannung, dazu einen Satz Urteil und einen Satz, was es als Nächstes ändern würde.
-4. **Weiterentwickeln.** „Beste weiterentwickeln“ gibt die drei besten Skizzen samt Kritik zurück an das Design-Modell; es entwickelt vier neue, die die genannten Schwächen angehen.
-5. **Übernehmen.** Ein Klick auf eine Skizze macht sie zum Entwurf: Regel und Stil stehen dann im Reiter **Entwurf** und links in den Stil-Abschnitten und lassen sich dort weiter anpassen.
+4. **Weiterentwickeln.** „Beste weiterentwickeln“ nimmt die drei besten Skizzen. Für jede sieht die KI ihre gezeichnete Skizze, die Kritik und die Messwerte der App und überarbeitet das Layout frei: Positionen, Größen, Farben, Umbrüche, Flächen. Das gilt auch für Grundskizzen aus dem Baukasten; sie werden dafür in ein freies Layout verwandelt.
+5. **Übernehmen.** Ein Klick auf eine Skizze macht sie zum Entwurf im Reiter **Entwurf**.
 
-Ein Blatt mit zwölf Skizzen braucht mit `gemma4:12b-mlx` gut eine Minute, eine weitere Runde rund eine halbe. Die Urteile sind ein Anhaltspunkt: Das Modell sieht eine verkleinerte Zeichnung der Skizze (768 px breit) und irrt sich, wie jedes Modell.
+Ein Blatt braucht mit `gemma4:12b-mlx` rund anderthalb Minuten (davon gut eine halbe für die freien Entwürfe), eine Runde Weiterentwickeln rund 40 Sekunden. Die Urteile sind ein Anhaltspunkt: Das Modell sieht eine verkleinerte Zeichnung der Skizze (768 px breit) und irrt sich, wie jedes Modell.
 
-Der Code steht in [`bildanalyse/skizzen.js`](../bildanalyse/skizzen.js); die Grundskizzen sind die Liste in `eigeneSkizzen`.
+### Freier Entwurf
+
+Ein freier Entwurf gehört dir und der KI, nicht den Regeln der App:
+
+- **Anfassen und verschieben:** Jedes Element lässt sich in der Ansicht greifen und bewegen. Ein Klick wählt es aus; darunter stehen seine Werte (Text, Größe, Zeilenbreite, Drehung, Farbe, Schnitt, Ausrichtung, Versalien; bei Formen Breite, Höhe, Deckkraft, Strichstärke). Elemente lassen sich hinzufügen, löschen und nach vorn holen.
+- **Überarbeiten lassen:** Du schreibst, was sich ändern soll; die KI sieht den aktuellen Stand als Bild und gibt ein neues Layout zurück. „Vorherige Fassung“ holt den Stand davor zurück.
+- **Was die App misst:** Kontrast jedes Textbausteins zum Untergrund, Anteil über dem Motiv, Anschnitt und Überdeckungen. Das sind Hinweise, keine Regeln; die App ändert nichts von selbst. Die Messwerte gehen als Rückmeldung an die KI, wenn sie überarbeitet.
+- **Frei bearbeiten** im Baukasten-Entwurf verwandelt auch diesen in ein freies Layout.
+
+Das Format eines freien Layouts (im JSON unter `layout`): `texte` mit `text`, `x`, `y` (Ankerpunkt in Prozent des Bildes), `groesse` und `breite` (Prozent der Bildbreite), `farbe`, `gewicht`, `versal`, `ausrichtung`, `drehung`; `formen` mit `art` (rechteck, kreis, linie), `x`, `y`, `breite`, `hoehe`, `farbe`, `deckkraft`, `gefuellt`, `staerke`, `drehung`.
+
+Der Code steht in [`bildanalyse/frei.js`](../bildanalyse/frei.js) (freies Layout) und [`bildanalyse/skizzen.js`](../bildanalyse/skizzen.js) (Grundskizzen, Bewertung).
 
 ## Stil: Farbwelt, Farbflächen, Schmuck, Datum
 
@@ -163,7 +174,8 @@ Die Presets stehen als `FLAECHEN` und `SCHMUCK` in [`bildanalyse/stil.js`](../bi
 | `bildanalyse/kern.js` | Raster, k-Means, Helligkeit, Schärfe, Kanten, Freiraum, WCAG-Kontrast, Schwellwerte | Browser, Node |
 | `bildanalyse/design.js` | Flächen finden, Textblock setzen, Varianten prüfen, Fragen an die Modelle, HTML-Ansicht, Debug-Vorschau | Browser, Node |
 | `bildanalyse/stil.js` | Presets für Farbflächen und Schmuck, gestapeltes Datum, Wirkung der Fläche auf die Freiraum-Karte | Browser, Node |
-| `bildanalyse/skizzen.js` | Grundskizzen, Konzepte der KI lesen und prüfen, Bewertung durch das Vision-Modell | Browser, Node |
+| `bildanalyse/skizzen.js` | Grundskizzen der App, Bewertung durch das Vision-Modell | Browser, Node |
+| `bildanalyse/frei.js` | Freies Layout: Prompts, Antwort lesen, Darstellung, Nachmessen, Umwandlung aus dem Baukasten | Browser, Node |
 | `bildanalyse/ui.js` | Bereich „Bild-Design“ im Studio, Aufrufe der KI, Speichern, Übernahme in den Flyer | Browser |
 | `tests/bildanalyse.test.js` | Tests für Messung und Regeln, mit Testbildern aus dem Code | Browser, Node |
 

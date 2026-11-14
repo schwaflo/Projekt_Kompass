@@ -4,21 +4,15 @@
    ansehen, urteilen, die besten weiterentwickeln.
    1. Die App legt Grundskizzen an, die sich deutlich
       unterscheiden.
-   2. Die KI entwickelt Konzepte aus dem Bildinhalt. Ein Konzept
-      ist eine Kombination aus Layout-Regel, Farbfläche, Schmuck,
-      Farbwelt und Schriftbehandlung; gesetzt wird es von der App
-      nach den geprüften Regeln.
+   2. Die KI entwirft frei (frei.js): Sie sieht das Foto und setzt
+      Texte, Flächen und Linien selbst.
    3. Das Vision-Modell sieht jede fertige Skizze als Bild und
       bewertet sie.
    Alles ohne Browser lauffähig.
    ============================================================ */
-import { istHex, hexNorm } from './kern.js';
-import { FLAECHEN, SCHMUCK } from './stil.js';
-import { REGELN } from './design.js';
 
 const S = { type: 'string' }, I = { type: 'integer' };
 const text = (t, max) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max);
-const hex = h => (istHex(h) ? hexNorm(h) : '');
 
 /* Auf welcher Seite liegt das Motiv? Dort, wo weniger ruhige Zellen sind. */
 export function motivSeite(analyse) {
@@ -42,74 +36,6 @@ export function eigeneSkizzen(analyse) {
   ].map(s => ({ ...s, quelle: 'app' }));
 }
 
-/* ---------- Konzepte der KI ---------- */
-export const SKIZZEN_SYSTEM = 'Du bist Art Director und skizzierst Entwürfe für Text auf einem Foto. Du denkst vom Bild aus: Motiv, Blickrichtung, Linien, Stimmung, Farben. Antworte ausschließlich mit JSON, alles auf Deutsch.';
-const alleSeiten = [...new Set(Object.values(FLAECHEN).flatMap(f => Object.keys(f.seiten || {})))];
-export function skizzenSchema(anzahl = 6) {
-  return {
-    type: 'object',
-    properties: { skizzen: { type: 'array', minItems: anzahl, maxItems: anzahl, items: {
-      type: 'object',
-      properties: {
-        name: S, idee: S,
-        regel: { type: 'string', enum: Object.keys(REGELN) },
-        flaeche: { type: 'string', enum: Object.keys(FLAECHEN) },
-        flaeche_seite: { type: 'string', enum: ['', ...alleSeiten] },
-        flaeche_groesse: I,
-        schmuck: { type: 'array', items: { type: 'string', enum: Object.keys(SCHMUCK) } },
-        linie: { type: 'string', enum: ['steigend', 'fallend', 'kreuz'] },
-        versal: { type: 'boolean' },
-        farbe_schrift: S, farbe_akzent: S, farbe_flaeche: S
-      },
-      required: ['name', 'idee', 'regel', 'flaeche', 'flaeche_seite', 'flaeche_groesse', 'schmuck', 'linie', 'versal', 'farbe_schrift', 'farbe_akzent', 'farbe_flaeche']
-    } } },
-    required: ['skizzen']
-  };
-}
-const liste = o => Object.entries(o).map(([k, v]) => `${k} (${v.name}: ${v.info})`).join('; ');
-/* vorher: bewertete Skizzen der letzten Runde, die besten zuerst. Dann entwickelt die KI weiter. */
-export function skizzenPrompt(analyse, texte, { anzahl = 6, vorher = [] } = {}) {
-  const grob = Object.entries(analyse.grids || {}).sort((a, b) => a[1].length - b[1].length)[0];
-  const o = analyse.overall;
-  return `BILD
-${o ? `Hauptmotiv: ${o.main_subject}\nBildaufbau: ${o.composition}\nStimmung: ${o.mood}\nStil: ${o.style}\nLicht: ${o.lighting}` : '(keine Beschreibung)'}
-Das Motiv liegt eher ${motivSeite(analyse)}.
-${grob ? 'BILDBEREICHE\n' + grob[1].map(k => `- ${k.label}: ${k.description || (k.text_space ? 'ruhige Fläche' : 'unruhig')}`).join('\n') : ''}
-FARBEN DES BILDES (Hex, Anteil): ${(analyse.palette || []).map(c => `${c.hex} ${Math.round(c.percent)} %`).join(', ')}
-
-TEXTE
-Headline: ${texte.headline || '(offen)'}
-Subline: ${texte.subline || '(keine)'}
-Aufruf: ${texte.cta || '(keiner)'}
-
-BAUKASTEN (die App setzt daraus den Entwurf und prüft Lesbarkeit, Ränder und Kontrast selbst)
-- regel: ${liste(REGELN)}
-- flaeche: ${liste(FLAECHEN)}
-  flaeche_seite: bei band links|rechts, bei sockel unten|oben, bei diagonale ul|ur|ol|or, sonst "". flaeche_groesse: Prozent des Bildes (band 8–60, sockel 15–70, diagonale 30–170), sonst 0.
-- schmuck: beliebig viele aus ${liste(SCHMUCK)}. linie: Richtung der diagonalen Linie.
-- versal: Headline in Großbuchstaben.
-- farbe_schrift, farbe_akzent, farbe_flaeche: Hex-Codes (#RRGGBB) oder "" für Töne aus dem Bild. Die Fläche braucht deutlichen Kontrast zur Schrift.
-
-${vorher.length ? `BISHERIGE SKIZZEN MIT URTEIL (beste zuerst)\n${vorher.map((s, i) => `${i + 1}. „${s.name}“ (${s.regel}${s.stil && s.stil.flaeche ? ', Fläche ' + s.stil.flaeche.art : ''}): ${s.wertung ? `${s.wertung.summe} von 15 Punkten. ${s.wertung.urteil} Besser wäre: ${s.wertung.verbessern}` : 'ohne Urteil'}`).join('\n')}\n\nAUFGABE: Entwickle daraus ${anzahl} neue Skizzen. Nimm, was an den besten funktioniert, behebe die genannten Schwächen und wage in mindestens einer Skizze etwas deutlich anderes.` : `AUFGABE: Skizziere ${anzahl} deutlich verschiedene Entwürfe für dieses Bild, wie ein Designer, der auf Papier ausprobiert. Mindestens eine Skizze bricht bewusst eine Regel.`}
-- name: 2–4 Wörter. idee: ein Satz, der sagt, worauf im Bild sich der Entwurf bezieht (Geste, Blick, Linie, Farbe, Stimmung) und was er daraus macht.
-- Wiederhole keine Kombination. Farbflächen und Schmuck nur, wenn sie dem Bild etwas geben.`;
-}
-/* Antwort der KI in Skizzen übersetzen; alles Unbekannte fällt weg */
-export function leseSkizzen(antwort = {}) {
-  const out = [];
-  for (const s of Array.isArray(antwort.skizzen) ? antwort.skizzen : []) {
-    if (!s || typeof s !== 'object') continue;
-    const art = FLAECHEN[s.flaeche] ? s.flaeche : 'keine', schmuck = {};
-    for (const id of Array.isArray(s.schmuck) ? s.schmuck : []) if (SCHMUCK[id]) schmuck[id] = { an: true, ...(id === 'diagonale' && ['steigend', 'fallend', 'kreuz'].includes(s.linie) ? { richtung: s.linie } : {}) };
-    const stil = { farben: { schrift: hex(s.farbe_schrift), akzent: hex(s.farbe_akzent), flaeche: hex(s.farbe_flaeche) }, schmuck, typo: { versal: s.versal === true } };
-    if (art !== 'keine') stil.flaeche = { art, ...(s.flaeche_seite ? { seite: s.flaeche_seite } : {}), ...(Number(s.flaeche_groesse) > 0 ? { groesse: Number(s.flaeche_groesse) } : {}) };
-    out.push({ name: text(s.name, 40) || 'Skizze', idee: text(s.idee, 240), regel: REGELN[s.regel] ? s.regel : 'auto', stil, quelle: 'ki' });
-  }
-  /* gleiche Kombination nur einmal */
-  const marke = s => JSON.stringify([s.regel, s.stil.flaeche || null, Object.keys(s.stil.schmuck).sort(), s.stil.typo.versal, s.stil.farben]);
-  return out.filter((s, i) => out.findIndex(o => marke(o) === marke(s)) === i);
-}
-
 /* ---------- Ansehen und urteilen ---------- */
 export const BEWERTUNG_SYSTEM = 'Du bist Art Director und beurteilst Entwurfsskizzen streng und konkret. Du beschreibst nur, was im Bild zu sehen ist. Antworte ausschließlich mit JSON, auf Deutsch.';
 export const BEWERTUNG_SCHEMA = {
@@ -118,6 +44,7 @@ export const BEWERTUNG_SCHEMA = {
   required: ['lesbarkeit', 'motiv', 'spannung', 'urteil', 'verbessern']
 };
 export const bewertungPrompt = (skizze, texte) => `Das Bild ist eine Entwurfsskizze: ein Foto mit dem Text „${texte.headline || ''}“${texte.subline ? ` und der Unterzeile „${texte.subline}“` : ''}. Idee der Skizze: ${skizze.idee || skizze.name}
+Beurteile den Entwurf als Ganzes und ohne Vorliebe für brave Lösungen: Ein mutiger Entwurf, der trägt, ist besser als ein korrekter, der langweilt.
 
 Sieh genau hin und bewerte mit 1 (schwach) bis 5 (stark):
 - lesbarkeit: Ist der Text auf einen Blick lesbar? Stimmen Größe, Kontrast und Hierarchie?
