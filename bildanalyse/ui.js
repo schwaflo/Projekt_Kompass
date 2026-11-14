@@ -35,10 +35,12 @@ function Z() {
   if (!D.bild) D.bild = { asset: '', raster: ['2x2', '4x2'], eigene: [], beschreiben: true, vlm: '', modell: '', cfg: {}, analysen: {}, vorschlaege: {}, tab: 'analyse', grid: '' };
   if (!D.bild.skizzen) D.bild.skizzen = {};
   if (!D.bild.frei) D.bild.frei = {};
+  if (!D.bild.rasterStand) D.bild.rasterStand = {};
+  if (!D.bild.spaeter) D.bild.spaeter = {};
   if (!D.bild.stil) D.bild.stil = { farben: {}, flaeche: { art: 'keine' }, schmuck: {}, datum: '' };
   /* Analysen entfernter Bilder nicht weiter mitspeichern */
   const da = new Set(D.assets.map(a => a.id));
-  for (const feld of ['analysen', 'vorschlaege', 'skizzen', 'frei']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
+  for (const feld of ['analysen', 'vorschlaege', 'skizzen', 'frei', 'rasterStand', 'spaeter']) for (const id of Object.keys(D.bild[feld])) if (!da.has(id)) delete D.bild[feld][id];
   return D.bild;
 }
 const an = () => S.screen === 'design' && S.design && S.design.modus === 'bild';
@@ -48,6 +50,20 @@ const bilder = () => designState().assets.filter(a => a.w > 0);   /* SVG-Dateien
 function asset() {
   const z = Z(), liste = bilder();
   return liste.find(a => a.id === z.asset) || liste.find(a => a.rolle !== 'logo') || liste[0] || null;
+}
+/* Braucht dieses Bild eine Analyse? Nur wenn es noch keine gibt oder seit der letzten ein anderes Raster gewählt wurde. */
+function offen(a) {
+  const z = Z(), A = z.analysen[a.id];
+  if (!A) return 'neu';
+  const stand = z.rasterStand[a.id] || Object.keys(A.grids), gleich = l => [...l].sort().join(',');
+  return gleich(stand) === gleich(z.raster) ? '' : 'raster';
+}
+/* Neu hinzugekommene Fotos: das jüngste wird gleich ausgewählt, damit die Nachfrage zur Analyse erscheint */
+function merkeNeue() {
+  const z = Z(), ids = bilder().map(a => a.id);
+  if (!ui.bdBekannt) { ui.bdBekannt = new Set(ids); return; }
+  const neu = ids.filter(id => !ui.bdBekannt.has(id));
+  if (neu.length) { z.asset = neu[neu.length - 1]; neu.forEach(id => ui.bdBekannt.add(id)); z.tab = 'analyse'; }
 }
 const modelle = () => ui.models || [];
 const vlmName = () => (Z().vlm && modelle().includes(Z().vlm) ? Z().vlm : modelle().find(m => VLM_WUNSCH.test(m)) || S.model);
@@ -137,6 +153,7 @@ function analysiere(liste, nurFehlende) {
       const img = await ladeBild(ui.assetURL[a.id]);
       const A = z.analysen[a.id] = vermiss(a, img, nurFehlende ? z.analysen[a.id] : null);
       if (!nurFehlende) delete z.vorschlaege[a.id];
+      z.rasterStand[a.id] = [...z.raster]; delete z.spaeter[a.id];
       A.vlm = modell; save();
       if (!A.overall) {
         fortschritt(vor + 'Gesamtbild wird beschrieben');
@@ -403,6 +420,7 @@ const lies = (o, pfad) => pfad.split('.').reduce((x, k) => (x == null ? x : x[k]
 function setze(o, pfad, wert) { const t = pfad.split('.'); let x = o; for (let i = 0; i < t.length - 1; i++) x = x[t[i]] = x[t[i]] && typeof x[t[i]] === 'object' ? x[t[i]] : {}; x[t[t.length - 1]] = wert; }
 
 function panel() {
+  merkeNeue();
   const z = Z(), D = designState(), liste = bilder(), a = asset(), t = D.texte, cfg = konfig(z.cfg), A = a && z.analysen[a.id];
   const raster = [...new Set([...RASTER_FEST, ...z.eigene])];
   const wahl = (feld, auto) => `<select class="input" data-bdf="${feld}"><option value="">Automatisch (${esc(auto || 'kein Modell')})</option>${modelle().map(m => `<option ${z[feld] === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`;
@@ -410,6 +428,8 @@ function panel() {
   return `<aside class="ds-panel bd-panel">
     <details open><summary>Bild <span class="muted small">${liste.length || ''}</span></summary>
       ${liste.length ? `<div class="bd-bilder">${liste.map(x => `<button class="bd-bild ${a && x.id === a.id ? 'on' : ''}" data-bdbild="${x.id}" title="${esc(x.name)}">${ui.assetURL[x.id] ? `<img src="${ui.assetURL[x.id]}" alt="${esc(x.name)}">` : ''}${z.analysen[x.id] ? '<i aria-label="analysiert"></i>' : ''}</button>`).join('')}</div>` : ''}
+      ${(() => { const zuTun = liste.filter(offen), grund = a ? offen(a) : '';
+        return grund || zuTun.length > 1 ? `<div class="bd-analyse">${grund ? `<button class="btn tiny primary" data-bd="analyse" ${ui.busy ? 'disabled' : ''}>${grund === 'raster' ? 'Mit neuem Raster analysieren' : 'Bild analysieren'}</button>` : ''}${zuTun.length > 1 ? `<button class="btn tiny" data-bd="alleoffen" ${ui.busy ? 'disabled' : ''}>Alle ${zuTun.length} offenen analysieren</button>` : ''}</div>` : ''; })()}
       <label class="ds-drop" id="ds-drop"><input type="file" id="ds-file" accept="image/*" multiple hidden><b>Bilder wählen oder hierher ziehen</b><span>JPG oder PNG. Mehrere Bilder lassen sich in einem Durchgang analysieren.</span></label>
     </details>
     <details open><summary>Raster</summary>
@@ -429,14 +449,12 @@ function panel() {
     <details><summary>Modelle</summary>
       <label class="ds-l">Vision-Modell (sieht das Bild)${wahl('vlm', vlmName())}</label>
       <label class="ds-l">Design-Modell (führt zusammen)${wahl('modell', designName())}</label>
-      <p class="small muted">Automatisch nimmt qwen2.5vl für das Sehen und Gemma 4 für das Design, wenn sie installiert sind, sonst das Modell von der Startseite. Das Vision-Modell muss Bilder verstehen.</p>
+      <p class="small muted">Automatisch nimmt qwen2.5vl für das Sehen und Gemma 4 für das Design, wenn sie installiert sind, sonst das Modell von der Startseite. Das Vision-Modell muss Bilder verstehen.${A ? ' <button class="linkbtn" data-bd="analyse">Dieses Bild noch einmal analysieren</button>' : ''}</p>
     </details>
     <details ${abweichend ? 'open' : ''}><summary>Schwellwerte ${abweichend ? '<span class="muted small">angepasst</span>' : ''}</summary>
       ${SCHWELLEN.map(([pfad, name, info, schritt]) => `<label class="bd-schwelle" title="${esc(info)}"><span>${name}<small>${esc(info)}</small></span><input class="input" type="number" min="0" step="${schritt}" data-bdcfg="${pfad}" value="${lies(cfg, pfad)}"></label>`).join('')}
       <p class="small muted">Änderungen wirken sofort auf die Messung, ohne neue KI-Anfrage.${abweichend ? ' <button class="linkbtn" data-bd="cfgreset">Auf Vorgaben zurücksetzen</button>' : ''}</p>
     </details>
-    <button class="btn primary ds-go" data-bd="analyse" ${ui.busy || !a ? 'disabled' : ''}>${A ? 'Bild neu analysieren' : 'Bild analysieren'}</button>
-    ${liste.length > 1 ? `<button class="btn ds-go bd-zweit" data-bd="alle" ${ui.busy ? 'disabled' : ''}>Alle ${liste.length} Bilder analysieren</button>` : ''}
   </aside>`;
 }
 
@@ -600,7 +618,12 @@ function main() {
   if (ui.busy) return `<p class="bd-fort" id="bd-fort" role="status">${esc(ui.busyText || '')}</p><div class="live" id="live">${liveInner()}</div>`;
   if (!a) return `<div class="ds-empty"><h2>Design für ein Bild</h2><p class="muted">Lade links ein Foto hoch. Die App misst, wo das Bild ruhig genug für Text ist, wo es unscharf wird und welche Farben es prägen. Daraus entsteht ein Vorschlag, wo Headline, Subline und CTA stehen.</p></div>`;
   if (A && !A.free_map && !ui.bdNach) { ui.bdNach = true; neuRechnen().finally(() => { ui.bdNach = false; }); }
-  if (!A) return `<div class="ds-empty bd-leer">${ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : ''}<h2>${esc(a.name)}</h2><p class="muted">Die Analyse teilt das Bild in Raster, misst jede Kachel und lässt das Vision-Modell (${esc(vlmName() || 'kein Modell')}) beschreiben, was zu sehen ist.</p><button class="btn primary" data-bd="analyse">Bild analysieren</button></div>`;
+  if (!A) {
+    const weitere = bilder().filter(x => x.id !== a.id && !z.analysen[x.id]).length, bildTag = ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : '';
+    if (z.spaeter[a.id]) return `<div class="ds-empty bd-leer">${bildTag}<h2>${esc(a.name)}</h2><p class="muted">Noch nicht analysiert. Den Knopf dafür findest du links oben unter „Bild“.</p></div>`;
+    return `<div class="ds-empty bd-leer">${bildTag}<h2>Soll ich „${esc(a.name)}“ analysieren?</h2><p class="muted">Die App misst Farben, Schärfe und ruhige Flächen${z.beschreiben ? `, und das Vision-Modell (${esc(vlmName() || 'kein Modell')}) beschreibt das Bild und jede Kachel` : `, und das Vision-Modell (${esc(vlmName() || 'kein Modell')}) beschreibt das Gesamtbild`}. Raster: ${z.raster.map(r => r.replace('x', ' × ')).join(', ') || 'keines gewählt'}.</p>
+      <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><button class="btn primary" data-bd="analyse">Ja, analysieren</button>${weitere ? `<button class="btn" data-bd="alleoffen">Alle ${weitere + 1} neuen analysieren</button>` : ''}<button class="btn" data-bd="spaeter">Jetzt nicht</button></div></div>`;
+  }
   const tab = ['analyse', 'skizzen', 'vorschlag', 'json'].includes(z.tab) ? z.tab : 'analyse';
   return `<div class="bd-tabs"><div class="seg2"><button data-bdtab="analyse" aria-pressed="${tab === 'analyse'}">Analyse</button><button data-bdtab="skizzen" aria-pressed="${tab === 'skizzen'}">Skizzen</button><button data-bdtab="vorschlag" aria-pressed="${tab === 'vorschlag'}">Entwurf</button><button data-bdtab="json" aria-pressed="${tab === 'json'}">JSON</button></div></div>
     ${tab === 'analyse' ? viewAnalyse(a, A) : tab === 'skizzen' ? viewSkizzen(a, A) : tab === 'vorschlag' ? viewVorschlag(a, A) : `<div class="ds-toolbar"><span class="small muted">Dieses JSON geht an das Design-Modell (dort ohne Pixel- und Messdetails).</span><span class="spacer"></span><button class="btn tiny" data-bd="kopieren">Kopieren</button><button class="btn tiny" data-bd="json">JSON speichern</button></div><pre class="bd-json">${esc(analyseJSON(A))}</pre>`}`;
@@ -656,7 +679,8 @@ function klick(e) {
     }
     case 'cfgreset': z.cfg = {}; save(); render(); return neuRechnen();
     case 'analyse': return a && !ui.busy ? analysiere([a], false) : null;
-    case 'alle': return ui.busy ? null : analysiere(bilder(), false);
+    case 'alleoffen': return ui.busy ? null : analysiere(bilder().filter(offen), false);
+    case 'spaeter': if (a) { z.spaeter[a.id] = true; save(); render(); } return;
     case 'fehlende': return a && !ui.busy ? analysiere([a], true) : null;
     case 'vorschlag': return ui.busy ? null : schlageVor();
     case 'json': return speichere(`${stamm(a)}-analyse.json`, analyseJSON(z.analysen[a.id]), 'application/json');
@@ -755,7 +779,7 @@ ${F.FREI_CSS}
 .bd-schwelle{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:10px;align-items:center;margin-bottom:8px;font-size:.86rem}
 .bd-schwelle small{display:block;color:var(--muted);font-size:.74rem;line-height:1.3}
 .bd-schwelle .input{padding:5px 8px;font-size:.88rem;font-variant-numeric:tabular-nums;text-align:right}
-.bd-zweit{margin-top:8px}
+.bd-analyse{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .bd-tabs{margin-bottom:12px}
 .bd-fort{font-weight:600;margin:0 0 10px}
 .bd-debug{border-radius:14px;overflow:hidden;background:var(--surface-2);line-height:0}

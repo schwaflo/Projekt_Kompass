@@ -8,7 +8,7 @@ Einstieg: **Bild-Design** in der Kopfzeile oder „Bild-Design öffnen“ auf de
 
 1. **Bild wählen.** Bilder hochladen oder eines der vorhandenen anklicken. Mehrere Bilder lassen sich mit „Alle Bilder analysieren“ in einem Durchgang verarbeiten.
 2. **Raster wählen.** Vorgabe sind 2 × 2 und 4 × 2, dazu 4 × 4 und eigene Raster (Spalten × Zeilen, zum Beispiel `3x3`).
-3. **Bild analysieren.**
+3. **Bild analysieren.** Nach dem Hochladen fragt die App, ob sie das neue Foto analysieren soll. Der Knopf dafür steht links oben unter „Bild“ und erscheint nur, wenn es etwas zu tun gibt: bei einem Foto ohne Analyse oder nachdem du ein anderes Raster gewählt hast. Eine erneute Analyse desselben Stands startest du unter „Modelle“.
    - Die App misst jede Kachel (ohne KI, immer mit demselben Ergebnis).
    - Das Vision-Modell beschreibt das Gesamtbild: Hauptmotiv, Bildaufbau, Stimmung, Stil, Licht.
    - Das Vision-Modell beschreibt jede Kachel in höchstens zwei Sätzen. Das lässt sich abschalten, wenn es schnell gehen soll.
