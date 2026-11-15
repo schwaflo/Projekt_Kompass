@@ -5,6 +5,7 @@ FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/
 COPY praesentation /usr/share/nginx/html/praesentation
+COPY bildanalyse /usr/share/nginx/html/bildanalyse
 COPY prompts /usr/share/nginx/html/prompts
 COPY design-systems /usr/share/nginx/html/design-systems
 COPY examples /usr/share/nginx/html/examples

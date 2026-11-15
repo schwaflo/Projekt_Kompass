@@ -10,6 +10,15 @@ import { einzug, absatzAbstand } from './text.js';
 export const ZOLL = { w: 13.333, h: 7.5 };
 const hex = c => String(c).replace('#', '').toUpperCase();
 const X = p => +(p / 100 * ZOLL.w).toFixed(4), Y = p => +(p / 100 * ZOLL.h).toFixed(4);
+/* Freie Form (Koordinaten 0 bis 1) → Punkte für PptxGenJS (Zoll, relativ zur Form) */
+const punkte = (pfad, w, h) => pfad.map(([b, ...v]) => {
+  const p = (i) => ({ x: +(v[i] * w).toFixed(4), y: +(v[i + 1] * h).toFixed(4) });
+  if (b === 'M') return { ...p(0), moveTo: true };
+  if (b === 'L') return p(0);
+  if (b === 'C') { const a = p(0), c = p(2); return { ...p(4), curve: { type: 'cubic', x1: a.x, y1: a.y, x2: c.x, y2: c.y } }; }
+  if (b === 'Q') { const a = p(0); return { ...p(2), curve: { type: 'quadratic', x1: a.x, y1: a.y } }; }
+  return { close: true };
+});
 
 /* folien: Ergebnis von buildSlides
    opts.PptxGenJS: der Konstruktor (im Browser window.PptxGenJS)
@@ -27,17 +36,25 @@ export async function exportPptx(folien, opts) {
     s.background = { color: hex(f.background) };
     for (const e of f.elemente) {
       if (e.art === 'form') {
-        const rund = e.form !== 'ellipse' && e.radius;
-        s.addShape(e.form === 'ellipse' ? pptx.ShapeType.ellipse : rund ? pptx.ShapeType.roundRect : pptx.ShapeType.rect, {
-          x: X(e.x), y: Y(e.y), w: X(e.w), h: Y(e.h),
-          fill: { color: hex(e.farbe), ...(e.deckkraft !== undefined ? { transparency: Math.round((1 - e.deckkraft) * 100) } : {}) },
+        const rund = (e.form === 'rect' || e.form === 'preset') && e.radius;
+        const typen = Object.values(pptx.ShapeType || {});
+        const form = e.form === 'ellipse' ? pptx.ShapeType.ellipse : e.form === 'line' ? pptx.ShapeType.line : e.form === 'pfad' && e.pfad ? 'custGeom'
+          : e.form === 'preset' && typen.includes(e.prst) ? e.prst : rund ? pptx.ShapeType.roundRect : pptx.ShapeType.rect;
+        const durchsicht = a => a !== undefined && a < 1 ? { transparency: Math.round((1 - a) * 100) } : {};
+        const w = X(e.w), h = Y(e.h);
+        s.addShape(form, {
+          x: X(e.x), y: Y(e.y), w, h,
+          ...(e.form === 'line' ? {} : e.farbe ? { fill: { color: hex(e.farbe), ...durchsicht(e.deckkraft) } } : { fill: { color: 'FFFFFF', transparency: 100 } }),
+          ...(e.linie ? { line: { color: hex(e.linie.farbe), width: e.linie.pt, ...durchsicht(e.linie.deckkraft) } } : {}),
+          ...(e.rot ? { rotate: e.rot } : {}), ...(e.flipH ? { flipH: true } : {}), ...(e.flipV ? { flipV: true } : {}),
+          ...(form === 'custGeom' ? { points: punkte(e.pfad, w, h) } : {}),
           ...(rund ? { rectRadius: e.radius / 72 } : {}),
           ...(e.schatten === 'soft' ? { shadow: { type: 'outer', color: '000000', opacity: 0.12, blur: 10, offset: 3, angle: 90 } } : {}),
           ...(e.schatten === 'hard' ? { shadow: { type: 'outer', color: '000000', opacity: 0.2, blur: 0, offset: 3, angle: 45 } } : {})
         });
       } else if (e.art === 'bild') {
         const b = e.src && opts.ladeBild ? await opts.ladeBild(e) : null;
-        if (b) s.addImage({ data: b.data.replace(/^data:/, ''), x: b.x, y: b.y, w: b.w, h: b.h, altText: e.alt || '' });
+        if (b) s.addImage({ data: b.data.replace(/^data:/, ''), x: b.x, y: b.y, w: b.w, h: b.h, altText: e.alt || '', ...(e.rot ? { rotate: e.rot } : {}), ...(e.flipH ? { flipH: true } : {}), ...(e.deckkraft !== undefined ? { transparency: Math.round((1 - e.deckkraft) * 100) } : {}) });
       } else if (e.art === 'text') {
         const n = e.absaetze.length;
         const teile = e.absaetze.map((a, i) => ({

@@ -1,0 +1,570 @@
+/* ============================================================
+   Bildanalyse – vom Analyse-JSON zum Design-Vorschlag
+   Die Gestaltung rechnet dieses Modul selbst, ohne KI:
+   1. zusammenhängende ruhige Flächen in der Freiraum-Karte finden,
+   2. Headline, Subline und CTA als EINEN Block mit fester
+      Hierarchie hineinsetzen (Größen aus Fläche und Format),
+   3. Ränder, Abstand zum Motiv und Kontrast prüfen.
+   Heraus kommen wenige geprüfte Varianten. Die KI wählt nur
+   zwischen ihnen und begründet die Wahl.
+   Dazu die Ausgaben: HTML/CSS-Ansicht und Debug-Vorschau (SVG).
+   Alles ohne Browser lauffähig.
+   ============================================================ */
+import { STANDARD, konfig, alleKacheln, istHex, hexNorm, hexZuRgb, kontrast, luminanz, mische } from './kern.js';
+import { stilVoll, flaechePolygon, wendeFlaecheAn, flaecheHTML, teileDatum, datumHTML, schmuckBildSVG, schmuckBlockHTML, STIL_CSS } from './stil.js';
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const runde = (n, st = 2) => { const f = 10 ** st; return Math.round(n * f) / f; };
+const klemme = (n, a, b) => Math.max(a, Math.min(b, n));
+
+/* ---------- Fragen an das Vision-Modell ---------- */
+export const VISION_SYSTEM = 'Du beschreibst Bilder sachlich, genau und knapp auf Deutsch. Du beschreibst nur, was wirklich zu sehen ist, und erfindest nichts. Antworte ausschließlich mit JSON.';
+const S = { type: 'string' };
+export const GESAMT_SCHEMA = {
+  type: 'object',
+  properties: { main_subject: S, composition: S, mood: S, style: S, lighting: S },
+  required: ['main_subject', 'composition', 'mood', 'style', 'lighting']
+};
+export const GESAMT_PROMPT = `Sieh dir das ganze Bild an und beschreibe es für eine Gestalterin, die Text darauf setzen will. Je Feld ein kurzer Satz oder wenige Stichworte.
+- main_subject: das Hauptmotiv
+- composition: der Bildaufbau (wo liegt das Motiv, wo ist ruhige Fläche, Linien, Tiefe, wohin weisen Blick oder Geste)
+- mood: die Stimmung
+- style: der Stil (z. B. Fotografie, Illustration, Farbigkeit, Anmutung)
+- lighting: die Lichtsituation`;
+export const KACHEL_SCHEMA = { type: 'object', properties: { description: S }, required: ['description'] };
+export const kachelPrompt = k => `Das ist ein Ausschnitt eines größeren Bildes (Lage im Bild: ${k.label}). Beschreibe in höchstens 2 kurzen Sätzen, was in diesem Ausschnitt zu sehen ist.`;
+/* Höchstens zwei Sätze, auch wenn das Modell mehr schreibt */
+export function kuerzeBeschreibung(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  const saetze = t.match(/[^.!?]+[.!?]+(?=\s|$)/g);
+  return saetze && saetze.length > 2 ? saetze.slice(0, 2).join('').trim() : t;
+}
+
+/* ---------- Textbreite ---------- */
+/* Schätzung in Geviert (em) für eine Grotesk. Im Browser übergibt die Oberfläche stattdessen
+   eine Messung mit der echten Schrift. */
+export function breiteEm(text, fett = false) {
+  let s = 0;
+  for (const z of String(text)) s += /[mwMW@%—]/.test(z) ? 0.88 : /[iIljtfr.,:;!'|()\-·\s]/.test(z) ? 0.32 : /[A-ZÄÖÜ0-9]/.test(z) ? 0.66 : 0.56;
+  return s * (fett ? 1.04 : 1);
+}
+/* Headline in n Zeilen brechen, so dass die längste Zeile möglichst kurz ist.
+   Getrennt wird an Leerzeichen und nach Bindestrichen. */
+export function umbruch(text, n, messe = breiteEm) {
+  const teile = [];
+  for (const wort of String(text).trim().split(/\s+/).filter(Boolean)) wort.split(/(?<=[-–/])(?=.)/).forEach((t, i) => teile.push({ t, leer: i === 0 && teile.length > 0 }));
+  if (!teile.length || n > teile.length) return null;
+  const zeile = (a, b) => teile.slice(a, b).map((x, i) => (i && x.leer ? ' ' : '') + x.t).join('');
+  let beste = null;
+  const such = (ab, rest, bisher) => {
+    if (rest === 1) {
+      const zeilen = [...bisher, zeile(ab, teile.length)], em = Math.max(...zeilen.map(z => messe(z, true)));
+      if (!beste || em < beste.em - 1e-6) beste = { lines: zeilen, em };
+      return;
+    }
+    for (let i = ab + 1; i <= teile.length - rest + 1; i++) such(i, rest - 1, [...bisher, zeile(ab, i)]);
+  };
+  such(0, n, []);
+  return beste;
+}
+
+/* ---------- Typografie: ein Block, feste Hierarchie ---------- */
+/* Alle Maße in Prozent der Bildbreite (im CSS: cqw). verh = Höhe / Breite des Bildes.
+   Die Headline wird so groß, wie Fläche und Format es zulassen; Subline und CTA folgen in
+   festem Verhältnis. Passt der Block nicht mit einer Mindestgröße, gibt es kein Ergebnis. */
+export const headlineMax = verh => klemme(7.6 * Math.sqrt(verh), 5, 10);
+export function setzeTypo(texte, maxB, maxH, verh, messe = breiteEm, locker = false, faktor = 1) {
+  const Tmax = headlineMax(verh) * faktor, Tmin = Tmax * (locker ? 0.3 : 0.5), k = klemme(Math.sqrt(verh) / 0.8, 1, 1.8);
+  const sub = String(texte.subline || '').trim(), cta = String(texte.cta || '').trim();
+  let beste = null;
+  for (let n = 1; n <= 4; n++) {
+    const u = umbruch(texte.headline, n, messe);
+    if (!u) break;
+    const bau = h => {
+      const s = Math.min(klemme(h * 0.36, 1.75 * k, 3.2 * k), h * 0.62), c = s * 0.92;
+      const subMax = Math.min(maxB, Math.max(h * u.em, s * 22)), subB = messe(sub, false) * s * 1.05;
+      const subZeilen = sub ? Math.max(1, Math.ceil(subB / subMax)) : 0;
+      const ctaB = cta ? (messe(cta, true) + 3) * c : 0;
+      const gap1 = h * 0.4, gap2 = s * 1.5;
+      return {
+        headline: h, subline: s, cta: c, lines: u.lines, sub_max: subMax, gap1, gap2,
+        width: Math.max(h * u.em, sub ? (subZeilen > 1 ? subMax : subB) : 0, ctaB),
+        height: h * 1.06 * n + (sub ? gap1 + s * 1.36 * subZeilen : 0) + (cta ? gap2 + c * 2.7 : 0)
+      };
+    };
+    let h = Math.min(Tmax, maxB / u.em), L = bau(h);
+    for (let i = 0; i < 4 && L.height > maxH; i++) { h *= Math.min(0.97, maxH / L.height); L = bau(h); }
+    if (h < Tmin || L.height > maxH || L.width > maxB + 0.01) continue;
+    /* größer ist besser; ruhiger Zeilenfall und weniger Zeilen zählen mit */
+    const laengen = u.lines.map(z => messe(z, true)), fall = Math.min(...laengen) / Math.max(...laengen);
+    const wert = h * (0.75 + 0.25 * fall) - (n - 1) * 0.3;
+    if (!beste || wert > beste.wert) beste = { ...L, wert, max: Tmax };
+  }
+  return beste;
+}
+
+/* ---------- Ruhige Flächen ---------- */
+/* Größte Rechtecke aus lauter freien Zellen der Freiraum-Karte. Zurück kommen höchstens drei,
+   die sich deutlich unterscheiden, die beste zuerst. */
+export function flaechen(karte, verh) {
+  const { cols: C, rows: R, free, score } = karte;
+  const I = new Float64Array((C + 1) * (R + 1)), Sc = new Float64Array((C + 1) * (R + 1));
+  for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+    const i = (y + 1) * (C + 1) + x + 1;
+    I[i] = free[y * C + x] + I[i - 1] + I[i - C - 1] - I[i - C - 2];
+    Sc[i] = score[y * C + x] + Sc[i - 1] + Sc[i - C - 1] - Sc[i - C - 2];
+  }
+  const sum = (A, x0, y0, x1, y1) => A[y1 * (C + 1) + x1] - A[y0 * (C + 1) + x1] - A[y1 * (C + 1) + x0] + A[y0 * (C + 1) + x0];
+  const voll = (x0, y0, x1, y1) => x0 >= 0 && y0 >= 0 && x1 <= C && y1 <= R && sum(I, x0, y0, x1, y1) === (x1 - x0) * (y1 - y0);
+  const minB = Math.max(2, Math.ceil(C * (verh <= 1.05 ? 0.3 : 0.55))), minH = Math.max(2, Math.ceil(R * 0.2));
+  const alle = [];
+  for (let y0 = 0; y0 < R; y0++) for (let x0 = 0; x0 < C; x0++) {
+    if (!free[y0 * C + x0]) continue;
+    let grenze = C;
+    for (let y1 = y0 + 1; y1 <= R; y1++) {
+      let x1 = x0; while (x1 < grenze && free[(y1 - 1) * C + x1]) x1++;
+      grenze = x1; if (grenze === x0) break;
+      if (grenze - x0 < minB || y1 - y0 < minH) continue;
+      /* nur Rechtecke, die sich in keine Richtung mehr vergrößern lassen */
+      if (voll(x0 - 1, y0, grenze, y1) || voll(x0, y0 - 1, grenze, y1) || voll(x0, y0, grenze, y1 + 1)) continue;
+      const zellen = (grenze - x0) * (y1 - y0);
+      alle.push({ x0, y0, x1: grenze, y1, zellen, ruhe: sum(Sc, x0, y0, grenze, y1) / zellen });
+    }
+  }
+  alle.sort((a, b) => b.zellen * b.ruhe - a.zellen * a.ruhe);
+  const iou = (a, b) => { const w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0), s = w > 0 && h > 0 ? w * h : 0; return s / (a.zellen + b.zellen - s); };
+  const out = [];
+  for (const r of alle) { if (out.length < 3 && !out.some(o => iou(o, r) > 0.5)) out.push(r); }
+  return out;
+}
+
+/* ---------- Farben aus dem Bild ---------- */
+const saettigung = hex => { const [r, g, b] = hexZuRgb(hex), mx = Math.max(r, g, b), mn = Math.min(r, g, b); return mx ? (mx - mn) / mx : 0; };
+/* Schriftfarben im Ton des Bildes: die dunkelste und die hellste Bildfarbe, bis fast Schwarz
+   bzw. fast Weiß gezogen. So bleibt die Schrift in der Farbwelt des Fotos. */
+export function schriftToene(analyse, cfg = STANDARD) {
+  const pal = (analyse.palette || []).map(c => c.hex).sort((a, b) => luminanz(a) - luminanz(b));
+  if (!pal.length) return { dunkel: cfg.text_dunkel, hell: cfg.text_hell };
+  let d = pal[0], h = pal[pal.length - 1];
+  for (let i = 0; i < 30 && luminanz(d) > 0.022; i++) d = mische('#000000', d, 0.15);
+  for (let i = 0; i < 30 && luminanz(h) < 0.87; i++) h = mische('#FFFFFF', h, 0.15);
+  return { dunkel: d, hell: h };
+}
+const DECKKRAFT = 0.9;
+
+/* ---------- Komposition ---------- */
+/* Layout-Regeln zum Durchklicken. Die ersten halten die Regeln ein (ruhige Fläche, Abstand zum
+   Motiv, Raster), die letzten brechen sie mit Absicht. */
+export const REGELN = {
+  auto: { name: 'Automatisch', info: 'Die App entscheidet: größte ruhige Fläche, Block am Motiv ausgerichtet.' },
+  drittel: { name: 'Drittel', info: 'Kanten des Blocks liegen auf den Drittellinien, kein Bildelement wird getroffen.', linien: [1 / 3, 2 / 3], namen: ['1/3', '2/3'] },
+  golden: { name: 'Goldener Schnitt', info: 'Kanten des Blocks liegen auf den Linien des Goldenen Schnitts (38 % und 62 %).', linien: [0.382, 0.618], namen: ['38 %', '62 %'] },
+  viertel: { name: 'Viertel', info: 'Kanten des Blocks liegen auf den Viertellinien und der Mitte.', linien: [0.25, 0.5, 0.75], namen: ['1/4', '1/2', '3/4'] },
+  ueberlappen: { name: 'Überlappen', info: 'Regelbruch: Der Block schiebt sich mit Absicht über die Kante des Motivs.', bruch: true },
+  uebergross: { name: 'Übergroß', info: 'Regelbruch: Die Headline läuft in Plakatgröße quer über das Bild, auch über das Motiv.', bruch: true }
+};
+const ANKER = { motiv: 'auf Höhe des Motivs', mitte: 'mittig', unten: 'unten', oben: 'oben' };
+const ANKER_WERT = { motiv: 0.25, mitte: 0.16, unten: 0.12, oben: 0.04 };
+/* Baut die geprüften Varianten für ein Bild, seine Texte und eine Layout-Regel.
+   texte: { headline, subline, cta }. opts.regel: Schlüssel aus REGELN. opts.messe: (text, fett) → Breite in em. */
+export function komponiere(analyse, texte = {}, opts = {}) {
+  const cfg = konfig(analyse.config || {}), messeRoh = opts.messe || breiteEm;
+  /* Stil: Farbwelt, Farbfläche, Schmuck, Datum. Die Farbfläche verändert den Untergrund, auf dem
+     der Text steht: gerechnet wird deshalb mit der Karte, wie sie MIT der Fläche aussieht. */
+  const stil = stilVoll(opts.stil || {}), toeneBild = schriftToene(analyse, cfg);
+  const flFarbe = stil.flaeche.farbe || stil.farben.flaeche || toeneBild.hell, poly = flaechePolygon(stil.flaeche);
+  const karte = poly ? wendeFlaecheAn(analyse.free_map, stil.flaeche, flFarbe) : analyse.free_map;
+  /* Versalien laufen breiter (Sperrung), ein leichterer Schnitt etwas schmaler */
+  const messe = (x, fett) => messeRoh(x, fett) * (fett && stil.typo.gewicht < 700 ? 0.97 : 1) + (fett && stil.typo.versal ? 0.05 * [...String(x)].length : 0);
+  const gestalt = { typo: stil.typo, farben: stil.farben, flaeche: poly ? { art: stil.flaeche.art, seite: stil.flaeche.seite, size: stil.flaeche.groesse, polygon: poly, color: flFarbe, opacity: stil.flaeche.deckkraft } : null, schmuck: stil.schmuck };
+  const regel = REGELN[opts.regel] ? opts.regel : 'auto', R_ = REGELN[regel];
+  const W = analyse.image.width, H = analyse.image.height, verh = H / W, kurz = Math.min(W, H);
+  const t = { headline: (stil.typo.versal ? String(texte.headline || '').toLocaleUpperCase('de') : String(texte.headline || '')).trim() || 'Headline', subline: String(texte.subline || '').trim(), cta: String(texte.cta || '').trim() };
+  const { cols: C, rows: R } = karte, zb = 100 / C, zh = 100 / R;
+  const randX = 6 * kurz / W, randY = 6 * kurz / H;   /* Rand zum Bildrand: 6 % der kurzen Seite */
+  const toene = toeneBild, wunschSchrift = stil.farben.schrift, wunschAkzent = stil.farben.akzent;
+  const frei = (x, y) => x >= 0 && y >= 0 && x < C && y < R && karte.free[y * C + x] === 1;
+  const maxBlock = verh <= 1.05 ? 46 : 88;
+
+  /* Einen gesetzten Block an eine Stelle legen: Untergrund lesen, Farben wählen, Kontrast prüfen */
+  const stelle = (typo, x, y, o) => {
+    const bh = typo.height / verh;   /* Blockhöhe in Prozent der Bildhöhe */
+    const grund = []; let belegt = 0, ruhe = 0, bedeckt = 0;
+    for (let cy = Math.max(0, Math.floor(y / zh)); cy <= Math.min(R - 1, Math.floor((y + bh - 0.01) / zh)); cy++) for (let cx = Math.max(0, Math.floor(x / zb)); cx <= Math.min(C - 1, Math.floor((x + typo.width - 0.01) / zb)); cx++) {
+      grund.push(karte.color[cy * C + cx]); ruhe += karte.score[cy * C + cx]; if (!frei(cx, cy)) belegt++; if (karte.cover && karte.cover[cy * C + cx] === 1) bedeckt++;
+    }
+    if (!grund.length) return null;
+    const mk = (farbe, lage) => Math.min(...grund.map(g => kontrast(farbe, lage && lage.opacity ? mische(lage.color, g, lage.opacity) : g)));
+    /* Wie viel Schleier braucht eine Schriftfarbe, bis sie überall den Mindestkontrast erreicht?
+       Ein Schleier ist ein weicher, kaum sichtbarer Farbschein hinter dem Block, kein Kasten. */
+    const hoechst = o.schleier || 0.44;
+    const bedarf = (farbe, schein) => { for (let a = 0; a <= hoechst + 0.001; a += 0.04) if (mk(farbe, { color: schein, opacity: a }) >= cfg.kontrast_min) return a; return null; };
+    const aD = o.notfall ? null : bedarf(toene.dunkel, toene.hell), aH = o.notfall ? null : bedarf(toene.hell, toene.dunkel);
+    let text, veil = null, panel = null;
+    if (aD === null && aH === null) {
+      const hellerGrund = grund.reduce((sum, g) => sum + luminanz(g), 0) / grund.length > 0.2;
+      if (o.ohneFlaeche) {
+        /* Regelbruch ohne Kasten: stärkster Schleier, die Schrift mit dem besseren Kontrast */
+        const vD = { color: toene.hell, opacity: hoechst }, vH = { color: toene.dunkel, opacity: hoechst };
+        const dunkel = mk(toene.dunkel, vD) >= mk(toene.hell, vH);
+        text = dunkel ? toene.dunkel : toene.hell; veil = dunkel ? vD : vH;
+      } else {
+        /* Auch ein Schleier reicht nicht: der ganze Block bekommt eine Fläche, nie einzelne Zeilen */
+        panel = { color: hellerGrund ? toene.hell : toene.dunkel, opacity: DECKKRAFT };
+        text = hellerGrund ? toene.dunkel : toene.hell;
+      }
+    } else {
+      const dunkel = aH === null || (aD !== null && (aD < aH || (aD === aH && mk(toene.dunkel, { color: toene.hell, opacity: aD }) >= mk(toene.hell, { color: toene.dunkel, opacity: aH }))));
+      text = dunkel ? toene.dunkel : toene.hell;
+      const a = dunkel ? aD : aH;
+      if (a > 0) veil = { color: dunkel ? toene.hell : toene.dunkel, opacity: runde(a) };
+      /* Die Schriftfarbe aus der Farbwelt hat Vorrang, wenn sie kaum mehr Schleier braucht */
+      if (wunschSchrift) {
+        const schein = luminanz(wunschSchrift) < 0.3 ? toene.hell : toene.dunkel, aW = bedarf(wunschSchrift, schein);
+        if (aW !== null && aW <= a + 0.081) { text = wunschSchrift; veil = aW > 0 ? { color: schein, opacity: runde(aW) } : null; }
+      }
+    }
+    const lage = panel || veil, kText = mk(text, lage);
+    /* Knopf: kräftigste Bildfarbe, die sich vom Grund abhebt; sonst die Schriftfarbe */
+    const ab = hex => mk(hex, lage);
+    const knopf = wunschAkzent && ab(wunschAkzent) >= cfg.kontrast_flaeche_min ? wunschAkzent : (analyse.palette || []).map(c => c.hex).filter(h => saettigung(h) > 0.25 && ab(h) >= cfg.kontrast_flaeche_min).sort((a, b) => saettigung(b) * ab(b) - saettigung(a) * ab(a))[0] || text;
+    let knopfText = kontrast(toene.hell, knopf) >= kontrast(toene.dunkel, knopf) ? toene.hell : toene.dunkel;
+    if (kontrast(knopfText, knopf) < cfg.kontrast_min) knopfText = kontrast('#FFFFFF', knopf) >= kontrast('#000000', knopf) ? '#FFFFFF' : '#000000';
+    const ueber = belegt / grund.length;
+    return {
+      key: `${regel}|${o.key}`, rule: regel, anchor: o.anchor, align: o.align || 'links', label: o.label, beside_subject: !!o.beside,
+      region: o.region || null,
+      block: { x: runde(x), y: runde(y), width: runde(typo.width), height: runde(bh) },
+      sizes: { headline: runde(typo.headline), subline: runde(typo.subline), cta: runde(typo.cta) },
+      lines: typo.lines, sub_max: runde(typo.sub_max), gaps: { headline: runde(typo.gap1), cta: runde(typo.gap2) },
+      ground: grund[Math.floor(grund.length / 2)],
+      colors: { text, cta_background: knopf, cta_text: knopfText },
+      contrast: { text: runde(kText), cta_text: runde(kontrast(knopfText, knopf)), cta_background: runde(ab(knopf)) },
+      veil, panel, overlap: runde(ueber), on_surface: runde(bedeckt / grund.length),
+      score: runde(typo.headline / headlineMax(verh) * 0.4 + ruhe / grund.length * 0.2 + (o.wert || 0) + (gestalt.flaeche && gestalt.flaeche.opacity >= 0.8 && gestalt.flaeche.art !== 'ton' ? bedeckt / grund.length * 0.3 : 0) - (panel ? 0.5 : veil ? veil.opacity * 0.3 : 0), 3)
+    };
+  };
+  /* Varianten, die fast an derselben Stelle landen, nicht doppelt anbieten */
+  const nah = (a, b, d) => Math.abs(a.block.x + a.block.width / 2 - b.block.x - b.block.width / 2) < d && Math.abs(a.block.y + a.block.height / 2 - b.block.y - b.block.height / 2) < d;
+  const beste = (liste, d) => { const out = []; for (const v of liste.sort((a, b) => b.score - a.score)) if (out.length < 4 && !out.some(o => nah(o, v, d))) out.push(v); return out; };
+
+  /* Automatisch: Block in die größten ruhigen Flächen, am Motiv ausgerichtet */
+  const inFlaeche = (r, anker, notfall) => {
+    const innen = {
+      x: r.x0 * zb + (r.x0 === 0 ? randX : zb * 0.6), y: r.y0 * zh + (r.y0 === 0 ? randY : zh * 0.5),
+      x1: r.x1 * zb - (r.x1 === C ? randX : zb * 0.6), y1: r.y1 * zh - (r.y1 === R ? randY : zh * 0.5)
+    };
+    const ib = innen.x1 - innen.x, ih = innen.y1 - innen.y;
+    if (ib <= 0 || ih <= 0) return null;
+    const typo = setzeTypo(t, Math.min(ib, maxBlock), ih * verh, verh, messe, notfall);
+    if (!typo) return null;
+    const bh = typo.height / verh;
+    /* Motiv: unruhige Zellen direkt neben der Fläche. Ihre mittlere Höhe gibt dem Block Halt. */
+    const neben = spalten => { let n = 0, s = 0; for (const x of spalten) for (let y = r.y0; y < r.y1; y++) if (x >= 0 && x < C && !frei(x, y)) { n++; s += (y + 0.5) * zh; } return n ? s / n : null; };
+    const motivL = neben([r.x0 - 1, r.x0 - 2]), motivR = neben([r.x1, r.x1 + 1]);
+    const breit = !notfall && (r.x1 - r.x0) / C >= 0.8 && motivL === null && motivR === null;
+    const x = breit ? innen.x + (ib - typo.width) / 2 : motivL === null && motivR !== null ? innen.x1 - typo.width : innen.x;
+    const motivY = motivL !== null ? motivL : motivR;
+    if (anker === 'motiv' && motivY === null) return null;
+    const y = anker === 'motiv' ? klemme(motivY - bh / 2, innen.y, innen.y1 - bh) : anker === 'mitte' ? innen.y + (ih - bh) * 0.45 : anker === 'unten' ? innen.y1 - bh : innen.y;
+    const cxm = (r.x0 + r.x1) / 2 / C, cym = (r.y0 + r.y1) / 2 / R, hoch = (r.y1 - r.y0) / R >= 0.7, weit = (r.x1 - r.x0) / C >= 0.7;
+    const ort = [hoch ? '' : cym < 0.4 ? 'oben' : cym > 0.6 ? 'unten' : '', weit ? '' : cxm < 0.4 ? 'links' : cxm > 0.6 ? 'rechts' : 'Mitte'].filter(Boolean).join(' ') || 'Mitte';
+    return stelle(typo, x, y, {
+      key: `${r.x0}.${r.y0}.${r.x1}.${r.y1}:${anker}`, anchor: anker, align: breit ? 'mitte' : 'links', notfall, beside: motivY !== null,
+      label: notfall ? 'Auf einer Fläche, unten links' : `${ort[0].toUpperCase()}${ort.slice(1)}, ${ANKER[anker]}`,
+      region: { x: runde(r.x0 * zb), y: runde(r.y0 * zh), width: runde((r.x1 - r.x0) * zb), height: runde((r.y1 - r.y0) * zh) },
+      wert: ANKER_WERT[anker] + Math.min(0.5, r.zellen / (C * R)) * 0.3
+    });
+  };
+
+  let varianten = [], notfall = false, hinweis = '';
+  if (regel === 'auto') {
+    for (const r of flaechen(karte, verh)) {
+      const dieser = [];
+      for (const anker of ['motiv', 'mitte', 'unten', 'oben']) { const v = inFlaeche(r, anker, false); if (v && !dieser.some(o => Math.abs(o.block.y - v.block.y) < 7)) dieser.push(v); }
+      varianten.push(...dieser);
+    }
+    varianten = varianten.sort((a, b) => b.score - a.score).slice(0, 4);
+    if (!varianten.length) {
+      /* Keine ruhige Fläche, in die der Block passt: unten links auf einer Fläche */
+      notfall = true;
+      const v = inFlaeche({ x0: 0, y0: 0, x1: C, y1: R, zellen: C * R, ruhe: 0 }, 'unten', true);
+      if (v) varianten = [v];
+    }
+  } else if (R_.linien) {
+    /* Rasterregeln: eine senkrechte Kante des Blocks liegt auf einer Linie, Ober- oder Unterkante
+       auf einer waagerechten. Zulässig ist nur, was kein Bildelement trifft. */
+    const alle = [];
+    R_.linien.forEach((fx, ix) => R_.linien.forEach((fy, iy) => {
+      for (const seite of ['ab', 'bis']) for (const haengt of ['oben', 'unten']) {
+        const lx = fx * 100, ly = fy * 100;
+        const typo = setzeTypo(t, Math.min(maxBlock, seite === 'ab' ? 100 - randX - lx : lx - randX), (haengt === 'oben' ? 100 - randY - ly : ly - randY) * verh, verh, messe);
+        if (!typo) continue;
+        const v = stelle(typo, seite === 'ab' ? lx : lx - typo.width, haengt === 'oben' ? ly : ly - typo.height / verh, {
+          key: `${ix}.${iy}.${seite}.${haengt}`, anchor: haengt, align: 'links',
+          label: `${seite === 'ab' ? 'Beginnt an' : 'Endet an'} ${R_.namen[ix]}, ${haengt === 'oben' ? 'hängt unter' : 'steht auf'} ${R_.namen[iy]}`,
+          wert: seite === 'ab' ? 0.1 : 0
+        });
+        if (v) alle.push(v);
+      }
+    }));
+    varianten = beste(alle.filter(v => v.overlap === 0 && !v.panel), 9);
+    if (!varianten.length && alle.length) {
+      /* Nichts liegt ganz frei: die Stellen, die am wenigsten treffen */
+      const wenig = Math.min(...alle.map(v => v.overlap));
+      varianten = beste(alle.filter(v => v.overlap <= wenig + 0.1), 9);
+      hinweis = `Auf den Linien dieser Regel liegt keine Stelle ganz frei. Gezeigt werden die, die am wenigsten vom Motiv treffen (${Math.round(varianten[0].overlap * 100)} % des Blocks).`;
+    }
+  } else if (regel === 'ueberlappen') {
+    /* Regelbruch: Der Block liegt zu einem Viertel bis gut zur Hälfte auf dem Motiv */
+    const typo = setzeTypo(t, maxBlock * 1.15, 76 * verh, verh, messe, false, 1.3), alle = [];
+    if (typo) {
+      const bh = typo.height / verh;
+      /* Anteil unruhiger Zellen unter einem Rechteck, schnell vorab */
+      const anteil = (x, y) => { let n = 0, b = 0; for (let cy = Math.floor(y / zh); cy <= Math.min(R - 1, Math.floor((y + bh - 0.01) / zh)); cy++) for (let cx = Math.floor(x / zb); cx <= Math.min(C - 1, Math.floor((x + typo.width - 0.01) / zb)); cx++) { n++; if (!frei(cx, cy)) b++; } return b / n; };
+      for (let y = randY; y <= 100 - randY - bh + 0.01; y += zh) for (let x = randX; x <= 100 - randX - typo.width + 0.01; x += zb) {
+        const vorab = anteil(x, y); if (vorab < 0.22 || vorab > 0.6) continue;
+        const v = stelle(typo, x, y, { key: `${runde(x, 1)}.${runde(y, 1)}`, anchor: 'oben', align: 'links', label: '', schleier: 0.6, ohneFlaeche: true });
+        if (!v || v.overlap < 0.22 || v.overlap > 0.6) continue;
+        /* am besten: gut ein Drittel auf dem Motiv, lesbar ohne viel Schleier */
+        v.score = runde(1 - Math.abs(v.overlap - 0.36) - (v.veil ? v.veil.opacity * 0.6 : 0) + Math.min(v.contrast.text, cfg.kontrast_min) / cfg.kontrast_min * 0.3, 3);
+        const mx = v.block.x + v.block.width / 2, my = v.block.y + v.block.height / 2;
+        v.label = `${my < 40 ? 'Oben' : my > 60 ? 'Unten' : 'Mitte'}${mx < 40 ? ' links' : mx > 60 ? ' rechts' : ''}, ${Math.round(v.overlap * 100)} % über dem Motiv`;
+        alle.push(v);
+      }
+    }
+    varianten = beste(alle, 14);
+    if (!varianten.length) hinweis = 'Dieses Bild hat kein klar abgegrenztes Motiv, über das sich der Block schieben ließe.';
+  } else if (regel === 'uebergross') {
+    /* Regelbruch: Headline in Plakatgröße über die ganze Breite, ohne Rücksicht auf das Motiv */
+    const rand = randX / 2, typo = setzeTypo(t, 100 - 2 * rand, 70 * verh, verh, messe, true, 2.4), alle = [];
+    if (typo) {
+      const bh = typo.height / verh, ry = randY / 2;
+      for (const [anker, y, name] of [['unten', 100 - ry - bh, 'Unten'], ['mitte', (100 - bh) / 2, 'Mitte'], ['oben', ry, 'Oben']]) {
+        const v = stelle(typo, rand, y, { key: anker, anchor: anker, align: 'links', label: `${name}, über die ganze Breite`, schleier: 0.6, ohneFlaeche: true });
+        if (v) { v.score = runde(v.contrast.text / 21 + (v.veil ? -v.veil.opacity * 0.3 : 0.2), 3); alle.push(v); }
+      }
+    }
+    varianten = alle.sort((a, b) => b.score - a.score);
+  }
+  /* Datum oder Nummer: in Blöcke geteilt und gestapelt. Steht im Band, wenn es eines gibt, sonst
+     in der ersten Ecke, die ruhig ist und dem Textblock nicht in die Quere kommt. */
+  const teile = teileDatum(stil.datum);
+  const setzeDatum = v => {
+    if (!teile.length) return null;
+    const em = Math.max(...teile.map(x => messe(x, true))), fl = gestalt.flaeche, band = fl && fl.art === 'band' && fl.opacity >= 0.8;
+    let gr = klemme(headlineMax(verh) * 0.44, 2.2, 4.4); if (band) gr = Math.min(gr, fl.size * 0.56 / em);
+    const b = em * gr, h = (teile.length * 1.05 + (teile.length - 1) * 0.93) * gr / verh;
+    const mitteBand = band ? (fl.seite === 'links' ? fl.size / 2 : 100 - fl.size / 2) - b / 2 : 0;
+    const orte = [...(band ? [[mitteBand, randY], [mitteBand, 100 - randY - h]] : []), [100 - randX - b, randY], [randX, randY], [100 - randX - b, 100 - randY - h], [randX, 100 - randY - h]];
+    const zellen = (x, y) => { const z = []; for (let cy = Math.max(0, Math.floor(y / zh)); cy <= Math.min(R - 1, Math.floor((y + h - 0.01) / zh)); cy++) for (let cx = Math.max(0, Math.floor(x / zb)); cx <= Math.min(C - 1, Math.floor((x + b - 0.01) / zb)); cx++) z.push(cy * C + cx); return z; };
+    const trifft = (x, y) => x < v.block.x + v.block.width + 3 && x + b > v.block.x - 3 && y < v.block.y + v.block.height + 3 && y + h > v.block.y - 3;
+    const ohne = orte.filter(([x, y]) => !trifft(x, y));
+    const [x, y] = ohne.find(([x, y]) => zellen(x, y).every(i => karte.free[i] === 1)) || ohne[0] || orte[0];
+    const grund = zellen(x, y).map(i => karte.color[i]), k = f => Math.min(...grund.map(g => kontrast(f, g)));
+    const farbe = wunschSchrift && k(wunschSchrift) >= cfg.kontrast_min ? wunschSchrift : k(toene.dunkel) >= k(toene.hell) ? toene.dunkel : toene.hell;
+    return { parts: teile, x: runde(x), y: runde(y), width: runde(b), height: runde(h), size: runde(gr), color: farbe, contrast: runde(k(farbe)) };
+  };
+  varianten.forEach((v, i) => { v.id = 'ABCD'[i]; v.date = setzeDatum(v); });
+  if (R_.bruch && varianten.some(v => v.contrast.text < cfg.kontrast_min)) hinweis = `Regelbruch: Über dem Motiv erreicht die Schrift nicht überall ${cfg.kontrast_min} : 1. Prüfe die Lesbarkeit mit dem Auge.`;
+  return { regel, varianten, notfall, hinweis, texte: t, linien: R_.linien || [], gestalt };
+}
+
+/* ---------- Die KI wählt und begründet ---------- */
+export const DESIGN_SYSTEM = 'Du bist Art Director. Du wählst unter fertigen, bereits geprüften Kompositionen die beste aus und begründest die Wahl. Antworte ausschließlich mit JSON, Begründung auf Deutsch.';
+export function designSchema(analyse, K) {
+  const farben = (analyse.palette || []).map(c => c.hex), pal = farben.length ? { type: 'string', enum: farben } : S;
+  return {
+    type: 'object',
+    properties: {
+      variant: { type: 'string', enum: K.varianten.map(v => v.id) },
+      palette: { type: 'object', properties: { background: pal, surface: pal, accent: pal }, required: ['background', 'surface', 'accent'] },
+      reasoning: S
+    },
+    required: ['variant', 'palette', 'reasoning']
+  };
+}
+/* Welche Kacheln des gröbsten Rasters liegen unter einem Rechteck (in Prozent)? */
+function kachelnUnter(analyse, b) {
+  const grob = Object.values(analyse.grids || {}).sort((a, c) => a.length - c.length)[0] || [];
+  const W = analyse.image.width, H = analyse.image.height;
+  return grob.filter(k => k.x / W * 100 < b.x + b.width && (k.x + k.width) / W * 100 > b.x && k.y / H * 100 < b.y + b.height && (k.y + k.height) / H * 100 > b.y);
+}
+export function designPrompt(analyse, texte, K) {
+  const grob = Object.entries(analyse.grids || {}).sort((a, b) => a[1].length - b[1].length)[0];
+  const bild = grob ? grob[1].map(k => `- ${k.label}: ${k.description || '(keine Beschreibung)'}`).join('\n') : '(keine)';
+  const zahl = n => String(runde(n, 1)).replace('.', ',');
+  const var_ = K.varianten.map(v => `${v.id}: Textblock ${v.label[0].toLowerCase()}${v.label.slice(1)}${v.beside_subject ? ', direkt neben dem Motiv' : ''}; ${v.align === 'mitte' ? 'zentriert' : 'linksbündig'}; Headline ${v.lines.length}-zeilig mit ${zahl(v.sizes.headline)} % der Bildbreite; Schrift ${v.colors.text} (Kontrast ${zahl(v.contrast.text)} : 1)${v.panel ? ', auf einer Fläche' : v.veil ? ', direkt auf dem Bild mit weichem Schleier' : ', direkt auf dem Bild'}${v.overlap ? `; ${Math.round(v.overlap * 100)} % des Blocks liegen über dem Motiv` : ''}; liegt über: ${kachelnUnter(analyse, v.block).map(k => k.label).join(', ') || 'Bildmitte'}.`).join('\n');
+  return `BILD
+${analyse.overall ? Object.entries({ Hauptmotiv: analyse.overall.main_subject, Bildaufbau: analyse.overall.composition, Stimmung: analyse.overall.mood, Stil: analyse.overall.style, Licht: analyse.overall.lighting }).map(([k, v]) => `${k}: ${v}`).join('\n') : '(keine Beschreibung)'}
+
+BILDBEREICHE
+${bild}
+
+FARBEN DES BILDES (Hex, Anteil): ${(analyse.palette || []).map(c => `${c.hex} ${Math.round(c.percent)} %`).join(', ')}
+
+TEXTE
+Headline: ${K.texte.headline}
+Subline: ${K.texte.subline || '(keine)'}
+CTA: ${K.texte.cta || '(keiner)'}
+
+LAYOUT-REGEL: ${REGELN[K.regel].name}. ${REGELN[K.regel].info}
+
+KOMPOSITIONEN (von der App berechnet und geprüft). Headline, Subline und CTA stehen immer als ein Block zusammen.
+${var_}
+
+AUFGABE
+- variant: die Komposition, die am besten zum Bild passt. Achte darauf, dass der Block das Hauptmotiv nicht bedrängt, Blick oder Geste des Motivs aufnimmt und die Headline Gewicht hat.
+- palette: wähle aus den Farben des Bildes background (prägende Grundfarbe), surface (ruhige Fläche für Kästen) und accent (Signalfarbe).
+- reasoning: Begründung in 2–3 Sätzen: warum diese Stelle, wie sie sich zum Motiv verhält, warum diese Farben.`;
+}
+
+/* Farbwelt aus einer Beschreibung: drei Farben, die zum Bild passen */
+export const FARBWELT_SCHEMA = { type: 'object', properties: { schrift: S, akzent: S, flaeche: S, name: S }, required: ['schrift', 'akzent', 'flaeche', 'name'] };
+export const farbweltPrompt = (analyse, wunsch) => `Stelle eine Farbwelt für Text und Gestaltungselemente auf einem Foto zusammen.
+FARBEN DES FOTOS (Hex, Anteil): ${(analyse.palette || []).map(c => `${c.hex} ${Math.round(c.percent)} %`).join(', ')}
+${analyse.overall ? `STIMMUNG DES FOTOS: ${analyse.overall.mood} ${analyse.overall.style}` : ''}
+WUNSCH: ${wunsch}
+
+Antworte mit drei Hex-Codes (#RRGGBB):
+- schrift: Farbe für Headline und Text, sehr dunkel oder sehr hell, damit sie lesbar bleibt
+- akzent: Signalfarbe für Knopf und Schmucklinien, kräftig
+- flaeche: ruhige Farbe für Farbflächen, die Teile des Fotos überdecken und Text tragen; deutlicher Kontrast zu schrift
+- name: 2–3 Wörter, die die Farbwelt benennen`;
+export function leseFarbwelt(antwort = {}) {
+  const f = k => (istHex(antwort[k]) ? hexNorm(antwort[k]) : '');
+  return { schrift: f('schrift'), akzent: f('akzent'), flaeche: f('flaeche'), name: String(antwort.name || '').trim().slice(0, 40) };
+}
+
+/* Wahl der KI (oder der Person) übernehmen und alles festschreiben. antwort.variant darf der
+   Buchstabe oder der Schlüssel einer Variante sein; passt keine, gilt die beste der App. */
+export function pruefeVorschlag(analyse, antwort = {}, texte = {}, opts = {}) {
+  const cfg = konfig(analyse.config || {}), K = opts.fertig || komponiere(analyse, texte, opts), korrekturen = [];
+  if (K.notfall) korrekturen.push('Das Bild hat keine ruhige Fläche, in die der Textblock passt. Er steht deshalb unten links auf einer Fläche.');
+  if (K.hinweis) korrekturen.push(K.hinweis);
+  const wunsch = String(antwort.variant || '');
+  let v = K.varianten.find(x => x.key === wunsch) || K.varianten.find(x => x.id === wunsch);
+  if (!v) { v = K.varianten[0] || null; if (wunsch && !K.notfall && v) korrekturen.push('Die gewählte Komposition passt mit den aktuellen Texten oder Schwellwerten nicht mehr. Es gilt die beste der verbleibenden.'); }
+  /* Farben aus der Farbwelt, die hier nicht lesbar wären, nennt die App beim Namen */
+  const w = K.gestalt.farben;
+  if (v && w.schrift && v.colors.text !== w.schrift) korrekturen.push(`Die Schriftfarbe ${w.schrift} aus der Farbwelt wäre an dieser Stelle nicht gut lesbar. Die Schrift nimmt deshalb ${v.colors.text}.`);
+  if (v && w.akzent && K.texte.cta && v.colors.cta_background !== w.akzent) korrekturen.push(`Die Akzentfarbe ${w.akzent} hebt sich hier zu wenig vom Untergrund ab. Der Knopf nimmt deshalb ${v.colors.cta_background}.`);
+  if (v && v.panel && !K.notfall) korrekturen.push(`Direkt auf dem Bild erreicht die Schrift hier nicht ${cfg.kontrast_min} : 1. Der ganze Block steht deshalb auf einer Fläche.`);
+  const gemessen = (analyse.palette || []).map(c => c.hex), p = antwort.palette || {};
+  const aus = (wert, ersatz) => (istHex(wert) && gemessen.includes(hexNorm(wert)) ? hexNorm(wert) : ersatz);
+  const bunt = gemessen.slice().sort((a, b) => saettigung(b) - saettigung(a))[0];
+  const background = aus(p.background, gemessen[0] || '#FFFFFF');
+  const palette = {
+    background,
+    surface: aus(p.surface, gemessen.find(h => h !== background) || background),
+    accent: aus(p.accent, bunt || background),
+    text: kontrast(cfg.text_hell, background) >= kontrast(cfg.text_dunkel, background) ? cfg.text_hell : cfg.text_dunkel
+  };
+  return { rule: K.regel, lines: K.linien, style: K.gestalt, variant: v, variants: K.varianten, texts: K.texte, palette, reasoning: String(antwort.reasoning || '').trim(), corrections: korrekturen, emergency: K.notfall, min_contrast: cfg.kontrast_min };
+}
+
+/* ---------- HTML/CSS-Ansicht ---------- */
+export const ANSICHT_SCHRIFT = 'https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&display=swap';
+export const ANSICHT_CSS = `.bd-ansicht{position:relative;width:100%;container-type:inline-size;background-size:100% 100%;background-repeat:no-repeat;overflow:hidden;font-family:"Familjen Grotesk",ui-sans-serif,system-ui,sans-serif}
+.bd-block{position:absolute;display:flex;flex-direction:column;box-sizing:border-box;isolation:isolate}
+.bd-schleier{position:absolute;inset:-6cqw;z-index:-1;filter:blur(4cqw);pointer-events:none}
+.bd-linie{position:absolute;border:0 dashed rgba(255,255,255,.75);border-width:1px 0 0 1px;mix-blend-mode:difference;pointer-events:none}
+.bd-block.a-links{align-items:flex-start;text-align:left}
+.bd-block.a-mitte{align-items:center;text-align:center}
+.bd-block.flaeche{border-radius:.6cqw}
+.bd-headline{margin:0;font-weight:700;line-height:1.06;letter-spacing:-.015em;white-space:nowrap}
+.bd-headline span{display:block}
+.bd-subline{margin:0;font-weight:500;line-height:1.36;text-wrap:balance}
+.bd-cta{display:inline-block;font-weight:600;line-height:1;padding:.85em 1.5em;border-radius:99em;text-decoration:none;white-space:nowrap}
+.bd-cta.zeile{padding:0 0 .35em;border-radius:0;border-bottom:.12em solid;color:inherit;background:none;display:inline-flex;gap:.6em;align-items:baseline}
+${STIL_CSS}`;
+/* Bild als Hintergrund, der Textblock an der Stelle der Variante */
+export function ansichtHTML(analyse, v, texte = {}, bildURL = '', { linien = [], stil = null } = {}) {
+  const hilfe = linien.map(f => `<i class="bd-linie" style="left:${runde(f * 100)}%;top:0;bottom:0;width:0"></i><i class="bd-linie" style="top:${runde(f * 100)}%;left:0;right:0;height:0"></i>`).join('');
+  const kopf = `<div class="bd-ansicht" style="aspect-ratio:${analyse.image.width}/${analyse.image.height};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${stil ? flaecheHTML(stil) + schmuckBildSVG(stil, analyse, v ? v.colors.text : '#FFFFFF') : ''}${hilfe}`;
+  if (!v) return kopf + '</div>';
+  const sub = String(texte.subline || '').trim(), cta = String(texte.cta || '').trim(), b = v.block;
+  /* Unten verankerte Blöcke hängen an ihrer Unterkante, mittige an ihrer Mitte: so stimmt die
+     Stelle auch dann, wenn die Schrift minimal anders läuft als berechnet. */
+  const lage = v.anchor === 'unten' ? `bottom:${runde(100 - b.y - b.height)}%` : v.anchor === 'oben' ? `top:${b.y}%` : `top:${runde(b.y + b.height / 2)}%;transform:translateY(-50%)`;
+  const fl = v.panel ? `;background:rgba(${hexZuRgb(v.panel.color).join(',')},${v.panel.opacity});box-shadow:0 0 0 2.4cqw rgba(${hexZuRgb(v.panel.color).join(',')},${v.panel.opacity})` : '';
+  return `${kopf}<div class="bd-block a-${v.align}${v.panel ? ' flaeche' : ''}" data-variante="${v.id}" style="left:${b.x}%;width:${b.width}%;${lage};color:${v.colors.text}${fl}">${v.veil ? `<div class="bd-schleier" style="background:rgba(${hexZuRgb(v.veil.color).join(',')},${v.veil.opacity})"></div>` : ''}${stil ? schmuckBlockHTML(stil, v, stil.farben.akzent || v.colors.cta_background) : ''}
+<h1 class="bd-headline" style="font-size:${v.sizes.headline}cqw${stil ? `;font-weight:${stil.typo.gewicht}${stil.typo.versal ? ';letter-spacing:.05em' : ''}` : ''}">${v.lines.map(z => `<span>${esc(z)}</span>`).join('')}</h1>
+${sub ? `<p class="bd-subline" style="font-size:${v.sizes.subline}cqw;margin-top:${v.gaps.headline}cqw;max-width:${v.sub_max}cqw">${esc(sub)}</p>` : ''}
+${cta ? (stil && stil.typo.cta === 'zeile' ? `<a class="bd-cta zeile" style="font-size:${runde(v.sizes.cta * 1.08)}cqw;margin-top:${v.gaps.cta}cqw;border-color:${stil.farben.akzent || v.colors.cta_background}">${esc(cta)}<span aria-hidden="true">→</span></a>` : `<a class="bd-cta" style="font-size:${v.sizes.cta}cqw;margin-top:${v.gaps.cta}cqw;background:${v.colors.cta_background};color:${v.colors.cta_text}">${esc(cta)}</a>`) : ''}
+</div>${datumHTML(v.date)}</div>`;
+}
+/* Eigenständige HTML-Datei zum Speichern */
+export function ansichtDatei(analyse, vorschlag, bildURL) {
+  return `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(vorschlag.texts.headline || analyse.image.name || 'Design-Vorschlag')}</title>
+<link rel="stylesheet" href="${ANSICHT_SCHRIFT}">
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:${vorschlag.palette.background}}
+main{width:min(100vw,calc(100vh * ${analyse.image.width} / ${analyse.image.height}))}
+${ANSICHT_CSS}
+</style>
+</head>
+<body>
+<main>${ansichtHTML(analyse, vorschlag.variant, vorschlag.texts, bildURL, { stil: vorschlag.style })}</main>
+</body>
+</html>
+`;
+}
+
+/* ---------- Debug-Vorschau ---------- */
+const muster = sw => `<defs>
+<pattern id="bd-rot" width="${sw * 7}" height="${sw * 7}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="${sw * 7}" height="${sw * 7}" fill="#D7362B" fill-opacity=".38"/><rect width="${sw * 2.5}" height="${sw * 7}" fill="#D7362B" fill-opacity=".75"/></pattern>
+<pattern id="bd-rot2" width="${sw * 7}" height="${sw * 7}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="${sw * 7}" height="${sw * 7}" fill="#D7362B" fill-opacity=".14"/><rect width="${sw * 1.6}" height="${sw * 7}" fill="#D7362B" fill-opacity=".55"/></pattern>
+</defs>`;
+const svgKopf = (W, H, name, bildURL) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(name)}">
+${bildURL ? `<image href="${bildURL}" width="${W}" height="${H}" preserveAspectRatio="none"/>` : `<rect width="${W}" height="${H}" fill="#888"/>`}`;
+const beschrift = (x, y, fs, zeilen) => `<text x="${x}" y="${y}" font-size="${fs}" font-family="ui-monospace,Menlo,monospace" font-weight="600" fill="#fff" stroke="#000" stroke-opacity=".7" stroke-width="${fs / 5}" paint-order="stroke">${zeilen.map((z, i) => `<tspan x="${x}" dy="${i ? fs * 1.25 : 0}">${esc(z)}</tspan>`).join('')}</text>`;
+/* Originalbild mit eingezeichnetem Raster: Freiraum für Text grün, unscharfe Bereiche rot.
+   Kacheln mit zu wenig Struktur (z. B. Himmel) lassen kein Urteil über die Schärfe zu und
+   bleiben deshalb ohne Rot. */
+export function debugSVG(analyse, grid, bildURL = '') {
+  const W = analyse.image.width, H = analyse.image.height, liste = analyse.grids[grid] || [];
+  const fs = Math.max(10, Math.round(Math.min(W, H) / 38)), sw = Math.max(1.5, Math.min(W, H) / 400);
+  const kachel = k => {
+    const rot = k.sharpness.reliable && k.sharpness.label !== 'scharf';
+    const teile = [];
+    if (k.text_space) teile.push(`<rect x="${k.x}" y="${k.y}" width="${k.width}" height="${k.height}" fill="#1FA35B" fill-opacity=".42"/>`);
+    if (rot) teile.push(`<rect x="${k.x}" y="${k.y}" width="${k.width}" height="${k.height}" fill="${k.sharpness.label === 'blurry' ? 'url(#bd-rot)' : 'url(#bd-rot2)'}"/>`);
+    teile.push(beschrift(k.x + fs * 0.5, k.y + fs * 1.3, fs, [`r${k.row}c${k.col}`, k.text_space ? `Text ${String(k.text_space_score).replace('.', ',')}` : '', rot ? k.sharpness.label : ''].filter(Boolean)));
+    return teile.join('');
+  };
+  const linien = liste.map(k => `<rect x="${k.x}" y="${k.y}" width="${k.width}" height="${k.height}" fill="none"/>`).join('');
+  return `${svgKopf(W, H, `Debug-Vorschau Raster ${grid}`, bildURL)}
+${muster(sw)}
+${liste.map(kachel).join('\n')}
+<g stroke="#000" stroke-opacity=".55" stroke-width="${sw * 2.2}">${linien}</g>
+<g stroke="#fff" stroke-width="${sw}">${linien}</g>
+</svg>`;
+}
+/* Freiraum-Karte mit den Textflächen: freie Zellen grün, die Fläche jeder Variante gestrichelt,
+   der Textblock als Rahmen mit Buchstabe. */
+export function flaechenSVG(analyse, varianten = [], bildURL = '', aktiv = '', linien = []) {
+  const W = analyse.image.width, H = analyse.image.height, m = analyse.free_map;
+  const fs = Math.max(10, Math.round(Math.min(W, H) / 34)), sw = Math.max(1.5, Math.min(W, H) / 400), zb = W / m.cols, zh = H / m.rows;
+  const zellen = m.free.map((f, i) => (f ? `<rect x="${runde(i % m.cols * zb, 1)}" y="${runde(Math.floor(i / m.cols) * zh, 1)}" width="${runde(zb, 1)}" height="${runde(zh, 1)}" fill="#1FA35B" fill-opacity=".34" stroke="#1FA35B" stroke-opacity=".5" stroke-width="${sw / 2}"/>` : '')).join('');
+  const px = (r, f = 'none') => `x="${runde(r.x * W / 100, 1)}" y="${runde(r.y * H / 100, 1)}" width="${runde(r.width * W / 100, 1)}" height="${runde(r.height * H / 100, 1)}" fill="${f}"`;
+  const regionen = [...new Map(varianten.filter(v => v.region).map(v => [JSON.stringify(v.region), v.region])).values()];
+  return `${svgKopf(W, H, 'Freiraum-Karte mit Textflächen', bildURL)}
+${zellen}
+${regionen.map(r => `<rect ${px(r)} stroke="#fff" stroke-width="${sw * 1.4}" stroke-dasharray="${sw * 6} ${sw * 4}"/>`).join('')}
+${linien.map(f => `<path d="M${runde(f * W, 1)} 0V${H}M0 ${runde(f * H, 1)}H${W}" stroke="#fff" stroke-opacity=".85" stroke-width="${sw}" stroke-dasharray="${sw * 3} ${sw * 3}"/>`).join('')}
+${varianten.map(v => `<rect ${px(v.block, v.key === aktiv || v.id === aktiv ? 'rgba(255,255,255,.22)' : 'none')} stroke="#000" stroke-opacity=".6" stroke-width="${sw * 3}"/><rect ${px(v.block)} stroke="#fff" stroke-width="${sw * 1.5}"/>${beschrift(v.block.x * W / 100 + fs * 0.4, v.block.y * H / 100 + fs * 1.2, fs, [v.id])}`).join('\n')}
+</svg>`;
+}
+
+/* Kurze Zusammenfassung für die Oberfläche */
+export function zusammenfassung(analyse) {
+  const alle = alleKacheln(analyse);
+  return { kacheln: alle.length, frei: alle.filter(k => k.text_space).length, unscharf: alle.filter(k => k.sharpness.reliable && k.sharpness.label !== 'scharf').length, beschrieben: alle.filter(k => k.description).length };
+}
+export { STANDARD };

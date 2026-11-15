@@ -14,6 +14,9 @@ import { inhaltsPlatzhalter } from './spec.js';
 import { buildSlides } from './layout.js';
 import { slideHTML, fontUrl } from './render-html.js';
 import { fuelle } from './pipeline.js';
+import { beschreibe, typName } from './analyse.js';
+import { textAusDatei, destilliere, voiceAbschnitt, setzeEin, leseSprachregeln } from './richtlinien.js';
+import { LAYOUT_TYPEN } from './schema.js';
 
 const STORE = 'designsysteme';
 let K = null; /* { reg, ladePrompts, ki } aus ui.js */
@@ -92,6 +95,42 @@ async function loesche(system) {
   K.reg.remove(system.id); zustand().id = '';
   if (S.praes && S.praes.systemId === system.id) S.praes.systemId = '';
   render();
+}
+
+/* Brand-Guide oder Wording-Datei lesen und als Formulierungsrichtlinien übernehmen */
+function ladeRichtlinien(original, datei) {
+  const z = zustand(); z.fehler = []; z.bericht = [];
+  ui.prRlFort = '';
+  run('Formulierungsrichtlinien werden gelesen …', async () => {
+    /* Mitgelieferte Systeme sind schreibgeschützt: die Richtlinien kommen in eine Kopie, die Präsentation wechselt mit */
+    let system = original, kopiert = false;
+    if (!bearbeitbar(original)) {
+      const id = freieId(original.id + '-eigen', K.reg.list().map(x => x.id));
+      const f = await speichere(await kopiereSystem(original, id, `${original.meta.name} (eigene Sprache)`));
+      if (f.length) throw new Error(f[0]);
+      system = K.reg.get(id); kopiert = true;
+    }
+    const prompts = await K.ladePrompts();
+    const inhalt = await textAusDatei(datei, await zip());
+    if (!inhalt.abschnitte.length) throw new Error(`In „${datei.name}“ steht kein lesbarer Text.`);
+    const r = await destilliere(K.ki(), prompts, inhalt, { fortschritt: (n, a) => { ui.prRlFort = `Teil ${n} von ${a} wird gelesen (${inhalt.abschnitte.length} ${/\.(pptx|potx)$/i.test(datei.name) ? 'Folien' : 'Abschnitte'} insgesamt)`; const el = document.getElementById('ps-fort'); if (el) el.textContent = ui.prRlFort; } });
+    const p = { ...system.paket, manifest: kopie(system.paket.manifest), dateien: { ...system.paket.dateien } };
+    p.voice = setzeEin(system.voice, voiceAbschnitt(r.regeln, datei.name), `Formulierungsrichtlinien: ${system.meta.name}`);
+    const fehler = await speichere(p);
+    if (fehler.length) throw new Error(fehler[0]);
+    z.id = system.id;
+    const praes = S.praes, nutzt = praes && (praes.systemId === original.id || praes.systemId === system.id);
+    if (praes && kopiert && praes.systemId === original.id) praes.systemId = system.id;
+    const g = r.regeln, n = (x, e, m) => `${x.length} ${x.length === 1 ? e : m}`;
+    z.bericht = [`Formulierungsrichtlinien aus „${datei.name}“ übernommen. Sie gelten ab sofort für alle Präsentationen mit „${system.meta.name}“.`,
+      `${n(g.regeln, 'Regel', 'Regeln')}, ${n(g.tonalitaet, 'Aussage', 'Aussagen')} zur Tonalität, Anrede: ${g.anrede === 'du' ? 'Du' : g.anrede === 'sie' ? 'Sie' : 'nicht festgelegt'}.`,
+      `${n(g.verboten, 'verbotenes Wort', 'verbotene Wörter')} und ${n(g.ersetzen, 'bevorzugter Begriff', 'bevorzugte Begriffe')}: Diese prüft der Kompass bei jeder Folie und lässt die KI nachbessern.`,
+      `${n(g.schreibweisen, 'Schreibweise', 'Schreibweisen')} und ${n(g.beispiele, 'Formulierungsbeispiel', 'Formulierungsbeispiele')}.`,
+      ...(kopiert ? [`„${original.meta.name}“ ist mitgeliefert und schreibgeschützt. Die Richtlinien stecken deshalb in der Kopie „${system.meta.name}“${nutzt ? ', und deine Präsentation nutzt jetzt diese Kopie' : ''}.`] : []),
+      ...(nutzt && praes.spec ? ['Bereits geschriebene Folien ändern sich nicht von selbst. In der Folienansicht kannst du sie mit einem Klick nach den neuen Richtlinien neu schreiben lassen.'] : []),
+      'Unten unter „Formulierungsrichtlinien“ kannst du alles lesen und ändern.', ...r.fehler.map(f => `Nicht gelesen: ${f}`)];
+    ui.prRlFort = '';
+  });
 }
 
 const neueDateien = (system, files, rolle) => aendere(system, async p => { for (const f of files) await fuegeDateiHinzu(p, f, rolle); });
@@ -190,11 +229,15 @@ function viewDetail(s) {
   </section>
 
   <section class="ps-block"><h3>Layouts</h3>
-    <p class="small muted" style="margin:0 0 12px">Jedes Layout mit Beispieltext nahe an den Zeichenlimits.</p>
-    <div class="ps-layouts">${layoutVorschau(s).map((f, i) => { const l = s.layouts[i]; return `<figure>${slideHTML(f)}<figcaption><b>${esc(l.name || l.id)}</b> <code>${esc(l.id)}</code><br><span class="small muted">${inhaltsPlatzhalter(l).map(p => `${p.id}${p.maxChars ? ' ≤ ' + p.maxChars : p.maxItems ? ' ≤ ' + p.maxItems + (p.maxCharsPerItem ? ' × ' + p.maxCharsPerItem : '') : ''}`).join(' · ')}</span></figcaption></figure>`; }).join('')}</div>
+    <p class="small muted" style="margin:0 0 12px">Jedes Layout mit Beispieltext nahe an den Zeichenlimits. Der Zweck sagt dem Kompass, für welche Inhalte er das Layout nimmt.${e ? ' Stimmt er nicht, stell ihn um.' : ''}</p>
+    <div class="ps-layouts">${layoutVorschau(s).map((f, i) => { const l = s.layouts[i], b = beschreibe(l, s); return `<figure>${slideHTML(f)}<figcaption><b>${esc(l.name || l.id)}</b> <code>${esc(l.id)}</code>
+      <span class="ps-zweck">${e ? `<select class="input" data-pl="${esc(l.id)}" aria-label="Zweck von ${esc(l.name || l.id)}">${[...new Set([...LAYOUT_TYPEN, l.typ])].map(t => `<option value="${t}" ${t === l.typ ? 'selected' : ''}>${esc(typName(t))}</option>`).join('')}</select>` : `<i>${esc(typName(l.typ))}</i>`}<span class="small muted">${esc(b.merkmale.join(' · '))}</span></span>
+      <span class="small muted">${inhaltsPlatzhalter(l).map(p => `${p.id}${p.maxChars ? ' ≤ ' + p.maxChars : p.maxItems ? ' ≤ ' + p.maxItems + (p.maxCharsPerItem ? ' × ' + p.maxCharsPerItem : '') : ''}`).join(' · ')}</span></figcaption></figure>`; }).join('')}</div>
   </section>
 
   <section class="ps-block"><h3>Formulierungsrichtlinien (voice.md)</h3>
+    ${(() => { const r = leseSprachregeln(s.voice); return `<p class="small muted" style="margin:0 0 10px">Gehen bei jeder Folie an die KI. Geprüft werden automatisch: ${r.verboten.length} verbotene Wörter, ${r.ersetzen.length} bevorzugte Begriffe, Anrede ${r.anrede === 'du' ? 'Du' : r.anrede === 'sie' ? 'Sie' : 'nicht festgelegt'}.</p>`; })()}
+    <div class="ps-drop klein" id="ps-richtlinien" style="margin:0 0 12px"><span class="muted">Brand-Guide oder Wording-Datei hierher ziehen (.pptx, .docx, .txt, .md). Die KI liest sie Teil für Teil und übernimmt Tonalität, Anrede, Regeln, Begriffe und Beispiele.${e ? '' : ' Weil dieses System mitgeliefert ist, entsteht dafür eine Kopie.'}</span><label class="btn tiny">Datei wählen<input type="file" id="ps-rl" accept=".pptx,.potx,.docx,.txt,.md" hidden></label></div><p class="small muted" id="ps-fort">${esc(ui.prRlFort || '')}</p>
     ${e ? `<textarea class="answer" data-pv="1" rows="10" style="min-height:220px;font-size:.9rem">${esc(s.voice)}</textarea><p class="small muted">Wird gespeichert, sobald du das Feld verlässt.</p>` : `<pre class="ps-voice">${esc(s.voice || '(keine)')}</pre>`}
   </section>`;
 }
@@ -226,6 +269,7 @@ export function wechselSysteme(e) {
   const t = e.target, d = t.dataset || {}, s = K.reg.get(zustand().id);
   if (t.id === 'ps-zip' && t.files[0]) { ladeZip(t.files[0]); t.value = ''; return true; }
   if (t.id === 'ps-pptx' && t.files[0]) { ladePptx(t.files[0]); t.value = ''; return true; }
+  if (s && t.id === 'ps-rl' && t.files[0]) { ladeRichtlinien(s, t.files[0]); t.value = ''; return true; }
   if (!s || !bearbeitbar(s)) return false;
   if (d.prolle !== undefined && t.files && t.files.length) { neueDateien(s, [...t.files], d.prolle); t.value = ''; return true; }
   const liste = v => v.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
@@ -234,6 +278,7 @@ export function wechselSysteme(e) {
   if (d.pt) { aendere(s, p => { p.manifest.tokens.typography[d.pt] = t.value.trim() || p.manifest.tokens.typography[d.pt]; }); return true; }
   if (d.pa) { aendere(s, p => { const a = p.manifest.assets.find(x => x.id === d.id); a[d.pa] = d.pa === 'tags' ? liste(t.value) : t.value.trim(); }); return true; }
   if (d.pv) { aendere(s, p => { p.voice = t.value; }); return true; }
+  if (d.pl) { aendere(s, p => { const l = p.manifest.layouts.find(x => x.id === d.pl); l.typ = t.value; l.beschreibung = beschreibe({ ...l, placeholders: l.placeholders }, { tokens: p.manifest.tokens }).text; }); return true; }
   return false;
 }
 
@@ -248,6 +293,7 @@ export function dragSysteme(e) {
   if (e.type !== 'drop') return;
   const files = [...e.dataTransfer.files], assetId = e.dataTransfer.getData('text/x-asset');
   if (ziel.id === 'ps-drop') { const f = files[0]; if (!f) return; return /\.(pptx|potx)$/i.test(f.name) ? ladePptx(f) : ladeZip(f); }
+  if (s && ziel.id === 'ps-richtlinien') { if (files[0]) ladeRichtlinien(s, files[0]); return; }
   if (!s || !bearbeitbar(s)) return;
   const rolle = ziel.dataset.rolle || '';
   if (files.length) return neueDateien(s, files, rolle);
@@ -286,7 +332,8 @@ export const SYSTEME_CSS = `
 .ps-assets tr[draggable]{cursor:grab}.ps-assets .input{padding:5px 8px;font-size:.84rem}
 .ps-assets code,.ps-layouts code{font-size:.8rem;background:var(--surface-2);padding:1px 5px;border-radius:4px}
 .ps-layouts{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.ps-layouts figure{margin:0}.ps-layouts .pf{border:1px solid var(--line);border-radius:4px}.ps-layouts figcaption{font-size:.86rem;margin-top:6px}
+.ps-layouts figure{margin:0}.ps-layouts .pf{border:1px solid var(--line);border-radius:4px}.ps-layouts figcaption{font-size:.86rem;margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.ps-zweck{display:flex;flex-direction:column;gap:3px}.ps-zweck .input{padding:4px 8px;font-size:.84rem;width:auto;max-width:100%}.ps-zweck i{font-style:normal;font-weight:600}
 .ps-voice{white-space:pre-wrap;font:inherit;font-size:.88rem;background:var(--surface-2);border-radius:var(--radius-m);padding:14px;margin:0;max-height:320px;overflow:auto}
 @media (max-width:760px){.ps-form,.ps-schriften{grid-template-columns:1fr}.ps-assets thead{display:none}.ps-assets td{display:block;border:0;padding:3px 0}.ps-assets tr{display:block;border-top:1px solid var(--line);padding:8px 0}}
 `;

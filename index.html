@@ -1151,6 +1151,7 @@ code.cmd{display:block;font-size:.76rem;background:var(--surface);border:1px sol
       Projekt-Kompass
     </div>
     <div class="spacer"></div>
+    <button class="btn ghost tiny" id="bildBtn">Bild-Design</button>
     <button class="btn ghost tiny" id="praesBtn">Präsentation</button>
     <button class="btn ghost tiny" id="projBtn">Projekte</button>
     <button class="btn tiny" id="saveBtn" hidden>Speichern</button>
@@ -1393,11 +1394,13 @@ const KIND = {
   praes_system:   { name: 'Designsystem vorschlagen', expect: 200 },
   praes_outline:  { name: 'Gliederung der Präsentation erstellen', expect: 2200 },
   praes_folie:    { name: 'Folie schreiben', expect: 900 },
-  praes_bild:     { name: 'Bild beschreiben', expect: 200 }
+  praes_bild:     { name: 'Bild beschreiben', expect: 200 },
+  praes_layout:   { name: 'Layout einer Folie anpassen', expect: 400 },
+  praes_richtlinien: { name: 'Formulierungsrichtlinien auswerten', expect: 900 }
 };
 const now = () => performance.now();
 /* Obergrenze für die Antwortlänge (Tokens), damit Ollama in jedem Fall stoppt */
-const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400 };
+const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400, praes_layout: 700, praes_richtlinien: 1800 };
 const tokLimit = (kind, think) => (TOK[kind] || 3000) + (think === false ? 0 : 3000);
 /* JSON auch dann finden, wenn das Modell Text oder Codeblöcke drumherum schreibt */
 function parseJSONLoose(t) {
@@ -1436,17 +1439,18 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   if (!S.model) throw new Error(isOpenAI() ? 'Kein Modell ausgewählt. Lade in deinem KI-Server ein Modell und klicke auf der Startseite auf „Verbinden“.' : 'Kein Modell ausgewählt. Lade zuerst ein Modell in Ollama (z. B. „ollama pull …“).');
   if (mixedBlocked()) throw new Error('Diese Seite läuft über HTTPS und darf deshalb keine unverschlüsselte Adresse eines anderen Rechners aufrufen. Nutze http://localhost oder eine HTTPS-Adresse.');
   const think = ui.thinkUnsupported ? undefined : (opts.think !== undefined ? opts.think : (S.think === false || ui.sessionNoThink ? false : undefined));
-  const L = ui.live = { kind, attempt, model: S.model, think, phase: 'senden', t0: now(), tResp: null, tThink: null, tWrite: null, tEnd: null, thinking: '', content: '', tokens: 0, thinkTokens: 0, stats: null };
+  const model = opts.model || S.model;
+  const L = ui.live = { kind, attempt, model, think, phase: 'senden', t0: now(), tResp: null, tThink: null, tWrite: null, tEnd: null, thinking: '', content: '', tokens: 0, thinkTokens: 0, stats: null };
   updateLive();
   const oa = isOpenAI(), rf = ui.rfStufe || 'json_schema';
-  const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : 0.4;
+  const temp = kind === 'result' ? 0.3 : kind === 'frei' || kind === 'gelenkt' || kind === 'layout' ? 0.8 : kind === 'praes_outline' || kind === 'praes_folie' ? 0.65 : 0.4;
   const msgs = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
   /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
   if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }
   const body = oa
-    ? { model: S.model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
+    ? { model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
         ...(rf === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'antwort', schema, strict: false } } } : rf === 'json_object' ? { response_format: { type: 'json_object' } } : {}) }
-    : { model: S.model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: tokLimit(kind, think) }, messages: msgs };
+    : { model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: tokLimit(kind, think) }, messages: msgs };
   if (think === false && !oa) body.think = false;
   const ctrl = new AbortController();
   let abortWhy = null;
@@ -1564,7 +1568,7 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
 
 /* Schnittstelle für den Präsentationsgenerator (praesentation/pipeline.js): derselbe Ablauf läuft
    über jeden hier eingestellten KI-Server, lokal oder in der Cloud. */
-window.KompassKI = { frage: ({ system, prompt, schema, art, bilder }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder }) };
+window.KompassKI = { frage: ({ system, prompt, schema, art, bilder, modell, denken }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder, ...(modell ? { model: modell } : {}), ...(denken !== undefined ? { think: denken } : {}) }) };
 
 async function run(text, fn) {
   ui.busy = true; ui.busyText = text; ui.error = null; ui.live = null; render();
@@ -2054,7 +2058,7 @@ function viewStart() {
       ${ui.busy ? `<div class="live" id="live">${liveInner()}</div>` : ''}
       ${!ui.busy && ui.error ? statLine() : ''}
     </div>
-    <div class="startside">${ui.projekte && ui.projekte.length ? `<section class="startlist"><div class="side-head"><h3>Weitermachen</h3><button class="linkbtn" data-act="openprojpanel">Alle Projekte</button></div><div class="plist">${projectCards(ui.projekte.slice(0, 4))}</div></section>` : ''}
+    <div class="startside">${window.BildDesign ? BildDesign.einstieg() : ''}${ui.projekte && ui.projekte.length ? `<section class="startlist"><div class="side-head"><h3>Weitermachen</h3><button class="linkbtn" data-act="openprojpanel">Alle Projekte</button></div><div class="plist">${projectCards(ui.projekte.slice(0, 4))}</div></section>` : ''}
     <aside class="panel">
       <h3>KI-Server</h3>
       <p class="small muted" style="margin:2px 0 12px">Die App läuft in deinem Browser und spricht direkt mit deinem eigenen KI-Server.</p>
@@ -2303,7 +2307,9 @@ function viewResult() {
       <button class="btn" data-act="md">Als Markdown speichern</button>
       <button class="btn" data-act="print">Drucken / als PDF</button>
       <button class="btn ghost" data-act="result" ${ui.busy ? 'disabled' : ''}>Neu erstellen</button>
+      <button class="btn primary" data-act="openpraes" ${ui.busy ? 'disabled' : ''}>Präsentation daraus erstellen</button>
     </div>
+    ${window.Praes && Praes.hinweis ? Praes.hinweis() : ''}
     ${errorBox()}
     ${ui.busy ? `<div class="live" id="live" style="margin:0 0 18px">${liveInner()}</div>` : ''}
     ${!ui.busy && MODULE_ORDER.some(id => modDone(id) && S.module[id].updated > (S.ergebnisZeit || 0)) ? `<div class="m-next"><span>Du hast neue Vertiefungen erstellt, die noch nicht im Steckbrief stecken.</span><button class="btn primary tiny" data-act="result">Steckbrief aktualisieren</button></div>` : ''}
@@ -2836,8 +2842,8 @@ const IDB = {
   open() {
     if (this.db) return Promise.resolve(this.db);
     return new Promise((res, rej) => {
-      const r = indexedDB.open('projektkompass', 3);
-      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); if (!db.objectStoreNames.contains('designsysteme')) db.createObjectStore('designsysteme'); };
+      const r = indexedDB.open('projektkompass', 4);
+      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets'); if (!db.objectStoreNames.contains('projekte')) db.createObjectStore('projekte'); if (!db.objectStoreNames.contains('designsysteme')) db.createObjectStore('designsysteme'); if (!db.objectStoreNames.contains('praesentationen')) db.createObjectStore('praesentationen'); };
       r.onsuccess = () => { this.db = r.result; res(this.db); };
       r.onerror = () => rej(r.error);
     });
@@ -3360,6 +3366,8 @@ function viewDesign() {
   const D = designState(), f = FORMATE[D.format], web = !!f.web, sp = D.spec;
   const sp2 = sp && (sp.typ === 'web') === web ? sp : null;
   const b = D.briefing, t = D.texte;
+  /* Bild-Design (bildanalyse/ui.js): eigener Bereich neben dem Entwurf */
+  const bild = D.modus === 'bild' && !!window.BildDesign;
   const assetRow = (a, i) => `<div class="ds-asset">
       <div class="ds-thumb">${ui.assetURL[a.id] ? `<img src="${ui.assetURL[a.id]}" alt="">` : '<span>?</span>'}</div>
       <div class="ds-asset-f">
@@ -3368,7 +3376,7 @@ function viewDesign() {
         <button class="linkbtn" data-assetdel="${i}" aria-label="Entfernen">Entfernen</button></div>
         <textarea class="input" rows="2" data-d="assets.${i}.beschreibung" placeholder="${a.rolle === 'logo' ? 'Wessen Logo? z. B. Gemeindelogo, weiß auf transparent' : 'Was ist zu sehen? z. B. Kirche bei Nacht, warmes Licht'}">${esc(a.beschreibung)}</textarea>
       </div></div>`;
-  const panel = `<aside class="ds-panel">
+  const panel = bild ? BildDesign.panel() : `<aside class="ds-panel">
     ${web && sp2 ? viewSitePanel(D, sp2) : ''}
     ${web ? '' : `<details open><summary>Format</summary>
       <div class="ds-formats">${formatsFor().map(k => `<button class="ds-fmt ${D.format === k ? 'on' : ''}" data-fmt="${k}"><b>${FORMATE[k].name}</b><span>${FORMATE[k].info}</span></button>`).join('')}</div>
@@ -3417,7 +3425,8 @@ function viewDesign() {
     <button class="btn primary ds-go" data-act="dsgo" ${ui.busy ? 'disabled' : ''}>${sp2 ? 'Komplett neu gestalten' : 'Entwurf erstellen'}</button>
   </aside>`;
   let main;
-  if (ui.busy) main = `<div class="live" id="live">${liveInner()}</div>`;
+  if (bild) main = BildDesign.main();
+  else if (ui.busy) main = `<div class="live" id="live">${liveInner()}</div>`;
   else if (!sp2) main = `<div class="ds-empty">
       <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="28" y="12" width="64" height="92" rx="4" fill="var(--surface)" stroke="var(--line)" stroke-width="2"/><rect x="28" y="12" width="64" height="34" rx="4" fill="var(--accent)" opacity=".25"/><rect x="38" y="54" width="36" height="5" rx="2" fill="var(--accent)"/><rect x="38" y="65" width="44" height="3" rx="1.5" fill="var(--line)"/><rect x="38" y="72" width="38" height="3" rx="1.5" fill="var(--line)"/><rect x="38" y="88" width="24" height="7" rx="3.5" fill="var(--accent)"/></svg>
       <h2>${web ? 'Wie soll die Website aussehen?' : 'Wie soll dein ' + esc(f.name) + ' aussehen?'}</h2>
@@ -3441,9 +3450,10 @@ function viewDesign() {
         ${sp2.hinweise && sp2.hinweise.length ? `<h4 style="margin-top:12px">Für die Umsetzung</h4>${lst(sp2.hinweise)}` : ''}</div>
     </div>`;
   return `<section class="studio-page">
-    <div class="result-actions"><button class="btn" data-act="closedesign">${S.prevScreen === 'result' ? 'Zurück zum Steckbrief' : S.prevScreen === 'modul' ? 'Zurück' : 'Zurück zum Interview'}</button>
-      <span class="spacer"></span>${sp2 ? `<button class="btn" data-act="printdesign">${web ? 'Wireframe drucken / PDF' : 'Drucken / PDF in Originalgröße'}</button>` : ''}</div>
-    <header class="m-hero"><span class="m-icon">${DESIGN_ICON}</span><div><h1>Design-Studio</h1><p>Hier geht es ums Aussehen: Format, Layout, Bilder und Farben. Die Strategie bleibt im Steckbrief.</p></div></header>
+    <div class="result-actions"><button class="btn" data-act="closedesign">${S.prevScreen === 'result' ? 'Zurück zum Steckbrief' : S.prevScreen === 'modul' ? 'Zurück' : S.prevScreen === 'start' ? 'Zurück zur Startseite' : 'Zurück zum Interview'}</button>
+      <span class="spacer"></span>${sp2 && !bild ? `<button class="btn" data-act="printdesign">${web ? 'Wireframe drucken / PDF' : 'Drucken / PDF in Originalgröße'}</button>` : ''}</div>
+    <header class="m-hero"><span class="m-icon">${DESIGN_ICON}</span><div><h1>${bild ? 'Bild-Design' : 'Design-Studio'}</h1><p>${bild ? 'Text auf ein Foto setzen: Die App misst, wo das Bild ruhig ist, und baut daraus geprüfte Kompositionen.' : 'Hier geht es ums Aussehen: Format, Layout, Bilder und Farben. Die Strategie bleibt im Steckbrief.'}</p></div></header>
+    ${window.BildDesign ? BildDesign.umschalter() : ''}
     ${errorBox()}
     <div class="ds-grid">${panel}<div class="ds-main">${main}</div></div>
   </section>`;
@@ -4485,6 +4495,7 @@ $('#app').addEventListener('focusout', e => {
 $('#saveBtn').onclick = () => saveProject(false);
 $('#projBtn').onclick = () => openProjects();
 $('#praesBtn').onclick = () => { if (!ui.busy) openPraes(); };
+$('#bildBtn').onclick = () => { if (!ui.busy && window.BildDesign) BildDesign.open(); };
 $('#newBtn').onclick = async () => {
   if (!confirm('Neues Projekt beginnen? Das aktuelle wird vorher unter „Projekte“ gespeichert.')) return;
   const ok = !hasProject() || await saveProject(true);
@@ -4508,5 +4519,6 @@ loadAssets().then(() => { if (['design', 'result'].includes(S.screen)) render();
 loadProjectList().then(() => { if (S.screen === 'start') render(); });
 </script>
 <script type="module" src="praesentation/ui.js"></script>
+<script type="module" src="bildanalyse/ui.js"></script>
 </body>
 </html>

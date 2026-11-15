@@ -22,7 +22,7 @@ demo-corporate/
 | `assets/logos/logo-negative.svg` | `logo-negative` | SVG oder PNG, transparent, helle Farbe | 600 × 160 px (etwa 15:4) | Titelfolie oben links, Abschlussfolie oben Mitte |
 | `assets/logos/logo-icon.svg` | `logo-icon` | SVG oder PNG, quadratisch | 256 × 256 px | Oben rechts auf Inhalts-, Zwei-Spalten-, Kennzahlen-, Zeitstrahl- und Zitatfolien |
 | `assets/images/hero.svg` | `hero-image` | JPG oder PNG, Querformat 16:9 | 1920 × 1080 px | Vollbild-Folie (`image-full`), füllt die ganze Folie |
-| `assets/images/portrait.svg` | `portrait-image` | JPG oder PNG, Hochformat | 1280 × 1800 px | Bild-links-Folie (`image-left`), linke 40 % der Folie |
+| `assets/images/portrait.svg` | `portrait-image` | JPG oder PNG, Hochformat | 1280 × 1800 px | `image-left` (linke 40 % der Folie) und `image-right` (rechte 40 %) |
 | `assets/images/square.svg` | `square-image` | JPG oder PNG, Quadrat | 1200 × 1200 px | Wählbar für `image-left`, wird auf Hochformat beschnitten |
 
 Bilder werden immer so beschnitten, dass sie ihre Fläche füllen. Wichtige Motive gehören deshalb in die Bildmitte. Logos werden nie beschnitten, sondern in ihre Fläche eingepasst.
@@ -62,11 +62,15 @@ Layouts mit `"master": "inhalt"` übernehmen Kopfstrich, Fußzeile, Seitenzahl u
 |---|---|
 | `title` | Titelfolie |
 | `section` | Kapiteltrenner |
+| `statement` | Eine große Aussage auf dunklem Grund |
 | `content-bullets` | Überschrift und bis zu fünf Stichpunkte |
 | `two-column` | Zwei Spalten nebeneinander |
+| `cards` | Zwei oder drei Karten mit Titel und Satz |
 | `image-left` | Bild links, Text rechts |
+| `image-right` | Text links, Bild rechts |
 | `image-full` | Vollbild mit kurzer Aussage |
 | `kpi-grid` | Zwei bis vier Kennzahlen |
+| `big-number` | Eine einzelne Zahl riesig, daneben ihre Bedeutung |
 | `timeline` | Drei bis fünf Schritte |
 | `quote` | Zitat |
 | `closing` | Abschlussfolie |

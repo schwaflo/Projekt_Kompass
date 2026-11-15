@@ -3,6 +3,8 @@ import { loadPackage, fnSource } from '../praesentation/registry.js';
 import { validateSpec } from '../praesentation/spec.js';
 import { buildSlides } from '../praesentation/layout.js';
 import * as P from '../praesentation/pipeline.js';
+import { waehleLayouts, profil, rangliste } from '../praesentation/analyse.js';
+import { ordneInhaltZu } from '../praesentation/spec.js';
 
 const system = async id => (await loadPackage(fnSource({ readText: p => env.readText(`design-systems/${id}/${p}`) }), id)).system;
 const prompts = () => P.ladePrompts(env.readText);
@@ -12,20 +14,20 @@ function kiMit(antworten) {
   const ki = { anfragen: [], frage: async a => { ki.anfragen.push(a); const n = antworten.shift(); if (n === undefined) throw new Error('simulierte KI: keine Antwort mehr hinterlegt'); return typeof n === 'function' ? n(a) : n; } };
   return ki;
 }
-const BRIEFING = { schemaVersion: '1.0', thema: 'Neues Kundenportal', ziel: 'Freigabe für Phase 2', zielgruppe: 'Lenkungskreis', kernbotschaft: 'Das Portal entlastet den Service', anlass: 'Sitzung am 14. Mai', pflichtinhalte: 'Ergebnisse der Pilotphase', daten: '72 % nutzen das Portal monatlich; 31 % weniger Anrufe', cta: 'Freigabe erteilen', umfang: '5 Folien', folienzahl: 5, weiteres: [], annahmen: [] };
-const OUTLINE = { titel: 'Neues Kundenportal', storyline: 'Der Pilot lief gut. Jetzt braucht es die Freigabe.', folien: [
-  { layoutId: 'title', kernaussage: 'Das Kundenportal ist bereit für den nächsten Schritt.', inhalt: 'Titel, Anlass' },
-  { layoutId: 'kpi-grid', kernaussage: 'Die Pilotphase hat überzeugt.', inhalt: '72 %, 31 %' },
-  { layoutId: 'content-bullets', kernaussage: 'Das Portal löst die häufigsten Anliegen.', inhalt: 'Rechnungen, Adresse, Status' },
-  { layoutId: 'image-left', kernaussage: 'Das Team gewinnt Zeit.', inhalt: 'Beratung' },
-  { layoutId: 'closing', kernaussage: 'Wir bitten um die Freigabe.', inhalt: 'Freigabe erteilen' }
+const BRIEFING = { schemaVersion: '2.0', art: 'entscheidung', art_name: 'Entscheidungsvorlage', thema: 'Neues Kundenportal', ziel: 'Freigabe für Phase 2', zielgruppe: 'Lenkungskreis', kernbotschaft: 'Das Portal entlastet den Service', anlass: 'Sitzung am 14. Mai', pflichtinhalte: 'Ergebnisse der Pilotphase', daten: '72 % nutzen das Portal monatlich; 31 % weniger Anrufe', cta: 'Freigabe erteilen', umfang: '5 Folien', folienzahl: 5, weiteres: [], annahmen: [] };
+const OUTLINE = { titel: 'Neues Kundenportal', storyline: 'Der Pilot lief gut. Jetzt braucht es die Freigabe.', kernbotschaft: 'Das Portal entlastet den Service', folien: [
+  { abschnitt: 'Abschnitt', form: 'titel', betont: false, layoutId: 'title', kernaussage: 'Das Kundenportal ist bereit für den nächsten Schritt.', inhalt: 'Titel, Anlass' },
+  { abschnitt: 'Abschnitt', form: 'kennzahlen', betont: true, layoutId: 'kpi-grid', kernaussage: 'Die Pilotphase hat überzeugt.', inhalt: '72 %, 31 %' },
+  { abschnitt: 'Abschnitt', form: 'liste', betont: false, layoutId: 'content-bullets', kernaussage: 'Das Portal löst die häufigsten Anliegen.', inhalt: 'Rechnungen, Adresse, Status' },
+  { abschnitt: 'Abschnitt', form: 'bild', betont: false, layoutId: 'image-left', kernaussage: 'Das Team gewinnt Zeit.', inhalt: 'Beratung' },
+  { abschnitt: 'Abschnitt', form: 'abschluss', betont: false, layoutId: 'closing', kernaussage: 'Wir bitten um die Freigabe.', inhalt: 'Freigabe erteilen' }
 ] };
 const FOLIEN = [
   { inhalt: { title: 'Kundenportal: bereit für Phase 2', subtitle: 'Ergebnisse der Pilotphase', meta: 'Lenkungskreis · 14. Mai' }, notizen: 'Begrüßung.' },
   { inhalt: { title: 'Die Pilotphase hat überzeugt', kpis: [{ value: '72 %', label: 'nutzen das Portal monatlich' }, { value: '−31 %', label: 'weniger Anrufe' }] }, notizen: 'Zahlen erläutern.' },
   { inhalt: { title: 'Das Portal löst die häufigsten Anliegen', bullets: ['Rechnungen einsehen', 'Adresse ändern', 'Status verfolgen'] }, notizen: 'Beispiele nennen.' },
   { inhalt: { title: 'Das Team gewinnt Zeit für Beratung', bullets: ['Weniger Routineanfragen'], image: 'portrait' }, notizen: 'Stimmen aus dem Team.' },
-  { inhalt: { title: 'Vielen Dank', body: 'Wir bitten Sie um die Freigabe für Phase 2.' }, notizen: 'Beschluss festhalten.' }
+  { inhalt: { title: 'Vielen Dank', body: 'Wir bitten um die Freigabe für Phase 2.' }, notizen: 'Beschluss festhalten.' }
 ];
 
 /* ---------- Prompts ---------- */
@@ -40,72 +42,155 @@ test('Prompts: fehlender Wert fällt sofort auf', async () => {
   const p = await prompts();
   let fehler = '';
   try { P.fuelle(p.outline, { briefing: '{}' }); } catch (e) { fehler = e.message; }
-  assert(fehler.includes('{{layouts}}'), fehler);
+  assert(fehler.includes('{{art}}'), fehler);
   gleich(P.fuelle({ meta: {}, text: 'A {{x}} B {{x}}' }, { x: 1 }), 'A 1 B 1');
 });
 
+/* ---------- Präsentationsarten ---------- */
+test('Arten: jede Art hat Kernpunkte, Dramaturgie, Stil und nennt nur vorhandene Layouts', async () => {
+  const { arten } = await prompts(), sys = await system('demo-corporate'), typen = new Set(sys.layouts.map(l => l.typ));
+  gleich(arten.arten.map(a => a.id), ['pitch', 'entscheidung', 'bericht', 'wissen', 'vorstellung']);
+  arten.arten.forEach(a => {
+    assert(a.felder.some(f => f.prio === 'kern'), `${a.id}: kein Kernpunkt`);
+    a.felder.forEach(f => assert(['kern', 'hoch', 'mittel', 'auto'].includes(f.prio) && f.frage && f.label, `${a.id}.${f.id}`));
+    assert(a.dramaturgie.length >= 5 && a.stil.length > 40 && a.erkennen.length >= 3, a.id);
+    [...a.layouts.matchAll(/\(([a-z, -]+)\)/g)].flatMap(m => m[1].split(', ')).forEach(id => assert(typen.has(id), `${a.id}: Layout „${id}“ gibt es nicht`));
+  });
+  gleich(P.artNachWorten('Ich will meine Idee vor der Jury pitchen', arten), 'pitch');
+  gleich(P.artNachWorten('Quartalsbericht zum Stand des Projekts', arten), 'bericht');
+  gleich(P.artNachWorten('irgendwas', arten), 'vorstellung');
+});
+
 /* ---------- Briefing ---------- */
-test('Briefing: Start trägt Bekanntes ein und stellt die erste Frage', async () => {
-  const p = await prompts(), B = P.neuesBriefing('Präsentation zum Kundenportal für den Lenkungskreis');
-  const ki = kiMit([{ vorbefuellt: [{ feld: 'thema', wert: 'Kundenportal', status: 'bestaetigt' }, { feld: 'zielgruppe', wert: 'Lenkungskreis', status: 'bestaetigt' }, { feld: 'gibtsnicht', wert: 'x', status: 'annahme' }], erste_frage: { feld: 'ziel', frage: 'Was soll der Lenkungskreis am Ende entscheiden?', vorschlaege: ['Freigabe für Phase 2', 'Budget erhöhen'] } }]);
-  await P.briefingStart(ki, p, B, '{"projekt":"Portal"}');
-  gleich(B.felder.find(f => f.id === 'thema').wert, 'Kundenportal');
-  gleich(B.aktuell, { feld: 'ziel', frage: 'Was soll der Lenkungskreis am Ende entscheiden?', vorschlaege: ['Freigabe für Phase 2', 'Budget erhöhen'], nachfrage: false });
-  const a = ki.anfragen[0];
-  assert(a.prompt.includes('Kundenportal für den Lenkungskreis') && a.prompt.includes('{"projekt":"Portal"}') && a.prompt.includes('- kernbotschaft:'), 'Prompt unvollständig');
-  assert(!a.prompt.includes('{{') && !a.system.includes('{{') && a.schema === P.BRIEFING_START_SCHEMA && a.art === 'praes_briefing');
+const pitchBriefing = async () => { const p = await prompts(), B = P.neuesBriefing('Ideenpitch: besseres Besuchererlebnis im Eingangsbereich'); P.setzeArt(B, 'pitch', p.arten); return { p, B }; };
+const feld = (B, id) => B.felder.find(f => f.id === id);
+
+test('Briefing: Art wird erkannt, Punkte der Art, Schwerpunkte, Unwichtiges, erste Frage', async () => {
+  const p = await prompts(), B = P.neuesBriefing('Ich will im Team die Idee pitchen, den Besucherbereich neu zu gestalten. Heute stehen Gäste ratlos vor der Tür.');
+  const ki = kiMit([
+    { art: 'pitch', thema: 'Präsentation Besucherbereich neu' },
+    { vorbefuellt: [{ feld: 'problem', wert: 'Gäste stehen ratlos vor der Tür', status: 'bestaetigt' }, { feld: 'kernbotschaft', wert: 'Ein klarer Empfang macht aus Gästen Fans', status: 'annahme' }],
+      schwerpunkte: ['problem', 'nutzen'], unwichtig: ['belege'],
+      erste_frage: { feld: 'idee', frage: 'Wie sieht der neue Besucherbereich in einem Satz aus?', vorschlaege: ['Ein Empfangstresen mit Leitsystem', 'Ein digitaler Check-in'] } }
+  ]);
+  await P.briefingStart(ki, p, B, '');
+  gleich(B.art, 'pitch');
+  gleich(feld(B, 'thema').wert, 'Besucherbereich neu', 'das Wort „Präsentation“ fliegt raus');
+  ['problem', 'idee', 'bitte', 'nutzen', 'belege'].forEach(id => assert(feld(B, id), id + ' fehlt'));
+  assert(!feld(B, 'ziel') && !feld(B, 'daten'), 'keine Punkte anderer Arten');
+  assert(feld(B, 'problem').schwerpunkt && feld(B, 'nutzen').schwerpunkt);
+  gleich([feld(B, 'belege').status, feld(B, 'belege').unwichtig], ['uebersprungen', true]);
+  gleich([B.aktuell.feld, B.aktuell.art], ['idee', 'neu']);
+  const [a1, a2] = ki.anfragen;
+  gleich(a1.schema.properties.art.enum, ['pitch', 'entscheidung', 'bericht', 'wissen', 'vorstellung']);
+  assert(a2.prompt.includes('ART DER PRÄSENTATION: Pitch') && a2.prompt.includes('"idee" (Idee:') && !a2.prompt.includes('{{'));
+  gleich(a2.schema.properties.erste_frage.properties.feld.enum, ['problem', 'idee', 'bitte']);
+  assert(!a2.schema.properties.unwichtig.items.enum.includes('problem'), 'Kernpunkte können nicht weggelassen werden');
 });
 
-test('Briefing: Antwort einsortieren, Nebenbei-Angaben, Zusatzfeld, Folgefrage', () => {
-  const B = P.neuesBriefing(); B.aktuell = { feld: 'ziel', frage: 'Ziel?', vorschlaege: [] };
-  P.wendeRundeAn(B, { updates: [{ feld: 'ziel', wert: 'Freigabe für Phase 2', status: 'bestaetigt' }, { feld: 'anlass', wert: 'Sitzung am 14. Mai', status: 'annahme' }], antwort_vage: false, neue_felder: [{ id: 'Einwände', label: 'Erwartete Einwände', beschreibung: 'Welche Bedenken hat das Gremium?' }], naechste_frage: { feld: 'einwaende', frage: 'Welche Bedenken erwartest du?', vorschlaege: ['Kosten', 'Datenschutz', 'a', 'b', 'c'] } }, 'Die sollen Phase 2 freigeben');
-  gleich(B.felder.find(f => f.id === 'ziel').wert, 'Freigabe für Phase 2');
-  gleich(B.felder.find(f => f.id === 'anlass').status, 'annahme');
-  assert(B.felder.find(f => f.id === 'einwaende').zusatz);
-  gleich(B.aktuell.feld, 'einwaende'); gleich(B.aktuell.vorschlaege.length, 4);
+test('Briefing: abgeleitete Kernpunkte und angekündigte Zahlen werden trotzdem einmal gefragt', async () => {
+  const { p, B } = await pitchBriefing();
+  Object.assign(feld(B, 'problem'), { wert: 'Der Besucherbereich ist nicht optimal', status: 'bestaetigt', vorbefuellt: true });
+  Object.assign(feld(B, 'zielgruppe'), { wert: 'Team und Geschäftsleitung', status: 'bestaetigt', vorbefuellt: true });
+  Object.assign(feld(B, 'belege'), { wert: 'Es gibt aktuelle Zahlen zur Anzahl der Besucher', status: 'bestaetigt', vorbefuellt: true });
+  gleich(P.kandidaten(B), ['problem', 'idee', 'bitte'], 'Kernpunkte zuerst, auch der abgeleitete');
+  Object.assign(feld(B, 'idee'), { wert: 'Neuer Empfang', status: 'bestaetigt', gefragt: true }); Object.assign(feld(B, 'bitte'), { wert: '25.000 Euro', status: 'bestaetigt', gefragt: true });
+  gleich(P.kandidaten(B), ['problem', 'belege', 'nutzen'], 'die angekündigte Zahl kommt vor den übrigen Punkten, die Zielgruppe aus der Beschreibung genügt');
+  B.aktuell = { feld: 'belege', frage: 'Wie viele Besucher kommen?', vorschlaege: [], art: 'neu' };
+  const ki = kiMit([{ updates: [], antwort_vage: false, naechste_frage: { feld: 'problem', frage: '?', vorschlaege: [] } }]);
+  await P.briefingAntwort(ki, p, B, 'Etwa 1.200 Besucher pro Monat');
+  gleich([feld(B, 'belege').wert, feld(B, 'belege').gefragt], ['Etwa 1.200 Besucher pro Monat', true], 'die Antwort ersetzt die ungenaue Vorbefüllung');
+  assert(!P.kandidaten(B).includes('belege'), 'nur einmal');
 });
 
-test('Briefing: vage Antwort führt zur Nachfrage, Antwort der Person geht nie verloren', () => {
-  const B = P.neuesBriefing(); B.aktuell = { feld: 'zielgruppe', frage: 'Wer?', vorschlaege: [] };
-  P.wendeRundeAn(B, { updates: [{ feld: 'zielgruppe', wert: 'alle', status: 'bestaetigt' }], antwort_vage: true, neue_felder: [], naechste_frage: { feld: 'zielgruppe', frage: 'Wer genau sitzt im Raum?', vorschlaege: [] } }, 'alle');
-  gleich(B.felder.find(f => f.id === 'zielgruppe').wert, '', 'vage Antwort wird nicht eingetragen');
-  assert(B.aktuell.nachfrage && B.aktuell.feld === 'zielgruppe');
-  /* KI vergisst das Update und nennt ein unbekanntes Feld */
-  P.wendeRundeAn(B, { updates: [], antwort_vage: false, neue_felder: [], naechste_frage: { feld: 'quatsch', frage: '?', vorschlaege: [] } }, 'Der Lenkungskreis, acht Personen');
-  gleich(B.felder.find(f => f.id === 'zielgruppe').wert, 'Der Lenkungskreis, acht Personen');
-  assert(B.aktuell && B.felder.find(f => f.id === B.aktuell.feld).kern, 'Ersatzfrage zu einem offenen Kernfeld');
+test('Briefing: Erkennung ohne KI über Schlüsselwörter', async () => {
+  const p = await prompts(), B = P.neuesBriefing('Statusbericht für den Lenkungskreis');
+  const ki = kiMit([() => { throw new Error('nicht erreichbar'); }, { vorbefuellt: [], schwerpunkte: [], unwichtig: [], erste_frage: { feld: 'stand', frage: 'Wie steht es?', vorschlaege: [] } }]);
+  await P.briefingStart(ki, p, B, '');
+  gleich(B.art, 'bericht'); gleich(B.aktuell.feld, 'stand');
 });
 
-test('Briefing: „Weiß ich nicht“ → Annahme der KI; ohne Annahme wird das Feld zurückgestellt', async () => {
-  const p = await prompts(), B = P.neuesBriefing(); B.aktuell = { feld: 'zielgruppe', frage: 'Wer?', vorschlaege: [] };
-  const ki = kiMit([{ updates: [{ feld: 'zielgruppe', wert: 'Eltern der Grundschule', status: 'annahme' }], antwort_vage: true, neue_felder: [], naechste_frage: { feld: 'ziel', frage: 'Ziel?', vorschlaege: [] } }]);
+test('Briefing: Schwerpunkt wird einmal vertieft, Antworten werden ergänzt statt ersetzt', async () => {
+  const { p, B } = await pitchBriefing();
+  feld(B, 'problem').schwerpunkt = true; B.aktuell = { feld: 'problem', frage: 'Was ist das Problem?', vorschlaege: [], art: 'neu' };
+  const ki = kiMit([
+    { updates: [{ feld: 'problem', wert: 'Gäste finden den Empfang nicht', status: 'bestaetigt' }], antwort_vage: false, naechste_frage: { feld: 'problem', frage: 'Was passiert dann genau, wenn jemand den Empfang sucht?', vorschlaege: [] } },
+    { updates: [], antwort_vage: false, naechste_frage: { feld: 'idee', frage: 'Und deine Idee dafür?', vorschlaege: [] } }
+  ]);
+  await P.briefingAntwort(ki, p, B, 'Gäste finden den Empfang nicht');
+  gleich([B.aktuell.feld, B.aktuell.art], ['problem', 'vertiefung']);
+  assert(ki.anfragen[0].prompt.includes('Vertiefungsfrage') && ki.anfragen[0].schema.properties.naechste_frage.properties.feld.enum.includes('problem'));
+  await P.briefingAntwort(ki, p, B, 'Sie irren zehn Minuten durchs Foyer und rufen dann an');
+  gleich(feld(B, 'problem').wert, 'Gäste finden den Empfang nicht\nSie irren zehn Minuten durchs Foyer und rufen dann an');
+  assert(feld(B, 'problem').vertieft);
+  gleich([B.aktuell.feld, B.aktuell.art, B.gefragt], ['idee', 'neu', 2]);
+  assert(!ki.anfragen[1].prompt.includes('Vertiefungsfrage'), 'nur einmal vertiefen');
+});
+
+test('Briefing: höchstens eine Nachfrage je Punkt, danach wird die Antwort übernommen', async () => {
+  const { p, B } = await pitchBriefing();
+  B.aktuell = { feld: 'nutzen', frage: 'Was wird besser?', vorschlaege: [], art: 'neu' };
+  const vage = { updates: [], antwort_vage: true, naechste_frage: { feld: 'nutzen', frage: 'Woran würden Gäste den Unterschied merken?', vorschlaege: [] } };
+  const ki = kiMit([vage, vage]);
+  await P.briefingAntwort(ki, p, B, 'Es wird halt besser');
+  gleich([B.aktuell.feld, B.aktuell.art, feld(B, 'nutzen').wert], ['nutzen', 'nachfrage', '']);
+  await P.briefingAntwort(ki, p, B, 'Es gibt aktuelle Zahlen zu den Besuchern');
+  gleich(feld(B, 'nutzen').wert, 'Es gibt aktuelle Zahlen zu den Besuchern');
+  assert(B.aktuell.feld !== 'nutzen', 'nicht ein drittes Mal fragen');
+  assert(ki.anfragen[1].prompt.includes('immer false'));
+});
+
+test('Briefing: Fragenlimit – danach nur noch Kernpunkte, dann fertig', async () => {
+  const { p, B } = await pitchBriefing();
+  Object.assign(feld(B, 'problem'), { wert: 'x', status: 'bestaetigt' }); Object.assign(feld(B, 'idee'), { wert: 'y', status: 'bestaetigt' });
+  B.gefragt = B.max;
+  gleich(P.kandidaten(B), ['bitte']);
+  B.aktuell = { feld: 'bitte', frage: 'Was brauchst du?', vorschlaege: [], art: 'neu' };
+  await P.briefingAntwort(kiMit([{ updates: [], antwort_vage: false, naechste_frage: { feld: '', frage: '', vorschlaege: [] } }]), p, B, '800 Euro und zwei Samstage Hilfe');
+  gleich(B.aktuell, null);
+  assert(P.briefingFertig(B, p.arten).ok);
+});
+
+test('Briefing: Frage zu einem Punkt außerhalb des Auftrags wird nicht übernommen', async () => {
+  const { p, B } = await pitchBriefing();
+  B.aktuell = { feld: 'problem', frage: '?', vorschlaege: [], art: 'neu' };
+  await P.briefingAntwort(kiMit([{ updates: [], antwort_vage: false, naechste_frage: { feld: 'belege', frage: 'Wie lange wurde das schon getestet?', vorschlaege: [] } }]), p, B, 'Gäste finden den Eingang nicht');
+  gleich(B.aktuell.feld, 'idee', 'nächster Kernpunkt statt der mittleren Frage');
+});
+
+test('Briefing: „Weiß ich nicht“ → Annahme der KI; ohne Annahme wird der Punkt zurückgestellt', async () => {
+  const { p, B } = await pitchBriefing();
+  B.aktuell = { feld: 'zielgruppe', frage: 'Wer?', vorschlaege: [], art: 'neu' };
+  const ki = kiMit([{ updates: [{ feld: 'zielgruppe', wert: 'Die Geschäftsleitung', status: 'annahme' }], antwort_vage: true, naechste_frage: { feld: 'problem', frage: 'Was ist das Problem?', vorschlaege: [] } }]);
   await P.briefingAntwort(ki, p, B, 'Weiß ich nicht.', { annahme: true });
-  gleich([B.felder.find(f => f.id === 'zielgruppe').wert, B.felder.find(f => f.id === 'zielgruppe').status], ['Eltern der Grundschule', 'annahme']);
-  assert(ki.anfragen[0].prompt.includes('bittet dich um eine Annahme') && ki.anfragen[0].prompt.includes('„Zielgruppe“'));
-  gleich(B.aktuell.feld, 'ziel');
-  P.wendeRundeAn(B, { updates: [], antwort_vage: true, neue_felder: [], naechste_frage: { feld: 'ziel', frage: 'Ziel?', vorschlaege: [] } }, 'Weiß ich nicht.', { annahme: true });
-  gleich(B.felder.find(f => f.id === 'ziel').status, 'uebersprungen');
-  assert(B.aktuell.feld !== 'ziel', 'dieselbe Frage wird nicht endlos wiederholt');
+  gleich([feld(B, 'zielgruppe').wert, feld(B, 'zielgruppe').status], ['Die Geschäftsleitung', 'annahme']);
+  assert(ki.anfragen[0].prompt.includes('bittet dich um eine Annahme') && ki.anfragen[0].prompt.includes('„Publikum“'));
+  gleich(B.aktuell.feld, 'problem');
+  P.wendeRundeAn(B, { updates: [], antwort_vage: true, naechste_frage: { feld: 'problem', frage: '?', vorschlaege: [] } }, 'Weiß ich nicht.', { annahme: true });
+  gleich(feld(B, 'problem').status, 'uebersprungen');
+  assert(B.aktuell.feld !== 'problem', 'dieselbe Frage wird nicht wiederholt');
 });
 
-test('Briefing: höchstens drei Zusatzfelder, Bestätigtes bleibt', () => {
-  const B = P.neuesBriefing(); B.aktuell = { feld: 'ziel', frage: '?', vorschlaege: [] };
-  B.felder.find(f => f.id === 'thema').wert = 'Portal'; B.felder.find(f => f.id === 'thema').status = 'bestaetigt';
-  P.wendeRundeAn(B, { updates: [{ feld: 'thema', wert: 'Etwas anderes', status: 'annahme' }], antwort_vage: false, neue_felder: [1, 2, 3, 4, 5].map(i => ({ id: 'z' + i, label: 'Zusatz ' + i, beschreibung: 'x' })), naechste_frage: { feld: '', frage: '', vorschlaege: [] } }, 'Freigabe');
-  gleich(B.felder.filter(f => f.zusatz).length, 3);
-  gleich(B.felder.find(f => f.id === 'thema').wert, 'Portal');
+test('Briefing: Art wechseln behält passende Einträge', async () => {
+  const { p, B } = await pitchBriefing();
+  Object.assign(feld(B, 'zielgruppe'), { wert: 'Geschäftsleitung', status: 'bestaetigt' }); Object.assign(feld(B, 'problem'), { wert: 'x', status: 'bestaetigt' });
+  P.setzeArt(B, 'entscheidung', p.arten);
+  gleich(feld(B, 'zielgruppe').wert, 'Geschäftsleitung'); assert(!feld(B, 'problem') && feld(B, 'empfehlung'));
+  gleich(B.aktuell.feld, 'entscheidung');
 });
 
-test('Briefing: fertiges Briefing ist geprüftes JSON, fehlende Kernangaben werden benannt', () => {
-  const B = P.neuesBriefing();
-  let r = P.briefingFertig(B);
-  assert(!r.ok); meldet(r.errors, '„Kernbotschaft“ ist noch offen');
-  const setze = (id, wert, status = 'bestaetigt') => Object.assign(B.felder.find(f => f.id === id), { wert, status });
-  setze('thema', 'Portal'); setze('ziel', 'Freigabe'); setze('zielgruppe', 'Lenkungskreis', 'annahme'); setze('kernbotschaft', 'Entlastet den Service'); setze('umfang', 'etwa 20 Minuten');
-  B.aktuell = { feld: 'daten', frage: '?', vorschlaege: [] }; P.briefingUeberspringen(B);
-  r = P.briefingFertig(B);
+test('Briefing: fertiges Briefing ist flach, Kernpunkte werden verlangt, Folienzahl je Art', async () => {
+  const { p, B } = await pitchBriefing();
+  let r = P.briefingFertig(B, p.arten);
+  assert(!r.ok); meldet(r.errors, '„Problem“ ist noch offen');
+  const setze = (id, wert, status = 'bestaetigt') => Object.assign(feld(B, id), { wert, status });
+  setze('problem', 'Gäste finden den Empfang nicht'); setze('idee', 'Ein Leitsystem ab dem Parkplatz'); setze('bitte', '800 Euro', 'bestaetigt'); setze('zielgruppe', 'Geschäftsleitung', 'annahme');
+  B.aktuell = { feld: 'belege', frage: '?', vorschlaege: [], art: 'neu' }; P.briefingUeberspringen(B);
+  r = P.briefingFertig(B, p.arten);
   gleich(r.errors, []);
-  gleich(r.briefing.folienzahl, 10); gleich(r.briefing.daten, ''); gleich(r.briefing.annahmen, ['Zielgruppe: Lenkungskreis']);
+  gleich([r.briefing.art, r.briefing.art_name, r.briefing.problem, r.briefing.folienzahl, r.briefing.belege], ['pitch', 'Pitch', 'Gäste finden den Empfang nicht', 7, undefined]);
+  gleich(r.briefing.annahmen, ['Publikum: Geschäftsleitung']);
+  setze('umfang', 'etwa 20 Minuten'); gleich(P.briefingFertig(B, p.arten).briefing.folienzahl, 10);
 });
 
 test('Briefing: Folienzahl aus Folien, Minuten oder nichts', () => {
@@ -125,35 +210,37 @@ test('Designsystem: Vorschlag der KI, bei ungültiger Antwort Auswahl über Tags
 });
 
 /* ---------- Outline ---------- */
-test('Outline: KI bekommt nur die Layouts des Designsystems und die Formulierungsrichtlinien', async () => {
+test('Outline: KI wählt Formen, die das Designsystem darstellen kann; das Layout wählt die App', async () => {
   const p = await prompts(), sys = await system('demo-corporate'), ki = kiMit([OUTLINE]);
   const r = await P.erstelleOutline(ki, p, BRIEFING, sys);
   gleich(r.versuche, 1); gleich(r.outline.folien.length, 5);
-  const a = ki.anfragen[0];
-  gleich(a.schema.properties.folien.items.properties.layoutId.enum, sys.layouts.map(l => l.id));
-  sys.layouts.forEach(l => assert(a.prompt.includes(`- ${l.id} – ${l.beschreibung}`), `Layout ${l.id} fehlt im Prompt`));
+  const a = ki.anfragen[0], formen = a.schema.properties.folien.items.properties.form.enum;
+  gleich(formen, P.verfuegbareFormen(sys));
+  ['titel', 'kernsatz', 'zahl', 'kennzahlen', 'vergleich', 'ablauf', 'bild', 'abschluss'].forEach(f => assert(formen.includes(f), f));
+  assert(a.prompt.includes('- kernsatz – eine einzelne starke Aussage') && !a.prompt.includes('content-bullets'), 'Formen statt Layout-IDs im Prompt');
+  gleich(r.outline.folien.map(f => f.layoutId), ['title', 'kpi-grid', 'content-bullets', 'image-left', 'closing']);
   assert(a.system.includes('Das Publikum wird mit **Sie** angesprochen'), 'voice.md fehlt im System-Prompt');
   assert(a.system.includes('Höchstens 5 Stichpunkte pro Folie') && a.system.includes('Höchstens eine Zitatfolie'), 'Regeln fehlen');
   assert(!a.prompt.includes('{{') && !a.system.includes('{{'));
 });
 
-test('Outline: erfundenes Layout → Wiederholung mit Fehlerhinweis', async () => {
+test('Outline: erfundene Form → Wiederholung mit Fehlerhinweis', async () => {
   const p = await prompts(), sys = await system('demo-corporate');
-  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, layoutId: 'agenda' } : f) };
+  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, form: 'agenda' } : f) };
   const ki = kiMit([falsch, OUTLINE]);
   const r = await P.erstelleOutline(ki, p, BRIEFING, sys);
   gleich(r.versuche, 2); gleich(r.aenderungen, []);
   assert(ki.anfragen[1].prompt.startsWith(ki.anfragen[0].prompt), 'ursprünglicher Prompt bleibt erhalten');
-  assert(ki.anfragen[1].prompt.includes('KORREKTUR NÖTIG') && ki.anfragen[1].prompt.includes('„agenda“ ist nicht erlaubt') && ki.anfragen[1].prompt.includes('"layoutId":"agenda"'));
+  assert(ki.anfragen[1].prompt.includes('KORREKTUR NÖTIG') && ki.anfragen[1].prompt.includes('„agenda“ ist nicht erlaubt') && ki.anfragen[1].prompt.includes('"form":"agenda"'));
 });
 
 test('Outline: nach drei ungültigen Antworten wird ersetzt statt abgebrochen', async () => {
   const p = await prompts(), sys = await system('demo-hell');
-  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, layoutId: 'agenda' } : f) };
+  const falsch = { ...OUTLINE, folien: OUTLINE.folien.map((f, i) => i === 2 ? { ...f, form: 'agenda', layoutId: undefined } : f) };
   const ki = kiMit([falsch, falsch, falsch]);
   const r = await P.erstelleOutline(ki, p, BRIEFING, sys);
-  gleich(ki.anfragen.length, 3); gleich(r.outline.folien[2].layoutId, 'content-bullets');
-  meldet(r.aenderungen, 'Layout „agenda“ unbekannt');
+  gleich(ki.anfragen.length, 3); gleich([r.outline.folien[2].form, r.outline.folien[2].layoutId], ['liste', 'content-bullets']);
+  meldet(r.aenderungen, 'Form „agenda“ gibt es nicht');
 });
 
 /* ---------- Folien ---------- */
@@ -162,10 +249,10 @@ test('Folie: Antwortformat enthält nur Felder, Limits und Bild-IDs des Layouts'
   const s = P.folienSchema(sys.layout('image-left'), sys).properties.inhalt;
   gleich(Object.keys(s.properties).sort(), ['bullets', 'image', 'title']);
   gleich(s.properties.image.enum, ['hero', 'portrait', 'square']);
-  gleich(s.properties.title.maxLength, 60); gleich(s.properties.bullets.maxItems, 4); gleich(s.properties.bullets.items.maxLength, 90);
+  gleich([s.properties.title.maxLength, s.properties.bullets.items.maxLength], [undefined, undefined], 'keine Zeichenlimits im Schema, sonst schneidet der Server mitten im Wort ab'); gleich(s.properties.bullets.maxItems, 4);
   gleich(s.required, ['title', 'bullets']);
   const k = P.folienSchema(sys.layout('kpi-grid'), sys).properties.inhalt.properties.kpis;
-  gleich([k.minItems, k.maxItems, k.items.properties.value.maxLength, k.items.required], [2, 4, 9, ['value']]);
+  gleich([k.minItems, k.maxItems, k.items.required], [2, 4, ['value']]);
   assert(!('footer' in P.folienSchema(sys.layout('content-bullets'), sys).properties.inhalt.properties), 'Fußzeile füllt der Renderer');
 });
 
@@ -174,7 +261,7 @@ test('Folie: Prompt nennt Felder, Limits, Bilder und markiert die Folie in der G
   const r = await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 3, system: sys });
   gleich(r.versuche, 1); gleich(r.folie.layoutId, 'image-left'); gleich(r.folie.inhalt.image, 'portrait');
   const t = ki.anfragen[0].prompt;
-  assert(t.includes('► 4. [image-left] Das Team gewinnt Zeit.') && t.includes('  3. [content-bullets]'));
+  assert(t.includes('► 4. [bild] Das Team gewinnt Zeit.') && t.includes('  3. [liste]') && t.includes('Form: bild – '));
   assert(t.includes('- title (Text, Pflicht, höchstens 60 Zeichen)') && t.includes('höchstens 4 Punkte mit je höchstens 90 Zeichen'));
   assert(t.includes('- portrait: Bild im Hochformat') && !t.includes('assets/images'), 'Bilder nur per ID, ohne Dateipfad');
   assert(!t.includes('{{'));
@@ -220,17 +307,87 @@ test('Folie: erfundene Zahlen und Kontaktdaten → Wiederholung, danach Hinweis 
   const gut = await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 4, system: sys });
   gleich([gut.versuche, gut.pruefen], [2, []]);
   assert(ki.anfragen[1].prompt.includes('Erfinde keine Zahlen'));
-  const stur = await P.erstelleFolie(kiMit([erfunden, erfunden, erfunden]), p, { briefing: BRIEFING, outline: OUTLINE, index: 4, system: sys });
+  /* ohne Platzhalter, sonst würde das optionale Feld als wertlos entfernt */
+  const erfunden2 = { ...erfunden, inhalt: { ...erfunden.inhalt, body: 'Wir brauchen 4.800 Euro für den Umbau.' } };
+  const stur = await P.erstelleFolie(kiMit([erfunden2, erfunden2, erfunden2]), p, { briefing: BRIEFING, outline: OUTLINE, index: 4, system: sys });
   gleich(stur.folie.inhalt.contact, 'Hans Meier, hans.meier@example.org', 'Inhalt bleibt stehen');
   meldet(stur.pruefen, 'Folie 5, body: Die Zahl „4800“ steht nicht im Briefing. Bitte prüfen.');
   const neu = await P.erstelleFolie(kiMit([erfunden]), p, { briefing: BRIEFING, outline: OUTLINE, index: 4, system: sys }, { wunsch: 'Nenne 4.800 Euro und hans.meier@example.org' });
   gleich(neu.pruefen, [], 'Angaben aus dem Wunsch der Person gelten als bekannt');
 });
 
+test('Folie: Faktenprüfung ignoriert technische Angaben, Stichpunkte je Art begrenzt', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  const pitch = { ...BRIEFING, art: 'pitch', schemaVersion: '2.0', folienzahl: 20 };
+  const erfunden = { inhalt: { title: 'Das Portal löst die häufigsten Anliegen', bullets: ['+20 % weniger Anrufe'] }, notizen: '' };
+  const zuviele = { inhalt: { title: 'Das Portal löst die häufigsten Anliegen', bullets: ['Rechnungen', 'Adresse', 'Status', 'Termine'] }, notizen: '' };
+  const ki = kiMit([erfunden, zuviele, FOLIEN[2]]);
+  const r = await P.erstelleFolie(ki, p, { briefing: pitch, outline: OUTLINE, index: 2, system: sys });
+  gleich(r.versuche, 3);
+  assert(ki.anfragen[1].prompt.includes('Die Zahl „20“ steht nicht im Briefing'), '„2.0“ und die Folienzahl zählen nicht als Fakten');
+  assert(ki.anfragen[2].prompt.includes('höchstens 3. Schreibe weniger'));
+  gleich(ki.anfragen[0].schema.properties.inhalt.properties.bullets.maxItems, 3);
+  assert(ki.anfragen[0].prompt.includes('höchstens 3 Punkte'));
+});
+
+test('Folie: Zahlwörter zählen als genannt, Platzhalter für unbekannte Zahlen und erfundene Namen fliegen raus', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  const b = { ...BRIEFING, art: 'pitch', problem: 'Ein Kunde stand zwanzig Minuten im Flur.' };
+  gleich(P.pruefeFakten({ inhalt: { title: 'Ein Kunde wartet 20 Minuten' } }, sys.layout('title'), JSON.stringify(b)), [], '„zwanzig“ deckt „20“');
+  gleich(P.pruefeStil({ inhalt: { title: 'Weniger Warten', bullets: ['Wartezeiten reduziert um [Zahl] %'] } }, sys.layout('content-bullets')).length, 1);
+  gleich(P.pruefeStil({ inhalt: { title: 'Kundenportal', meta: 'Pitch für das neue Portal' } }, sys.layout('title')).length, 1, 'auch Nebenzeilen');
+  const ki = kiMit([{ inhalt: { title: 'Vielen Dank', body: 'Wir bitten um die Freigabe.', contact: 'Herr Müller, Projektleitung' }, notizen: '' }]);
+  const r = await P.erstelleFolie(ki, p, { briefing: b, outline: OUTLINE, index: 4, system: sys });
+  assert(!('contact' in r.folie.inhalt)); meldet(r.aenderungen, 'contact: entfernt');
+});
+
+test('Folie: Platzhalter werden aus Sätzen entfernt, Abschluss bekommt immer eine Handlungsaufforderung', async () => {
+  const p = await prompts(), sys = await system('demo-corporate'), b = { ...BRIEFING, art: 'pitch', bitte: 'Freigabe für 25.000 Euro und eine Projektgruppe.' };
+  let r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Starten wir jetzt', body: 'Wir bitten um die Freigabe von 25.000 Euro bis [Datum].' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 4, system: sys });
+  gleich(r.folie.inhalt.body, 'Wir bitten um die Freigabe von 25.000 Euro.');
+  r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Starten wir jetzt', body: '[Handlungsaufforderung]' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 4, system: sys });
+  gleich(r.folie.inhalt.body, 'Freigabe für 25.000 Euro und eine Projektgruppe.');
+  meldet(r.aenderungen, 'Handlungsaufforderung aus dem Briefing eingesetzt');
+  r = await P.erstelleFolie(kiMit([{ inhalt: { title: 'Neues Portal', subtitle: 'Für alle Kundinnen und Kunden', meta: '[Datum] | [Name] | Lenkungskreis' }, notizen: '' }]), p, { briefing: b, outline: OUTLINE, index: 0, system: sys });
+  gleich(r.folie.inhalt.meta, 'Lenkungskreis');
+});
+
 test('Folie neu generieren: bisheriger Inhalt und Wunsch stehen im Prompt', async () => {
   const p = await prompts(), sys = await system('demo-corporate'), ki = kiMit([FOLIEN[2]]);
   await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 2, system: sys }, { bisher: { title: 'Alt' }, wunsch: 'Bitte kürzer und mit Beispiel' });
   assert(ki.anfragen[0].prompt.includes('BISHERIGER INHALT DIESER FOLIE') && ki.anfragen[0].prompt.includes('"title":"Alt"') && ki.anfragen[0].prompt.includes('Bitte kürzer und mit Beispiel'));
+});
+
+/* ---------- Dramaturgie und Abwechslung ---------- */
+test('Outline: Dramaturgie, Stil und Layouthinweise der Art stehen im Prompt', async () => {
+  const p = await prompts(), sys = await system('demo-corporate'), ki = kiMit([OUTLINE]);
+  await P.erstelleOutline(ki, p, { ...BRIEFING, art: 'pitch' }, sys);
+  const t = ki.anfragen[0].prompt;
+  assert(t.includes('ART DER PRÄSENTATION: Pitch') && t.includes('1. Haken:') && t.includes('Pitch-Stil') && t.includes('- zahl – '));
+});
+
+test('Abwechslung: Titel und Abschluss, Bildseiten wechseln, keine Wiederholung, wenig Aufzählungen', async () => {
+  const sys = await system('demo-corporate'), typ = id => sys.layout(id).typ;
+  const roh = ['content-bullets', 'image-left', 'content-bullets', 'content-bullets', 'content-bullets', 'image-left', 'image-left', 'quote', 'quote', 'section', 'content-bullets', 'statement']
+    .map((layoutId, i) => ({ abschnitt: '', layoutId, kernaussage: 'K' + i, inhalt: '' }));
+  const f = P.abwechslung(roh, sys), t = f.map(x => typ(x.layoutId));
+  gleich([t[0], t[t.length - 1]], ['title', 'closing']);
+  for (let i = 1; i < t.length; i++) assert(t[i] !== t[i - 1], `Folie ${i + 1} wiederholt ${t[i]}: ${t.join(', ')}`);
+  gleich(t.filter(x => x.startsWith('image-left') || x === 'image-right').slice(0, 2), ['image-left', 'image-right']);
+  assert(t.filter(x => x === 'quote').length <= 1 && t.filter(x => x === 'content-bullets').length <= 4, t.join(', '));
+  gleich(f.map(x => x.kernaussage), roh.map(x => x.kernaussage), 'Inhalt und Reihenfolge bleiben');
+  gleich(P.abwechslung(OUTLINE.folien, sys).map(x => x.layoutId), OUTLINE.folien.map(x => x.layoutId), 'eine abwechslungsreiche Gliederung bleibt unverändert');
+});
+
+test('Folie: Überschrift über die Präsentation statt über die Sache → Wiederholung', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  gleich(P.pruefeStil({ inhalt: { title: 'Verbesserung des Besuchserlebnisses im Ideenpitch' } }, sys.layout('content-bullets')).length, 1);
+  gleich(P.pruefeStil({ inhalt: { title: 'Gäste finden den Empfang nicht', bullets: ['Die Präsentation der Ware leidet'] } }, sys.layout('content-bullets')), [], 'Text in Stichpunkten ist frei');
+  const ki = kiMit([{ inhalt: { title: 'Willkommen zur Präsentation', subtitle: 'x' }, notizen: '' }, FOLIEN[0]]);
+  const r = await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 0, system: sys });
+  gleich(r.versuche, 2); gleich(r.pruefen, []);
+  assert(ki.anfragen[1].prompt.includes('spricht über die Präsentation statt über die Sache'));
+  assert(ki.anfragen[0].prompt.includes('STIL: Sachlich, klar') && ki.anfragen[0].prompt.includes('Abschnitt der Dramaturgie: Abschnitt'));
 });
 
 /* ---------- Gesamter Lauf ---------- */
@@ -248,3 +405,148 @@ for (const id of ['demo-corporate', 'demo-hell']) {
     assert(ki.anfragen[1].system.includes(id === 'demo-hell' ? 'mit **Du** angesprochen' : 'mit **Sie** angesprochen'), 'Formulierungsrichtlinien des gewählten Systems');
   });
 }
+
+
+/* ---------- Layoutwahl nach Inhalt ---------- */
+test('Layoutwahl: Form bestimmt das Layout, betonte Aussagen bekommen kräftige Layouts, keine Wiederholung', async () => {
+  const sys = await system('demo-corporate'), typ = id => sys.layout(id).typ;
+  const w = waehleLayouts(['titel', 'kernsatz', 'zahl', 'vergleich', 'bausteine', 'ablauf', 'liste', 'liste', 'zitat', 'abschluss'].map(form => ({ form })), sys);
+  gleich(w.map(x => typ(x.layoutId)), ['title', 'statement', 'big-number', 'two-column', 'cards', 'timeline', 'content-bullets', 'image-left', 'quote', 'closing']);
+  /* Kennzahlen ohne Kachel-Layout fallen auf eine passende Alternative, nie auf ein Bildlayout */
+  const ohneBild = waehleLayouts([{ form: 'titel' }, { form: 'bild' }, { form: 'liste' }, { form: 'abschluss' }], sys, { bilder: false });
+  assert(!ohneBild.some(x => profil(sys.layout(x.layoutId), sys).bilder), 'ohne Fotos keine Bildlayouts');
+  /* Betonung: Kernsatz auf dem kräftigsten Layout */
+  gleich(typ(rangliste('kernsatz', true, sys)[0].id), 'statement');
+  assert(profil(sys.layout('statement'), sys).wucht > profil(sys.layout('content-bullets'), sys).wucht);
+});
+
+test('Layoutwahl: Bildseiten wechseln; mit Spiegeln auch bei nur einer Bildseite', async () => {
+  const sys = await system('demo-corporate');
+  const w = waehleLayouts([{ form: 'titel' }, { form: 'bild' }, { form: 'liste' }, { form: 'bild' }, { form: 'abschluss' }], sys);
+  gleich([w[1].layoutId, w[3].layoutId], ['image-left', 'image-right']);
+  /* System mit nur einem Bildlayout: zweites Bild wird gespiegelt, wenn erlaubt */
+  const weg = l => ['image-right', 'image-full'].includes(l.typ);
+  const nurLinks = { ...sys, layouts: sys.layouts.filter(l => !weg(l)), layout: id => sys.layouts.find(l => l.id === id && !weg(l)) || null };
+  const s = waehleLayouts([{ form: 'titel' }, { form: 'bild' }, { form: 'kernsatz' }, { form: 'bild' }, { form: 'abschluss' }], nurLinks, { spiegeln: true });
+  gleich([s[1].layoutId, s[3].layoutId, !!s[1].spiegeln, !!s[3].spiegeln], ['image-left', 'image-left', false, true]);
+});
+
+test('Inhalt wandert beim Layoutwechsel in verwandte Felder', async () => {
+  const sys = await system('demo-corporate');
+  gleich(ordneInhaltZu({ title: 'Wir halbieren die Wartezeit', bullets: ['a'] }, sys.layout('statement')).statement, 'Wir halbieren die Wartezeit');
+  gleich(ordneInhaltZu({ title: 'T', bullets: ['a', 'b'] }, sys.layout('two-column')).leftBullets, ['a', 'b']);
+  gleich(ordneInhaltZu({ title: 'T', cards: [{ title: 'Schnell', text: 'In zwei Minuten' }] }, sys.layout('content-bullets')).bullets, ['Schnell: In zwei Minuten']);
+});
+
+/* ---------- Layout anpassen ---------- */
+const FOLIE_BULLETS = { layoutId: 'content-bullets', form: 'liste', inhalt: { title: 'Das Portal löst die häufigsten Anliegen', bullets: ['Rechnungen einsehen', 'Adresse ändern'] } };
+test('Layout anpassen: Vorschläge außerhalb der Ränder, mit Überlappung oder kleinerer Schrift werden verworfen', async () => {
+  const sys = await system('demo-corporate'), l = sys.layout('content-bullets'), b = l.placeholders.find(p => p.id === 'bullets');
+  const r = P.pruefeAnpassung(FOLIE_BULLETS, sys, { aenderungen: [
+    { id: 'bullets', x: b.x, y: b.y + 2, w: b.w * 0.8, h: b.h - 2 },
+    { id: 'title', x: -5, y: 2, w: 50, h: 10 }
+  ], spiegeln: true });
+  assert(r.anpassung && r.anpassung.boxen.bullets && !r.anpassung.boxen.title, JSON.stringify(r));
+  assert(!r.anpassung.spiegeln, 'Spiegeln nur bei Bildlayouts');
+  meldet(r.meldungen, 'title: ragt über den Rand');
+  const t = l.placeholders.find(p => p.id === 'title');
+  const ueber = P.pruefeAnpassung(FOLIE_BULLETS, sys, { aenderungen: [{ id: 'bullets', x: t.x, y: t.y, w: t.w, h: 40 }], spiegeln: false });
+  assert(!ueber.anpassung, 'Liste über der Überschrift'); meldet(ueber.meldungen, 'überdecken');
+  const klein = P.pruefeAnpassung(FOLIE_BULLETS, sys, { aenderungen: [{ id: 'title', x: t.x, y: t.y, w: 12, h: 5 }], spiegeln: false });
+  assert(!klein.anpassung, 'Überschrift würde winzig'); meldet(klein.meldungen, 'kleiner oder abgeschnitten');
+  /* angewendet wird die Anpassung nur, wenn der Schalter an ist */
+  const f = { ...FOLIE_BULLETS, anpassung: r.anpassung };
+  const an = buildSlides({ titel: 'x', folien: [f] }, sys)[0].elemente.find(e => e.ph === 'bullets'), aus = buildSlides({ titel: 'x', folien: [f] }, sys, { anpassen: false })[0].elemente.find(e => e.ph === 'bullets');
+  assert(an.w < aus.w, 'Anpassung wirkt'); gleich(aus.w, b.w);
+});
+
+test('Layout anpassen: KI-Vorschlag wird geprüft übernommen, Spiegeln nur bei Bildfolien', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  const folie = { layoutId: 'image-left', form: 'bild', kernaussage: 'Das Team gewinnt Zeit', inhalt: { title: 'Das Team gewinnt Zeit', bullets: ['Weniger Routine'], image: 'portrait' } };
+  const ki = kiMit([a => { assert(a.prompt.includes('- image – Bild') && a.prompt.includes('- bullets – Stichpunkte') && a.art === 'praes_layout'); return { aenderungen: [], spiegeln: true, begruendung: 'Abwechslung zur vorherigen Bildfolie' }; }]);
+  const g = await P.gestalteFolie(ki, p, { folie, system: sys });
+  assert(g.anpassung && g.anpassung.spiegeln, JSON.stringify(g));
+  const m = buildSlides({ titel: 'x', folien: [{ ...folie, anpassung: g.anpassung }] }, sys)[0];
+  assert(m.elemente.find(e => e.art === 'bild' && !e.deko).x > 40, 'Bild steht jetzt rechts');
+});
+
+test('Gesamter Lauf mit Layout-Anpassung: zusätzlicher Aufruf je Folie, Fehler brechen nichts ab', async () => {
+  const p = await prompts(), sys = await system('demo-corporate'), schritte = [];
+  const ki = kiMit([OUTLINE, ...FOLIEN.map(f => JSON.parse(JSON.stringify(f))), ...FOLIEN.map((_, i) => i === 1 ? (() => { throw new Error('Zeitüberschreitung'); }) : { aenderungen: [], spiegeln: false, begruendung: '' })]);
+  const r = await P.erstellePraesentation(ki, p, BRIEFING, sys, { gestalten: true, fortschritt: s => schritte.push(s.schritt + s.nr) });
+  assert(r.ok, r.errors.join(' '));
+  gleich(schritte.filter(x => x.startsWith('gestalten')).length, 5);
+  meldet(r.protokoll, 'Folie 2: Layout konnte nicht angepasst werden');
+  gleich(r.spec.folien.map(f => f.form), ['titel', 'kennzahlen', 'liste', 'bild', 'abschluss']);
+  gleich(r.spec.folien[1].betont, true);
+});
+
+/* ---------- Start aus der Projektanalyse ---------- */
+test('Briefing aus einer Projektanalyse: Bestätigtes wird nicht noch einmal gefragt, höchstens vier Fragen', async () => {
+  const p = await prompts(), B = P.neuesBriefing('Projekt der Geschäftsleitung vorstellen und Budget bekommen');
+  const ki = kiMit([
+    { art: 'pitch', thema: 'Besucherbereich' },
+    { vorbefuellt: [{ feld: 'problem', wert: 'Gäste finden den Empfang nicht', status: 'bestaetigt' }, { feld: 'idee', wert: 'Ein Empfangstresen mit Leitsystem', status: 'bestaetigt' }, { feld: 'zielgruppe', wert: 'Besucherinnen und Besucher', status: 'bestaetigt' }, { feld: 'bitte', wert: 'Budget für den Umbau', status: 'bestaetigt' }],
+      schwerpunkte: ['nutzen'], unwichtig: [], erste_frage: { feld: 'problem', frage: 'Was ist das Problem?', vorschlaege: [] } }
+  ]);
+  await P.briefingStart(ki, p, B, '{"projekt":{"titel":"Besucherbereich"}}', { ausProjekt: true });
+  gleich(B.max, 4);
+  assert(feld(B, 'problem').gefragt && feld(B, 'idee').gefragt, 'aus der Analyse bestätigt');
+  assert(!P.kandidaten(B).includes('problem') && !P.kandidaten(B).includes('idee'));
+  gleich([feld(B, 'zielgruppe').wert, feld(B, 'zielgruppe').status], ['', 'leer'], 'die Zielgruppe des Projekts ist nicht das Publikum der Präsentation');
+  assert(feld(B, 'bitte').gefragt, 'die Bitte stand in der eigenen Beschreibung');
+  assert(P.kandidaten(B).includes('zielgruppe'), 'nach dem Publikum wird gefragt');
+  assert(B.aktuell.feld !== 'problem', 'die Frage der KI zu einem geklärten Punkt wird ersetzt');
+  assert(ki.anfragen[1].prompt.includes('"titel":"Besucherbereich"'), 'Projektkontext steht im Prompt');
+});
+
+/* ---------- Formulierungsrichtlinien ---------- */
+import * as R from '../praesentation/richtlinien.js';
+
+test('Richtlinien: prüfbare Regeln aus voice.md, bevorzugte Form zählt nicht als Verstoß', async () => {
+  const corp = await system('demo-corporate'), hell = await system('demo-hell');
+  const r = R.leseSprachregeln(corp.voice);
+  assert(r.verboten.includes('innovativ') && r.verboten.includes('zeitnah'), r.verboten.join(', '));
+  assert(r.ersetzen.some(e => e.statt === 'Kunden' && e.besser === 'Kundinnen und Kunden'));
+  gleich([r.anrede, R.leseSprachregeln(hell.voice).anrede], ['sie', 'du']);
+  gleich(R.pruefeSprache('Kundinnen und Kunden erledigen es selbst', r), []);
+  meldet(R.pruefeSprache('Kunden erledigen es selbst', r), 'heißt es „Kundinnen und Kunden“');
+  meldet(R.pruefeSprache('Eine innovative, zeitnah umgesetzte Lösung', r), '„zeitnah“');
+  meldet(R.pruefeSprache('Das spart dir Zeit', r), 'mit „Sie“');
+  meldet(R.pruefeSprache('Wir bitten Sie um die Freigabe', R.leseSprachregeln(hell.voice)), 'mit „du“');
+  gleich(R.pruefeSprache('Sie sparen Zeit. Wir zeigen wie.', { verboten: [], ersetzen: [], anrede: 'du' }).length, 0, '„Sie“ am Satzanfang kann auch „sie“ (Mehrzahl) sein');
+});
+
+test('Richtlinien: Folie mit verbotenem Wort wird nachgebessert', async () => {
+  const p = await prompts(), sys = await system('demo-corporate');
+  const ki = kiMit([{ inhalt: { title: 'Das Portal löst Anliegen zeitnah', bullets: ['Kunden sehen Rechnungen'] }, notizen: '' }, FOLIEN[2]]);
+  const r = await P.erstelleFolie(ki, p, { briefing: BRIEFING, outline: OUTLINE, index: 2, system: sys });
+  gleich(r.versuche, 2);
+  assert(ki.anfragen[1].prompt.includes('„zeitnah“ ist laut Formulierungsrichtlinien nicht erlaubt') && ki.anfragen[1].prompt.includes('heißt es „Kundinnen und Kunden“'));
+});
+
+test('Richtlinien: Teile zusammenführen und als voice.md einsetzen', async () => {
+  const p = await prompts(), datei = { name: 'Wording.pptx', abschnitte: Array.from({ length: 12 }, (_, i) => ({ titel: `Folie ${i + 1}`, text: 'Regel '.repeat(150) })) };
+  gleich(R.teile(datei.abschnitte, 2000).length, 6);
+  const ki = kiMit([
+    { tonalitaet: ['Klar und nahbar'], anrede: 'du', regeln: ['Aktiv formulieren', 'Überschriften ohne Punkt'], verboten: ['quasi, eigentlich'], ersetzen: [{ statt: 'Kunden', besser: 'Gäste' }], schreibweisen: ['nordlicht immer klein'], beispiele: [{ schlecht: 'Es wird umgesetzt', gut: 'Wir setzen um' }] },
+    () => { throw new Error('Zeitüberschreitung'); },
+    { tonalitaet: ['klar und nahbar'], anrede: 'du', regeln: ['aktiv formulieren.'], verboten: ['Gäste'], ersetzen: [{ statt: 'kunden', besser: 'Gäste' }], schreibweisen: [], beispiele: [] }
+  ]);
+  const r = await R.destilliere(ki, p, datei, { max: 4000 });
+  gleich(ki.anfragen.length, 3); gleich(ki.anfragen[0].art, 'praes_richtlinien');
+  assert(ki.anfragen[0].prompt.includes('Teil 1 von 3') && ki.anfragen[0].prompt.includes('### Folie 1'));
+  gleich(r.regeln.tonalitaet, ['Klar und nahbar'], 'Doppeltes fällt weg');
+  gleich(r.regeln.regeln, ['Aktiv formulieren', 'Überschriften ohne Punkt']);
+  gleich(r.regeln.verboten, ['quasi', 'eigentlich'], 'ein bevorzugter Begriff ist nie verboten');
+  gleich([r.regeln.anrede, r.regeln.ersetzen.length, r.fehler.length], ['du', 1, 1]);
+  const alt = '# Formulierungsrichtlinien\n\n## Anrede\n\n- Das Publikum wird mit **Sie** angesprochen.\n\n## Bevorzugte Begriffe\n\n| Statt | Lieber |\n|---|---|\n| Kunden | Kundinnen und Kunden |\n\n## Eigenes\n\n- Keine Ausrufezeichen\n';
+  const v1 = R.setzeEin(alt, R.voiceAbschnitt(r.regeln, 'Wording.pptx'), 'Formulierungsrichtlinien: Nordlicht');
+  const sr = R.leseSprachregeln(v1);
+  gleich([sr.anrede, sr.verboten, sr.ersetzen], ['du', ['quasi', 'eigentlich'], [{ statt: 'Kunden', besser: 'Gäste' }]]);
+  assert(v1.includes('## Weitere Richtlinien') && v1.includes('Keine Ausrufezeichen') && v1.includes('Nicht: „Es wird umgesetzt“'));
+  assert(!v1.includes('**Sie**') && !v1.includes('Kundinnen und Kunden'), 'widersprechende alte Abschnitte fallen weg');
+  const v2 = R.setzeEin(v1, R.voiceAbschnitt({ ...r.regeln, verboten: ['zeitnah'] }, 'Neu.pptx'), 'Formulierungsrichtlinien: Nordlicht');
+  gleich(R.leseSprachregeln(v2).verboten, ['zeitnah'], 'ein neuer Import ersetzt den alten');
+  assert((v2.match(/aus-richtlinien:/g) || []).length === 1 && v2.includes('Keine Ausrufezeichen'));
+});

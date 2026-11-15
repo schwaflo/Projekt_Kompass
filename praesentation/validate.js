@@ -78,6 +78,9 @@ export function findAsset(manifest, ref) {
   return a.find(x => x.id === ref) || a.find(x => x.role === ref) || a.find(x => (x.tags || []).includes(ref)) || null;
 }
 
+/* Farbe: Name aus tokens.colors oder direkt #RRGGBB */
+export const farbeVon = (C, f) => C[f] || (/^#[0-9a-fA-F]{6}$/.test(f || '') ? f : null);
+
 const sizePt = (manifest, size) => typeof size === 'number' ? size : manifest.tokens.typography.sizes[size];
 
 /* Vollständige Prüfung eines Designsystems.
@@ -124,7 +127,7 @@ export function validateDesignSystem(manifest, opts = {}) {
     r.placeholders.forEach(ph => { if (ids.has(ph.id)) E(`${p}: Die Platzhalter-ID „${ph.id}“ kommt mehrfach vor.`); ids.add(ph.id); });
     /* Lesbarkeit: Textfarbe gegen den Untergrund */
     r.placeholders.filter(ph => ['text', 'bullets'].includes(ph.typ)).forEach(ph => {
-      const fg = C[(ph.style || {}).color || 'text'], bg = C[ph.on || r.background];
+      const fg = farbeVon(C, (ph.style || {}).color || 'text'), bg = farbeVon(C, ph.on || r.background);
       if (!fg || !bg) return;
       const pt = sizePt(m, (ph.style || {}).size || 'body') || 18, k = kontrast(fg, bg), soll = pt >= 18 ? 3 : 4.5;
       if (k < soll) W(`${p}.${ph.id}: Textfarbe „${(ph.style || {}).color || 'text'}“ auf „${ph.on || r.background}“ hat Kontrast ${k.toFixed(1)}:1, empfohlen sind mindestens ${soll}:1.`);
@@ -132,23 +135,32 @@ export function validateDesignSystem(manifest, opts = {}) {
   });
 
   function pruefeFlaeche(f, p) {
-    if (f.background && !C[f.background]) E(`${p}.background: Die Farbe „${f.background}“ gibt es in tokens.colors nicht.`);
-    (f.deko || []).forEach((d, j) => { if (!C[d.fill]) E(`${p}.deko[${j}].fill: Die Farbe „${d.fill}“ gibt es in tokens.colors nicht.`); });
+    if (f.background && !farbeVon(C, f.background)) E(`${p}.background: Die Farbe „${f.background}“ gibt es in tokens.colors nicht.`);
+    (f.deko || []).forEach((d, j) => {
+      const q = `${p}.deko[${j}]`;
+      ['fill', 'stroke'].forEach(k => { if (d[k] !== undefined && !farbeVon(C, d[k])) E(`${q}.${k}: Die Farbe „${d[k]}“ gibt es in tokens.colors nicht.`); });
+      if (['rect', 'ellipse', 'preset', 'pfad'].includes(d.shape) && d.fill === undefined && d.stroke === undefined) E(`${q}: Formen brauchen „fill“ oder „stroke“.`);
+      if (d.shape === 'line' && d.stroke === undefined && d.fill === undefined) E(`${q}: Linien brauchen „stroke“.`);
+      if (d.shape === 'image' && !(d.asset && findAsset(m, d.asset))) E(`${q}.asset: Es gibt kein Asset mit der ID oder Rolle „${d.asset}“.`);
+      if (d.shape === 'text' && (typeof d.text !== 'string' || !d.style)) E(`${q}: Feste Texte brauchen „text“ und „style“.`);
+      if (d.shape === 'text' && d.style && d.style.color && !farbeVon(C, d.style.color)) E(`${q}.style.color: Die Farbe „${d.style.color}“ gibt es in tokens.colors nicht.`);
+    });
     (f.placeholders || []).forEach(ph => {
       const q = `${p}.${ph.id}`, st = ph.style || {};
       if (ph.x < 0 || ph.y < 0 || ph.x + ph.w > 100.01 || ph.y + ph.h > 100.01) E(`${q}: Der Platzhalter ragt über die Folie hinaus (x ${ph.x} + w ${ph.w}, y ${ph.y} + h ${ph.h}; alles in Prozent, höchstens 100).`);
       if (ph.w <= 0 || ph.h <= 0) E(`${q}: Breite und Höhe müssen größer als 0 sein.`);
-      if (st.color && !C[st.color]) E(`${q}.style.color: Die Farbe „${st.color}“ gibt es in tokens.colors nicht.`);
-      if (ph.on && !C[ph.on]) E(`${q}.on: Die Farbe „${ph.on}“ gibt es in tokens.colors nicht.`);
+      if (st.color && !farbeVon(C, st.color)) E(`${q}.style.color: Die Farbe „${st.color}“ gibt es in tokens.colors nicht.`);
+      if (ph.on && !farbeVon(C, ph.on)) E(`${q}.on: Die Farbe „${ph.on}“ gibt es in tokens.colors nicht.`);
       if (typeof st.size === 'string' && sizes[st.size] === undefined) E(`${q}.style.size: Die Größe „${st.size}“ gibt es in tokens.typography.sizes nicht. Vorhanden: ${Object.keys(sizes).join(', ')}.`);
       if (ph.typ === 'text' && !ph.auto && !ph.maxChars) E(`${q}: Textplatzhalter brauchen „maxChars“, damit kein Text überläuft.`);
       if (ph.typ === 'bullets' && !(ph.maxItems && ph.maxCharsPerItem)) E(`${q}: Aufzählungen brauchen „maxItems“ und „maxCharsPerItem“.`);
       if (ph.typ === 'items') {
         if (!ph.felder) E(`${q}: Platzhalter vom Typ „items“ brauchen „felder“ (zum Beispiel value und label).`);
         if (!ph.maxItems) E(`${q}: Platzhalter vom Typ „items“ brauchen „maxItems“.`);
+        if (ph.variante === 'frei' && (!Array.isArray(ph.zellen) || ph.zellen.length < (ph.maxItems || 1))) E(`${q}: Bei variante „frei“ braucht jede Kachel eine Zelle unter „zellen“ (maxItems ${ph.maxItems}, Zellen ${(ph.zellen || []).length}).`);
         (ph.felder || []).forEach(fd => {
           const fs = fd.style || {};
-          if (fs.color && !C[fs.color]) E(`${q}.felder.${fd.id}.style.color: Die Farbe „${fs.color}“ gibt es in tokens.colors nicht.`);
+          if (fs.color && !farbeVon(C, fs.color)) E(`${q}.felder.${fd.id}.style.color: Die Farbe „${fs.color}“ gibt es in tokens.colors nicht.`);
           if (typeof fs.size === 'string' && sizes[fs.size] === undefined) E(`${q}.felder.${fd.id}.style.size: Die Größe „${fs.size}“ gibt es in tokens.typography.sizes nicht.`);
         });
       }

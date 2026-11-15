@@ -62,7 +62,7 @@ Mögliche Werte für `anbieter`: `ollama`, `lmstudio`, `openai`. Einen Schlüsse
 
 ## Veröffentlichen auf GitHub Pages
 
-1. Neues Repository anlegen und den gesamten Inhalt dieses Ordners hochladen. Die App selbst ist `index.html`; der Präsentationsgenerator braucht zusätzlich die Ordner `praesentation/`, `prompts/`, `design-systems/`, `examples/` und `vendor/`.
+1. Neues Repository anlegen und den gesamten Inhalt dieses Ordners hochladen. Die App selbst ist `index.html`; der Präsentationsgenerator braucht zusätzlich die Ordner `praesentation/`, `prompts/`, `design-systems/`, `examples/` und `vendor/`, das Bild-Design im Design-Studio den Ordner `bildanalyse/`.
 2. **Settings → Pages**: unter „Build and deployment“ als Quelle „Deploy from a branch“, Branch `main`, Ordner `/ (root)` wählen.
 3. Nach ein, zwei Minuten ist die Seite unter `https://<dein-name>.github.io/<repo-name>/` erreichbar.
 
@@ -108,6 +108,20 @@ Die KI liefert nur Inhalt und Struktur. Farben, Schriften, Layouts und Logos kom
 ### Tests
 
 `http://localhost:8765/tests/` öffnen, oder ohne Browser `node tests/run.mjs`.
+
+## Bild-Design
+
+Über **Bild-Design** in der Kopfzeile oder auf der Startseite, ohne Projektanalyse. In einem laufenden Projekt liegt derselbe Bereich im Design-Studio neben dem Entwurf:
+
+1. **Bild** hochladen und **Raster** wählen (2 × 2, 4 × 2, 4 × 4 oder eigene).
+2. **Bild analysieren:** Die App misst je Kachel dominante Farben, Helligkeit, Kontrast, Schärfe und Freiraum für Text. Ein Vision-Modell beschreibt das Gesamtbild und jede Kachel.
+3. **Debug-Vorschau** ansehen: Raster über dem Bild, Freiraum für Text grün, unscharfe Bereiche rot.
+4. **Design-Vorschlag:** Die App sucht zusammenhängende ruhige Flächen und setzt Headline, Subline und CTA als einen Block mit fester Hierarchie hinein, mit geprüftem Kontrast und Abstand zu Rand und Motiv. Layout-Regeln zum Durchklicken: Automatisch, Drittel, Goldener Schnitt, Viertel und als Regelbruch Überlappen und Übergroß. Ein zweites Modell wählt auf Wunsch zwischen den Varianten und begründet die Wahl.
+5. **Skizzen:** Das Vision-Modell sieht das Foto und entwirft frei; die App setzt das Ergebnis sauber (Texte im Bild, ohne Überdeckung, nicht auf dem Motiv, lesbar). Daneben liegen Grundskizzen aus dem Baukasten. Das Modell sieht sich jede fertige Skizze an, beurteilt sie und überarbeitet die besten anhand der Kritik. Ein freier Entwurf lässt sich von Hand verschieben und anpassen.
+6. **Stil:** Farbwelt (Farbwähler, per Beschreibung oder aus der Projektanalyse), Farbflächen über dem Bild (Band, Sockel, Diagonale, Farbton), Schmuckelemente (Linien, Rahmen, Eckmarken, Akzente) und ein gestapeltes Datum, jeweils an- und abwählbar und anpassbar.
+7. Als JSON, PNG oder HTML speichern oder, in einem Projekt, **in den Flyer übernehmen**.
+
+Die Modelle wählst du im Bereich „Modelle“, alle Schwellwerte unter „Schwellwerte“. Einzelheiten, das JSON-Format und die Regeln stehen in [docs/bildanalyse.md](docs/bildanalyse.md).
 
 ## Gut zu wissen
 

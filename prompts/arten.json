@@ -1,0 +1,385 @@
+{
+  "name": "arten",
+  "version": 3,
+  "zweck": "Präsentationsarten: woran man sie erkennt, was im Briefing gefragt wird, Dramaturgie, Stil und passende Layouts. Wird in briefing-art, briefing-start, briefing-runde, outline und folie eingesetzt.",
+  "erklaerung": {
+    "prio": "kern = muss geklärt sein, wird auch nach dem Fragenlimit noch gefragt. hoch = wird gefragt. mittel = wird nur gefragt, wenn das Fragenlimit es zulässt. auto = wird nie gefragt; die KI leitet es ab oder die Person trägt es selbst ein.",
+    "fragenMax": "Höchstzahl der Fragen im Briefing, Nachfragen und Vertiefungen eingeschlossen.",
+    "tief": "tief = dieser Punkt kann ein Schwerpunkt werden und wird dann einmal vertieft (Beispiel, Szene, Zahl).",
+    "vorbefuellt": "Kernpunkte werden im Gespräch immer einmal geklärt, auch wenn die KI sie aus der Beschreibung ableiten konnte. Sagt die Person, dass es Zahlen gibt, nennt aber keine, wird nach der Zahl gefragt.",
+    "maxPunkte": "Höchstzahl der Stichpunkte je Liste für diese Art, zusätzlich zur Grenze des Layouts."
+  },
+  "fragenMax": 6,
+  "gemeinsam": [
+    {
+      "id": "thema",
+      "label": "Thema",
+      "prio": "auto",
+      "frage": "Worum geht es, als kurzer Arbeitstitel?"
+    },
+    {
+      "id": "kernbotschaft",
+      "label": "Kernbotschaft",
+      "prio": "auto",
+      "frage": "Der eine Satz, der beim Publikum hängen bleiben soll."
+    },
+    {
+      "id": "umfang",
+      "label": "Umfang",
+      "prio": "auto",
+      "frage": "Wie lang soll die Präsentation sein: Minuten oder Folien?"
+    }
+  ],
+  "arten": [
+    {
+      "id": "pitch",
+      "name": "Pitch",
+      "kurz": "Eine Idee, ein Projekt oder ein Produkt so vorstellen, dass das Publikum zustimmt, Geld gibt oder mitmacht.",
+      "erkennen": [
+        "pitch",
+        "idee",
+        "überzeug",
+        "investor",
+        "förder",
+        "gewinnen",
+        "vorschlag",
+        "startup",
+        "wettbewerb",
+        "jury",
+        "begeistern"
+      ],
+      "folien": 7,
+      "felder": [
+        {
+          "id": "problem",
+          "label": "Problem",
+          "prio": "kern",
+          "frage": "Welches Problem löst die Idee, für wen, und woran merkt man es heute im Alltag?",
+          "tief": true
+        },
+        {
+          "id": "idee",
+          "label": "Idee",
+          "prio": "kern",
+          "frage": "Was ist die Idee in einem Satz, und was ist daran neu oder anders?",
+          "tief": true
+        },
+        {
+          "id": "zielgruppe",
+          "label": "Publikum",
+          "prio": "hoch",
+          "frage": "Wer hört zu und entscheidet, was ist diesen Menschen wichtig, und was könnten sie einwenden?"
+        },
+        {
+          "id": "nutzen",
+          "label": "Nutzen",
+          "prio": "hoch",
+          "frage": "Was wird durch die Idee spürbar besser, und für wen?",
+          "tief": true
+        },
+        {
+          "id": "bitte",
+          "label": "Bitte ans Publikum",
+          "prio": "kern",
+          "frage": "Was soll das Publikum am Ende konkret geben oder entscheiden: Geld, Freigabe, Zeit, Unterstützung?"
+        },
+        {
+          "id": "belege",
+          "label": "Belege",
+          "prio": "mittel",
+          "frage": "Was macht die Idee glaubwürdig: Zahlen zur Größe des Problems, Rückmeldungen, Vorbilder anderswo? Bei einer neuen Idee nie nach Tests oder Ergebnissen fragen, die es noch nicht geben kann."
+        },
+        {
+          "id": "umsetzung",
+          "label": "Umsetzung",
+          "prio": "mittel",
+          "frage": "Wie würde die Umsetzung grob aussehen: erste Schritte, Zeitraum, wer macht mit?"
+        }
+      ],
+      "dramaturgie": [
+        "Haken: eine überraschende Zahl, eine Szene aus dem Alltag oder eine zugespitzte Frage",
+        "Das Problem: konkret, für wen, woran man es heute merkt",
+        "Die Idee in einem Satz",
+        "So funktioniert es: drei Bausteine",
+        "Vorher und nachher: was sich ändert",
+        "Warum es klappt: Belege, Vorbilder oder erste Rückmeldungen",
+        "Abschluss: die Bitte, konkret (Betrag, Entscheidung, Termin), verbunden mit dem Bild, wie es aussieht, wenn es umgesetzt ist"
+      ],
+      "stil": "Pitch-Stil: kurz, bildhaft, selbstbewusst. Überschriften sind zugespitzte Behauptungen mit höchstens 7 Wörtern, die neugierig machen. Konkrete Szenen und Zahlen statt Abstraktionen. Wenig Text pro Folie: lieber eine starke Aussage als vier schwache Punkte. Die Abschlussfolie stellt die Bitte, nicht „Vielen Dank“.",
+      "layouts": "Bevorzugt eine große Aussage (statement) oder eine große Zahl (big-number) für Haken und Kernidee, Karten (cards) für die drei Bausteine, große Bilder (image-full, image-left, image-right) und Gegenüberstellungen (two-column) für vorher und nachher. Aufzählungen (content-bullets) höchstens einmal.",
+      "maxPunkte": 3
+    },
+    {
+      "id": "entscheidung",
+      "name": "Entscheidungsvorlage",
+      "kurz": "Ein Gremium soll zwischen Möglichkeiten wählen oder etwas freigeben.",
+      "erkennen": [
+        "entscheid",
+        "freigabe",
+        "beschluss",
+        "genehmig",
+        "vorstand",
+        "gremium",
+        "option",
+        "budget",
+        "abstimm"
+      ],
+      "folien": 7,
+      "felder": [
+        {
+          "id": "entscheidung",
+          "label": "Entscheidung",
+          "prio": "kern",
+          "frage": "Was genau soll entschieden werden, und bis wann?"
+        },
+        {
+          "id": "empfehlung",
+          "label": "Empfehlung",
+          "prio": "kern",
+          "frage": "Welche Lösung empfiehlst du, und was ist der stärkste Grund dafür?",
+          "tief": true
+        },
+        {
+          "id": "optionen",
+          "label": "Optionen",
+          "prio": "hoch",
+          "frage": "Welche anderen Möglichkeiten gibt es, auch „nichts tun“, und warum sind sie schwächer?",
+          "tief": true
+        },
+        {
+          "id": "zielgruppe",
+          "label": "Gremium",
+          "prio": "hoch",
+          "frage": "Wer entscheidet, und worauf achten diese Menschen besonders: Kosten, Risiko, Tempo, Außenwirkung?"
+        },
+        {
+          "id": "folgen",
+          "label": "Kosten und Risiken",
+          "prio": "mittel",
+          "frage": "Was kostet die Empfehlung, welche Risiken gibt es, und was passiert, wenn nicht entschieden wird?"
+        },
+        {
+          "id": "daten",
+          "label": "Zahlen",
+          "prio": "mittel",
+          "frage": "Welche Zahlen stützen den Vergleich der Möglichkeiten?"
+        }
+      ],
+      "dramaturgie": [
+        "Die Entscheidung, um die es heute geht",
+        "Warum jetzt: die Ausgangslage, möglichst in einer Zahl",
+        "Die Möglichkeiten im Vergleich",
+        "Die Empfehlung, klar und eindeutig",
+        "Was die Empfehlung bringt und was sie kostet",
+        "Risiken und wie man ihnen begegnet",
+        "Der Beschluss, um den gebeten wird"
+      ],
+      "stil": "Sachlich, klar, auf den Punkt. Die Empfehlung steht früh und eindeutig da. Überschriften sind Aussagen, die man ohne Vortrag versteht. Zahlen mit Einheit und Bezug. Keine Werbesprache.",
+      "layouts": "Gegenüberstellungen (two-column) und Karten (cards) für die Möglichkeiten, eine große Zahl (big-number) für die entscheidende Kennzahl, Kennzahlen (kpi-grid) für den Vergleich, eine große Aussage (statement) für die Empfehlung, Zeitstrahl (timeline) für die Umsetzung.",
+      "maxPunkte": 4
+    },
+    {
+      "id": "bericht",
+      "name": "Bericht",
+      "kurz": "Stand, Fortschritt oder Ergebnisse eines Projekts berichten.",
+      "erkennen": [
+        "bericht",
+        "status",
+        "stand",
+        "update",
+        "fortschritt",
+        "ergebnis",
+        "quartal",
+        "rückblick",
+        "jahres",
+        "review"
+      ],
+      "folien": 7,
+      "felder": [
+        {
+          "id": "stand",
+          "label": "Gesamtstand",
+          "prio": "kern",
+          "frage": "Wie steht das Vorhaben insgesamt: im Plan, verzögert oder kritisch, und warum?"
+        },
+        {
+          "id": "ergebnisse",
+          "label": "Ergebnisse",
+          "prio": "kern",
+          "frage": "Was ist seit dem letzten Bericht erreicht worden?",
+          "tief": true
+        },
+        {
+          "id": "zahlen",
+          "label": "Zahlen",
+          "prio": "hoch",
+          "frage": "Welche Zahlen zeigen den Fortschritt, am besten mit Vergleich zum Plan oder zum Vorjahr?"
+        },
+        {
+          "id": "probleme",
+          "label": "Schwierigkeiten",
+          "prio": "hoch",
+          "frage": "Wo hakt es, und was würde helfen?",
+          "tief": true
+        },
+        {
+          "id": "naechste_schritte",
+          "label": "Nächste Schritte",
+          "prio": "hoch",
+          "frage": "Was passiert als Nächstes, bis wann?"
+        },
+        {
+          "id": "zielgruppe",
+          "label": "Publikum",
+          "prio": "mittel",
+          "frage": "Wer hört zu, und was interessiert diese Menschen am Stand am meisten?"
+        }
+      ],
+      "dramaturgie": [
+        "Der Gesamtstand in einem Satz",
+        "Das wichtigste Ergebnis seit dem letzten Mal",
+        "Der Fortschritt in Zahlen",
+        "Was gut läuft",
+        "Wo es hakt und was hilft",
+        "Die nächsten Schritte mit Terminen",
+        "Was wir vom Publikum brauchen"
+      ],
+      "stil": "Nüchtern und transparent. Die wichtigste Botschaft zuerst. Schwierigkeiten offen benennen, mit Vorschlag. Zahlen groß und mit Vergleich.",
+      "layouts": "Eine große Aussage (statement) für den Gesamtstand, Kennzahlen (kpi-grid) und eine große Zahl (big-number) für den Fortschritt, Gegenüberstellung (two-column) für gut und schwierig, Zeitstrahl (timeline) für die nächsten Schritte.",
+      "maxPunkte": 4
+    },
+    {
+      "id": "wissen",
+      "name": "Schulung",
+      "kurz": "Wissen oder Fähigkeiten vermitteln.",
+      "erkennen": [
+        "schulung",
+        "training",
+        "workshop",
+        "einführung",
+        "erklär",
+        "lernen",
+        "unterricht",
+        "vortrag über",
+        "wissen",
+        "anleitung"
+      ],
+      "folien": 10,
+      "felder": [
+        {
+          "id": "lernziel",
+          "label": "Lernziel",
+          "prio": "kern",
+          "frage": "Was sollen die Teilnehmenden danach können oder wissen, was sie vorher nicht konnten?",
+          "tief": true
+        },
+        {
+          "id": "zielgruppe",
+          "label": "Teilnehmende",
+          "prio": "kern",
+          "frage": "Wer nimmt teil, und was wissen diese Menschen schon über das Thema?"
+        },
+        {
+          "id": "inhalte",
+          "label": "Inhalte",
+          "prio": "hoch",
+          "frage": "Welche Themen oder Schritte müssen unbedingt vorkommen?"
+        },
+        {
+          "id": "beispiele",
+          "label": "Beispiel",
+          "prio": "hoch",
+          "frage": "Welches Beispiel aus dem Alltag der Teilnehmenden macht das Thema greifbar?",
+          "tief": true
+        },
+        {
+          "id": "stolpersteine",
+          "label": "Stolpersteine",
+          "prio": "mittel",
+          "frage": "Welche typischen Fehler oder Missverständnisse gibt es?"
+        }
+      ],
+      "dramaturgie": [
+        "Warum das Thema die Teilnehmenden betrifft",
+        "Was sie am Ende können",
+        "Überblick in drei Schritten",
+        "Schritt für Schritt: Erklärung mit Beispiel",
+        "Typische Fehler",
+        "Zusammenfassung zum Mitnehmen",
+        "Was man ab morgen tun kann"
+      ],
+      "stil": "Klar, freundlich, praxisnah. Jeder Fachbegriff wird erklärt. Ein Beispiel aus dem Alltag des Publikums schlägt jede Definition. Kurze, nummerierte Schritte.",
+      "layouts": "Karten (cards) für den Überblick, Zeitstrahl (timeline) für Abläufe, Bild mit Text (image-left, image-right) für Beispiele, Gegenüberstellung (two-column) für richtig und falsch, Kapiteltrenner (section) zwischen den Schritten.",
+      "maxPunkte": 5
+    },
+    {
+      "id": "vorstellung",
+      "name": "Vorstellung",
+      "kurz": "Ein Vorhaben, eine Veranstaltung oder eine Organisation vorstellen und informieren.",
+      "erkennen": [
+        "vorstell",
+        "informier",
+        "info",
+        "präsentier",
+        "projekt",
+        "veranstaltung",
+        "event",
+        "einladung",
+        "über uns",
+        "team"
+      ],
+      "folien": 8,
+      "felder": [
+        {
+          "id": "worum",
+          "label": "Worum es geht",
+          "prio": "kern",
+          "frage": "Worum geht es, und warum gibt es das Vorhaben?",
+          "tief": true
+        },
+        {
+          "id": "zielgruppe",
+          "label": "Publikum",
+          "prio": "kern",
+          "frage": "Wer hört zu, und was sollen diese Menschen danach wissen?"
+        },
+        {
+          "id": "highlights",
+          "label": "Das Wichtigste",
+          "prio": "hoch",
+          "frage": "Was sind die zwei, drei Dinge, die man unbedingt wissen muss?",
+          "tief": true
+        },
+        {
+          "id": "mitmachen",
+          "label": "Mitmachen",
+          "prio": "hoch",
+          "frage": "Was sollen die Zuhörenden danach tun?"
+        },
+        {
+          "id": "ablauf",
+          "label": "Ablauf",
+          "prio": "mittel",
+          "frage": "Wie läuft es ab: Termine, Orte, Beteiligte?"
+        },
+        {
+          "id": "daten",
+          "label": "Zahlen und Fakten",
+          "prio": "mittel",
+          "frage": "Gibt es Zahlen, Termine oder Zitate, die gezeigt werden sollen?"
+        }
+      ],
+      "dramaturgie": [
+        "Einstieg: worum es geht, in einem Satz",
+        "Warum es das gibt",
+        "Die drei wichtigsten Punkte",
+        "Wie es abläuft",
+        "Wer dabei ist",
+        "Wie man mitmachen kann"
+      ],
+      "stil": "Einladend, klar und konkret. Überschriften sagen, was man wissen muss. Termine, Orte und Kontakte vollständig.",
+      "layouts": "Eine große Aussage (statement) zum Einstieg, Karten (cards) für die wichtigsten Punkte, Zeitstrahl (timeline) für den Ablauf, große Bilder (image-full, image-left, image-right) für Atmosphäre.",
+      "maxPunkte": 4
+    }
+  ]
+}

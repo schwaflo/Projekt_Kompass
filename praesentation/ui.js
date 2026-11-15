@@ -5,14 +5,17 @@
    Live-Ansicht der KI und die vorhandenen Stile.
    Schritte: start → briefing → system → vorschau
    ============================================================ */
-/* global S, ui, render, run, save, esc, toast, akte, errorBox, liveInner, statLine, hasProject, doPrint, slug, STATUS_TEXT */
+/* global S, ui, render, run, save, esc, toast, akte, errorBox, liveInner, statLine, hasProject, doPrint, slug, STATUS_TEXT, progress, MODULE_ORDER, MODULE, modDone */
 import { createRegistry } from './registry.js';
 import * as P from './pipeline.js';
-import { validateSpec, kuerzeSpec, remapSpec, inhaltsPlatzhalter, SPEC_VERSION } from './spec.js';
+import { validateSpec, kuerzeSpec, remapSpec, inhaltsPlatzhalter, ordneInhaltZu, SPEC_VERSION } from './spec.js';
 import { buildSlides } from './layout.js';
 import { slideHTML, FOLIEN_CSS, fontUrl } from './render-html.js';
 import { exportPptx } from './render-pptx.js';
 import { ladeBild } from './bilder.js';
+import { waehleLayouts, rangliste, FORMEN, FORM_IDS, typName } from './analyse.js';
+import { leseSprachregeln } from './richtlinien.js';
+import { ladePaket } from './pakete.js';
 import { initSysteme, ladeGespeicherte, viewSysteme, klickSysteme, wechselSysteme, dragSysteme, SYSTEME_CSS } from './ui-systeme.js';
 
 const reg = createRegistry();
@@ -22,11 +25,29 @@ const ladePrompts = async () => (prompts = prompts || await P.ladePrompts(lese))
 const ki = () => window.KompassKI;
 
 /* ---------- Zustand (liegt in S.praes und wird mit dem Projekt gespeichert) ---------- */
-const neu = () => ({ schritt: 'start', beschreibung: '', mitProjekt: true, B: null, briefing: null, systemId: '', vorschlag: null, spec: null, protokoll: [], pruefen: [], schrift: 'system', auswahl: 0, zurueck: 'start' });
+const neu = () => ({ schritt: 'start', beschreibung: '', quelle: '', B: null, briefing: null, systemId: '', vorschlag: null, spec: null, protokoll: [], pruefen: [], schrift: 'system', auswahl: 0, zurueck: 'start', kiLayout: false, nachAnalyse: false });
 const Z = () => { if (!S.praes) S.praes = neu(); return S.praes; };
 const system = () => reg.get(Z().systemId) || reg.list()[0] || null;
 const folie = () => { const z = Z(); z.auswahl = Math.max(0, Math.min(z.auswahl || 0, z.spec.folien.length - 1)); return z.spec.folien[z.auswahl]; };
-const modell = () => buildSlides(Z().spec, system(), { schrift: Z().schrift });
+const modell = () => buildSlides(Z().spec, system(), { schrift: Z().schrift, anpassen: !!Z().kiLayout });
+/* Startet die Präsentation aus der Projektanalyse? Standard, sobald es ein Projekt gibt. */
+const ausProjekt = () => hasProject() && (Z().quelle || 'projekt') === 'projekt';
+
+/* Alles, was die Projektanalyse weiß, für das Briefing */
+function projektKontext() {
+  const e = S.ergebnis;
+  const steckbrief = e ? {
+    kurzbeschreibung: e.kurzbeschreibung, ziel: e.ziel_in_einem_satz, zielgruppe: e.zielgruppe_kurz, kernbotschaft: e.kernbotschaft, erfolg: e.erfolg_messbar,
+    empfehlung: e.empfehlung, strategien: (e.strategien || []).map(x => ({ name: x.name, idee: x.idee, staerke: x.staerke, risiko: x.risiko })),
+    naechste_schritte: e.naechste_schritte, risiken: e.risiken, offene_fragen: e.offene_fragen, schlagworte: e.schlagworte
+  } : null;
+  return akte() + (steckbrief ? '\nSTECKBRIEF AUS DER PROJEKTANALYSE: ' + JSON.stringify(steckbrief) : '');
+}
+function projektStand() {
+  if (!hasProject()) return null;
+  const vertieft = typeof MODULE_ORDER !== 'undefined' ? MODULE_ORDER.filter(id => modDone(id)).map(id => MODULE[id].name) : [];
+  return { titel: S.titel || 'Ohne Titel', fertig: !!S.ergebnis, prozent: typeof progress === 'function' ? progress() : 0, vertieft };
+}
 
 function open() {
   const z = Z();
@@ -42,15 +63,25 @@ function geh(schritt) { Z().schritt = schritt; ui.error = null; ui.praesEdit = n
 function starte() {
   const z = Z(), t = (document.getElementById('pr-desc') || {}).value || '';
   z.beschreibung = t.trim();
-  const mitProjekt = z.mitProjekt && hasProject();
+  const mitProjekt = ausProjekt();
   if (z.beschreibung.length < 10 && !mitProjekt) { ui.error = 'Beschreibe in ein, zwei Sätzen, worum es in der Präsentation geht.'; return render(); }
   run('Briefing wird vorbereitet …', async () => {
+    /* Eine neue Präsentation überschreibt nie die vorige: die liegt gespeichert in der Ablage */
+    if (z.spec) { if (!(await sichere(true))) return; Object.assign(z, { spec: null, gespeichertId: undefined, gespeichertStand: undefined, protokoll: [], pruefen: [], auswahl: 0 }); }
     await ladePrompts();
     const B = P.neuesBriefing(z.beschreibung || `Präsentation zum Projekt „${S.titel}“`);
-    const e = S.ergebnis, projekt = mitProjekt ? akte() + (e ? '\nSTECKBRIEF: ' + JSON.stringify({ kurzbeschreibung: e.kurzbeschreibung, ziel: e.ziel_in_einem_satz, zielgruppe: e.zielgruppe_kurz, kernbotschaft: e.kernbotschaft, naechste_schritte: e.naechste_schritte, risiken: e.risiken }) : '') : '';
-    await P.briefingStart(ki(), prompts, B, projekt);
-    z.B = B; z.briefing = null; z.schritt = 'briefing';
+    await P.briefingStart(ki(), prompts, B, mitProjekt ? projektKontext() : '', { ausProjekt: mitProjekt && !!S.ergebnis });
+    z.B = B; z.briefing = null; z.schritt = 'briefing'; z.vorschlag = null;
   });
+}
+
+/* Präsentation soll auf einer Projektanalyse aufbauen, die es noch nicht gibt: erst analysieren */
+function erstAnalysieren() {
+  const z = Z(), t = ((document.getElementById('pr-desc') || {}).value || '').trim();
+  z.nachAnalyse = true; z.quelle = 'projekt';
+  if (t && !S.beschreibung) S.beschreibung = t;
+  S.screen = 'start'; ui.error = null; save(); render(); window.scrollTo({ top: 0 });
+  toast('Beschreibe dein Projekt. Nach der Analyse geht es direkt zur Präsentation.');
 }
 
 function antworte(text, annahme) {
@@ -61,7 +92,7 @@ function antworte(text, annahme) {
 }
 
 function briefingWeiter() {
-  const z = Z(), r = P.briefingFertig(z.B);
+  const z = Z(), r = P.briefingFertig(z.B, prompts && prompts.arten);
   if (!r.ok) { ui.error = r.errors.join(' '); return render(); }
   z.briefing = r.briefing; z.schritt = 'system'; ui.error = null; save(); render(); window.scrollTo({ top: 0 });
   if (!z.vorschlag && reg.list().length > 1) run('Passendes Designsystem wird gesucht …', async () => {
@@ -77,10 +108,12 @@ function erstelle() {
   z.systemId = sys.id;
   run('Präsentation wird geschrieben …', async () => {
     await ladePrompts();
-    const r = await P.erstellePraesentation(ki(), prompts, z.briefing, sys, { fortschritt: s => { ui.praesFortschritt = s.schritt === 'outline' ? 'Gliederung wird erstellt' : `Folie ${s.nr} von ${s.anzahl} wird geschrieben`; const el = document.getElementById('pr-fort'); if (el) el.textContent = ui.praesFortschritt; } });
-    r.spec.folien.forEach((f, i) => { f.kernaussage = r.outline.folien[i].kernaussage; });
+    const r = await P.erstellePraesentation(ki(), prompts, z.briefing, sys, { gestalten: !!z.kiLayout, fortschritt: s => { ui.praesFortschritt = s.schritt === 'outline' ? 'Gliederung wird erstellt' : s.schritt === 'gestalten' ? `Layout von Folie ${s.nr} von ${s.anzahl} wird angepasst` : `Folie ${s.nr} von ${s.anzahl} wird geschrieben`; const el = document.getElementById('pr-fort'); if (el) el.textContent = ui.praesFortschritt; } });
+    r.spec.folien.forEach((f, i) => { f.kernaussage = r.outline.folien[i].kernaussage; f.abschnitt = r.outline.folien[i].abschnitt; });
+    r.spec.richtlinien = fingerabdruck(sys.voice);
     Object.assign(z, { spec: r.spec, protokoll: r.protokoll, pruefen: r.pruefen, auswahl: 0, schritt: 'vorschau' });
     ui.praesFortschritt = '';
+    await sichere(true);
   });
 }
 
@@ -96,19 +129,166 @@ function schreibeNeu() {
   run(`Folie ${i + 1} wird neu geschrieben …`, async () => {
     await ladePrompts();
     const titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
-    const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: (sys.layout(x.layoutId) || sys.layoutForTyp('content-bullets')).id, kernaussage: titelVon(x), inhalt: '' })) };
+    const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: (sys.layout(x.layoutId) || sys.layoutForTyp('content-bullets')).id, form: x.form, betont: x.betont, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '' })) };
     const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch });
-    z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage };
+    z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage, abschnitt: f.abschnitt, form: f.form, betont: f.betont, ...(f.anpassung ? { anpassung: f.anpassung } : {}) };
     const nr = new RegExp(`^Folie ${i + 1}[,:]`);
     z.protokoll = [...z.protokoll.filter(t => !nr.test(t)), ...r.aenderungen];
     z.pruefen = [...z.pruefen.filter(t => !nr.test(t)), ...r.pruefen];
   });
 }
 
+/* Designsystem wechseln: Folien mit bekannter Form bekommen das passende Layout des neuen Systems,
+   ältere über den Layouttyp. Anpassungen gelten nur im alten System. */
 function wechsleSystem(id) {
   const z = Z(), alt = system(), neuS = reg.get(id);
   if (!neuS || !z.spec) return;
-  z.spec = remapSpec(z.spec, alt, neuS); z.systemId = id; save(); render();
+  const spec = remapSpec(z.spec, alt, neuS);
+  if (spec.folien.every(f => f.form)) {
+    const wahl = waehleLayouts(spec.folien.map(f => ({ form: f.form, betont: f.betont })), neuS, { spiegeln: !!z.kiLayout, bilder: P.bildAssets(neuS).length > 0 });
+    spec.folien.forEach((f, i) => { f.layoutId = wahl[i].layoutId; f.inhalt = ordneInhaltZu(f.inhalt, neuS.layout(f.layoutId)); });
+    spec.folien = remapSpec(spec, neuS, neuS).folien;
+    spec.folien.forEach((f, i) => { delete f.anpassung; if (wahl[i].spiegeln) f.anpassung = { spiegeln: true }; });
+  } else spec.folien.forEach(f => { delete f.anpassung; f.inhalt = ordneInhaltZu(f.inhalt, neuS.layout(f.layoutId)); });
+  z.spec = spec; z.systemId = id; save(); render();
+}
+/* Folien, deren Inhalt nicht in das aktuelle Layout passt (nach einem Wechsel des Designsystems oder Layouts) */
+function passtNicht() {
+  const z = Z(), sys = system();
+  if (!z.spec || !sys) return [];
+  return z.spec.folien.map((f, i) => validateSpec({ titel: 'x', folien: [f] }, sys).errors.some(e => /Zeichen|Stichpunkte|Einträge|Pflichtinhalt/.test(e)) ? i : -1).filter(i => i >= 0);
+}
+/* Mehrere Folien mit demselben Wunsch neu schreiben lassen; Form, Betonung und Anpassung bleiben */
+function schreibeFolienNeu(liste, wunsch, text, danach) {
+  const z = Z(), sys = system();
+  if (!liste.length) return;
+  run(text, async () => {
+    await ladePrompts();
+    for (const [n, i] of liste.entries()) {
+      ui.busyText = `${text.replace(/ …$/, '')}: Folie ${i + 1} (${n + 1} von ${liste.length})`;
+      const f = z.spec.folien[i], titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
+      const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: x.layoutId, form: x.form, betont: x.betont, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '' })) };
+      const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch });
+      z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage, abschnitt: f.abschnitt, form: f.form, betont: f.betont, ...(f.anpassung ? { anpassung: f.anpassung } : {}) };
+      const nr = new RegExp(`^Folie ${i + 1}[,:]`);
+      z.pruefen = [...z.pruefen.filter(t => !nr.test(t)), ...r.pruefen];
+    }
+    if (danach) danach();
+  });
+}
+const passeTexteAn = () => schreibeFolienNeu(passtNicht(), 'Übertrage den bisherigen Inhalt in die Felder dieses Layouts. Kürze, wo die Limits es verlangen, und lass nichts Wichtiges weg.', 'Folien werden an die Layouts angepasst …');
+
+/* ---------- Formulierungsrichtlinien auf vorhandene Folien anwenden ---------- */
+const fingerabdruck = t => { let h = 7; for (const c of String(t)) h = (h * 31 + c.codePointAt(0)) | 0; return (h >>> 0).toString(36); };
+/* Verstöße der aktuellen Folien gegen die Richtlinien des gewählten Designsystems */
+function sprachVerstoesse() {
+  const z = Z(), sys = system();
+  if (!z.spec || !sys) return [];
+  const r = leseSprachregeln(sys.voice), out = [];
+  z.spec.folien.forEach((f, i) => { const l = sys.layout(f.layoutId); if (l) P.pruefeStil(f, l, r).filter(m => /Formulierungsrichtlinien/.test(m)).forEach(m => out.push({ i, text: `Folie ${i + 1}, ${m}` })); });
+  return out;
+}
+/* Wurden die Folien mit älteren Richtlinien geschrieben? */
+const richtlinienNeu = () => { const z = Z(), sys = system(); return !!(z.spec && sys && z.spec.richtlinien && z.spec.richtlinien !== fingerabdruck(sys.voice)); };
+function nachRichtlinien() {
+  const z = Z(), sys = system(), alle = richtlinienNeu();
+  const liste = alle ? z.spec.folien.map((_, i) => i) : [...new Set(sprachVerstoesse().map(v => v.i))];
+  schreibeFolienNeu(liste, `Schreibe die Folie nach den Formulierungsrichtlinien von „${sys.meta.name}“ neu: Tonalität, Anrede, Begriffe und Regeln genau einhalten. Aussage und Fakten bleiben gleich.`, 'Folien werden nach den Richtlinien neu geschrieben …', () => { z.spec.richtlinien = fingerabdruck(sys.voice); });
+}
+
+/* ---------- Präsentationen speichern ---------- */
+const ABLAGE = 'praesentationen';
+const specStand = z => fingerabdruck(JSON.stringify(z.spec || ''));
+const ungespeichert = () => { const z = Z(); return !!z.spec && z.gespeichertStand !== specStand(z); };
+async function gespeicherte(neuLaden) {
+  if (neuLaden || !ui.praesListe) { try { ui.praesListe = (await IDB.all(ABLAGE)).sort((a, b) => String(b.gespeichert).localeCompare(String(a.gespeichert))); } catch { ui.praesListe = []; } }
+  return ui.praesListe;
+}
+/* Aktuelle Präsentation in der Ablage des Browsers sichern (neu oder als Aktualisierung) */
+async function sichere(still) {
+  const z = Z(), sys = system();
+  if (!z.spec) return false;
+  z.gespeichertId = z.gespeichertId || 'p' + Date.now().toString(36);
+  z.gespeichertStand = specStand(z);
+  const { zurueck, nachAnalyse, ...zustand } = JSON.parse(JSON.stringify(z));
+  const eintrag = { id: z.gespeichertId, titel: z.spec.titel, gespeichert: new Date().toISOString(), systemId: z.systemId, systemName: sys ? sys.meta.name : '', projekt: S.titel || '', folien: z.spec.folien.length, zustand: { ...zustand, schritt: 'vorschau' } };
+  try { await IDB.put(eintrag.id, eintrag, ABLAGE); } catch (e) { ui.error = 'Die Präsentation konnte nicht gespeichert werden: ' + e.message; render(); return false; }
+  await gespeicherte(true); save();
+  if (!still) { toast('Präsentation gespeichert'); render(); }
+  else { const b = document.querySelector('[data-pr="sichern"]'); if (b) b.textContent = 'Gespeichert'; }
+  return true;
+}
+async function oeffneGespeicherte(id) {
+  const e = (await gespeicherte()).find(x => x.id === id);
+  if (!e) return;
+  if (ungespeichert()) await sichere(true);
+  S.praes = { ...neu(), ...e.zustand, zurueck: Z().zurueck, gespeichertId: e.id };
+  S.praes.gespeichertStand = specStand(S.praes);
+  if (!reg.get(S.praes.systemId)) ui.notice = `Das Designsystem „${e.systemName || e.systemId}“ gibt es in diesem Browser nicht. Die Folien werden im ersten verfügbaren Designsystem gezeigt.`;
+  ui.error = null; save(); render(); window.scrollTo({ top: 0 });
+}
+async function loescheGespeicherte(id) {
+  const e = (await gespeicherte()).find(x => x.id === id);
+  if (!e || !confirm(`Präsentation „${e.titel}“ löschen? Das lässt sich nicht rückgängig machen.`)) return;
+  await IDB.del(id, ABLAGE);
+  if (Z().gespeichertId === id) { delete Z().gespeichertId; delete Z().gespeichertStand; }
+  await gespeicherte(true); render();
+}
+async function neuePraesentation() {
+  const z = Z();
+  if (z.spec && ungespeichert()) { if (!(await sichere(true))) return; toast('Bisherige Präsentation gespeichert'); }
+  S.praes = { ...neu(), zurueck: z.zurueck, quelle: z.quelle };
+  ui.error = null; ui.notice = null; save(); render(); window.scrollTo({ top: 0 });
+}
+/* Als Datei: Präsentation samt eigenem Designsystem, damit sie auf einem anderen Rechner gleich aussieht */
+async function alsDatei(id) {
+  const e = (await gespeicherte()).find(x => x.id === id);
+  if (!e) return;
+  const sys = reg.get(e.systemId);
+  const inhalt = { format: 'kompass-praesentation', version: 1, ...e, ...(sys && sys.paket ? { designsystem: sys.paket } : {}) };
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([JSON.stringify(inhalt)], { type: 'application/json' })), download: (slug(e.titel) || 'praesentation') + '.kompass.json' });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function ausDatei(datei) {
+  try {
+    const d = JSON.parse(await datei.text());
+    if (d.format !== 'kompass-praesentation' || !d.zustand || !d.zustand.spec) throw new Error('Das ist keine gespeicherte Präsentation des Kompass.');
+    if (d.designsystem && !reg.get(d.systemId)) {
+      const r = await ladePaket(d.designsystem);
+      if (r.ok) { try { await IDB.put(r.system.id, d.designsystem, 'designsysteme'); } catch {} reg.add(r); }
+    }
+    const { designsystem, format, version, ...eintrag } = d;
+    eintrag.id = 'p' + Date.now().toString(36);
+    await IDB.put(eintrag.id, eintrag, ABLAGE);
+    await gespeicherte(true);
+    toast(`„${eintrag.titel}“ geöffnet`);
+    return oeffneGespeicherte(eintrag.id);
+  } catch (e) { ui.error = 'Die Datei konnte nicht geöffnet werden: ' + e.message; render(); }
+}
+/* Gespeicherte Präsentationen nach Änderungen still aktualisieren */
+setInterval(() => { const z = S.praes; if (S.screen === 'praes' && z && z.gespeichertId && !ui.busy && ungespeichert()) sichere(true); }, 4000);
+
+/* Wirkung einer Folie ändern: passendes Layout dazu wählen */
+function setzeForm(form, betont) {
+  const z = Z(), f = folie(), sys = system(), i = z.auswahl, fl = z.spec.folien;
+  f.form = form; f.betont = betont;
+  const nachbarn = [fl[i - 1], fl[i + 1]].filter(Boolean).map(x => x.layoutId);
+  const best = rangliste(form, betont, sys, nachbarn)[0];
+  if (best && best.id !== f.layoutId) { f.layoutId = best.id; delete f.anpassung; f.inhalt = ordneInhaltZu(f.inhalt, best); }
+  save(); render();
+}
+
+/* KI passt Positionen und Größen dieser Folie an */
+function gestalte() {
+  const z = Z(), i = z.auswahl, sys = system(), wunsch = ((document.getElementById('pr-lwunsch') || {}).value || '').trim();
+  run(`Layout von Folie ${i + 1} wird angepasst …`, async () => {
+    await ladePrompts();
+    const g = await P.gestalteFolie(ki(), prompts, { folie: z.spec.folien[i], system: sys, wunsch });
+    const nr = new RegExp(`^Folie ${i + 1}: Layout`);
+    z.protokoll = z.protokoll.filter(t => !nr.test(t));
+    if (g.anpassung) { z.spec.folien[i].anpassung = g.anpassung; z.protokoll.push(`Folie ${i + 1}: Layout angepasst${g.begruendung ? ` – ${g.begruendung.replace(/[.\s]+$/, '')}` : ''}.`); }
+    else ui.notice = `Folie ${i + 1}: Die KI hat keine Verbesserung gefunden, die alle Regeln einhält${g.meldungen.length ? ` (${g.meldungen.slice(0, 2).join(' ')})` : ''}.`;
+  });
 }
 
 function folienAktion(a) {
@@ -180,24 +360,48 @@ function pfad() {
   return `<nav class="pr-pfad" aria-label="Schritte">${SCHRITTE.map(([id, name], i) => `<button data-pr="geh" data-s="${id}" ${erreichbar[id] && !ui.busy ? '' : 'disabled'} aria-current="${z.schritt === id ? 'step' : 'false'}"><b>${i + 1}</b> ${name}</button>`).join('')}</nav>`;
 }
 
+/* Gespeicherte Präsentationen auf der Startseite */
+function ablage() {
+  if (!ui.praesListe) { gespeicherte().then(() => { if (an() && Z().schritt === 'start') render(); }); return ''; }
+  const liste = ui.praesListe, datum = d => new Date(d).toLocaleString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const bild = e => { const sys = reg.get(e.systemId) || reg.list()[0]; if (!sys) return ''; try { return slideHTML(buildSlides({ titel: e.titel, folien: e.zustand.spec.folien.slice(0, 1) }, sys, { anpassen: !!e.zustand.kiLayout })[0]); } catch { return ''; } };
+  return `<section class="pr-ablage"><div class="side-head"><h3>Gespeicherte Präsentationen</h3><label class="linkbtn">Datei öffnen<input type="file" id="pr-datei" accept=".json" hidden></label></div>
+    ${liste.length ? `<div class="pr-ablage-liste">${liste.map(e => `<div class="pr-karte ${e.id === Z().gespeichertId ? 'aktiv' : ''}">
+      <button class="pr-karte-bild" data-pr="oeffnen" data-id="${e.id}" aria-label="${esc(e.titel)} öffnen">${bild(e)}</button>
+      <b>${esc(e.titel)}</b><span class="small muted">${e.folien} Folien · ${esc(e.systemName || e.systemId)}${e.projekt ? ` · ${esc(e.projekt)}` : ''}<br>${datum(e.gespeichert)}</span>
+      <span class="pr-karte-tools"><button class="linkbtn" data-pr="oeffnen" data-id="${e.id}">Öffnen</button><button class="linkbtn" data-pr="datei" data-id="${e.id}">Als Datei</button><button class="linkbtn" data-pr="wegspeicher" data-id="${e.id}">Löschen</button></span>
+    </div>`).join('')}</div>` : '<p class="small muted">Noch keine. Jede Präsentation wird gespeichert, sobald die Folien geschrieben sind, und danach bei jeder Änderung.</p>'}
+  </section>`;
+}
+
 function viewStart() {
-  const z = Z(), proj = hasProject();
-  return `${kopf('Präsentation erstellen', 'Der Kompass klärt mit dir in ein paar Fragen, was die Präsentation leisten soll, und schreibt dann die Folien. Das Aussehen kommt aus einem Designsystem.')}
+  const z = Z(), stand = projektStand(), mitProjekt = ausProjekt();
+  const quelle = (id, titel, text, extra = '') => `<button class="pr-quelle" data-pr="quelle" data-q="${id}" aria-pressed="${(id === 'projekt') === mitProjekt}"><b>${titel}</b><span>${text}</span>${extra}</button>`;
+  const projektKarte = stand ? quelle('projekt', `Aus deinem Projekt „${esc(stand.titel)}“`,
+      stand.fertig ? 'Ziel, Zielgruppe, Kernbotschaft und Strategie aus der Analyse fließen ein. Gefragt wird nur, was für die Präsentation selbst fehlt.' : `Die Analyse ist zu ${stand.prozent} % fertig. Was schon geklärt ist, fließt ein.`,
+      `<span class="pr-tags">${stand.fertig ? '<i>Steckbrief fertig</i>' : `<i>Analyse ${stand.prozent} %</i>`}${stand.vertieft.map(v => `<i>${esc(v)}</i>`).join('')}</span>`) : '';
+  return `${kopf('Präsentation erstellen', 'Der Kompass klärt mit dir in ein paar Fragen, was die Präsentation leisten soll, und schreibt dann die Folien. Das Aussehen kommt aus einem Designsystem, auch aus deiner eigenen PowerPoint-Vorlage.')}
   ${pfad()}
   <section class="pr-start">
     <div class="qcard">
       ${errorBox()}
-      <label class="fieldlabel" for="pr-desc">Worum geht es in der Präsentation?</label>
-      <textarea class="bigtext" id="pr-desc" placeholder="Zum Beispiel: Ich stelle dem Vorstand in zehn Minuten vor, warum wir ein neues Kundenportal brauchen.">${esc(z.beschreibung)}</textarea>
-      ${proj ? `<label class="row small" style="margin:14px 0 0;gap:10px;align-items:flex-start"><input type="checkbox" id="pr-proj" ${z.mitProjekt ? 'checked' : ''} style="margin-top:4px"><span>Projekt „${esc(S.titel || 'Ohne Titel')}“ als Grundlage nehmen<br><span class="muted">Was in der Projektanalyse schon steht, wird übernommen. Gefragt wird nur, was noch fehlt.</span></span></label>` : ''}
+      <span class="fieldlabel">Womit startest du?</span>
+      <div class="pr-quellen">
+        ${projektKarte}
+        ${quelle('frei', stand ? 'Neues Thema, ohne Projekt' : 'Thema beschreiben', 'Du beschreibst in ein, zwei Sätzen, worum es geht. Der Kompass fragt nach, was fehlt.')}
+        ${stand ? '' : `<button class="pr-quelle" data-pr="analyse"><b>Erst das Projekt analysieren</b><span>Der Kompass klärt Ziel, Zielgruppe und Inhalte deines Projekts. Danach geht es mit diesem Wissen direkt in die Präsentation.</span></button>`}
+      </div>
+      <label class="fieldlabel" for="pr-desc">${mitProjekt ? 'Was soll die Präsentation leisten? <span class="muted">(optional, hilft bei der Art)</span>' : 'Worum geht es in der Präsentation?'}</label>
+      <textarea class="bigtext" id="pr-desc" placeholder="${mitProjekt ? 'Zum Beispiel: Ich stelle das Projekt der Geschäftsleitung vor und brauche die Freigabe für das Budget.' : 'Zum Beispiel: Ich stelle dem Vorstand in zehn Minuten vor, warum wir ein neues Kundenportal brauchen.'}">${esc(z.beschreibung)}</textarea>
       <div class="actions"><button class="btn primary" data-pr="start" ${ui.busy ? 'disabled' : ''}>Briefing starten</button>
         ${z.B ? '<button class="btn" data-pr="geh" data-s="briefing">Briefing fortsetzen</button>' : ''}
         ${z.spec ? '<button class="btn" data-pr="geh" data-s="vorschau">Zu den Folien</button>' : ''}
         <span class="spacer"></span><button class="btn ghost" data-pr="beispiel" ${bereit ? '' : 'disabled'}>Beispiel ansehen, ohne KI</button></div>
       ${live()}${!ui.busy && ui.error ? statLine() : ''}
     </div>
+    ${ablage()}
     <aside class="panel"><h3>So läuft es ab</h3>
-      <ol class="pr-ablauf"><li><b>Briefing.</b> Ziel, Zielgruppe, Kernbotschaft, Umfang.</li><li><b>Designsystem.</b> Du wählst eines, oder der Kompass schlägt eines vor.</li><li><b>Folien.</b> Die KI schreibt Gliederung und Texte. Layout, Farben und Schriften kommen aus dem Designsystem.</li><li><b>Bearbeiten und speichern.</b> Texte ändern, Folien neu schreiben lassen, als PowerPoint speichern.</li></ol>
+      <ol class="pr-ablauf"><li><b>Briefing.</b> Art der Präsentation, Ziel, Publikum, Kernbotschaft. Aus einer Projektanalyse ist vieles schon da.</li><li><b>Designsystem.</b> Eine Vorlage wählen oder deine PowerPoint-Vorlage importieren.</li><li><b>Folien.</b> Die KI schreibt Gliederung und Texte und entscheidet, wie jede Aussage wirken soll. Das passende Layout wählt der Kompass.</li><li><b>Bearbeiten und speichern.</b> Texte ändern, Wirkung umstellen, als PowerPoint speichern.</li></ol>
       <p class="small muted" style="margin:10px 0 8px">${bereit ? `${reg.list().length} Designsysteme gefunden: ${reg.list().map(s => esc(s.meta.name)).join(', ')}.` : 'Designsysteme werden geladen …'}</p>
       <button class="btn tiny" data-pr="systeme" ${bereit && !ui.busy ? '' : 'disabled'}>Designsysteme verwalten</button>
       ${reg.problems().map(p => `<div class="notice" style="margin-top:10px"><b>${esc(p.ordner || p.id)}</b> konnte nicht geladen werden: ${esc(p.errors[0])}${p.errors.length > 1 ? ` (und ${p.errors.length - 1} weitere)` : ''}</div>`).join('')}
@@ -206,13 +410,17 @@ function viewStart() {
 }
 
 function viewBriefing() {
-  const z = Z(), B = z.B, a = B.aktuell, f = a && B.felder.find(x => x.id === a.feld), fertig = P.briefingFertig(B);
-  const fehlt = B.felder.filter(x => x.kern && (!x.wert || x.status === 'uebersprungen')).map(x => esc(x.label)).join(', ');
+  const z = Z(), B = z.B, a = B.aktuell, f = a && B.felder.find(x => x.id === a.feld), arten = prompts && prompts.arten, fertig = P.briefingFertig(B, arten);
+  const fehlt = B.felder.filter(x => x.prio === 'kern' && (!x.wert || x.status === 'uebersprungen')).map(x => esc(x.label)).join(', ');
+  const nr = Math.min(B.gefragt + 1, B.max), kopfzeile = `<div class="pr-art">
+      <label>Art der Präsentation <select class="input" id="pr-art" ${ui.busy ? 'disabled' : ''}>${arten ? arten.arten.map(x => `<option value="${x.id}" ${x.id === B.art ? 'selected' : ''}>${esc(x.name)}</option>`).join('') : ''}</select></label>
+      <span class="small muted">${arten ? esc(P.art(arten, B.art).kurz) : ''}</span></div>`;
+  const ART_TAG = { nachfrage: '<span class="tag follow">Nachfrage</span>', vertiefung: '<span class="tag moved">Vertiefung</span>' };
   const frage = ui.busy ? `<div class="qcard">${live()}</div>` : !a ? `<div class="qcard done">
-      <h2>${fertig.ok ? 'Das Briefing ist vollständig.' : 'Fast fertig.'}</h2>
-      <p class="muted">${fertig.ok ? 'Rechts kannst du jeden Eintrag noch ändern. Annahmen der KI sind markiert.' : `Es fehlt noch: ${fehlt}. Trage es rechts über „Selbst eintragen“ ein.`}</p>
+      <h2>${fertig.ok ? 'Das reicht für eine gute Präsentation.' : 'Fast fertig.'}</h2>
+      <p class="muted">${fertig.ok ? 'Rechts kannst du jeden Punkt noch ändern. Annahmen der KI sind markiert, die Kernbotschaft leitet die KI selbst ab.' : `Es fehlt noch: ${fehlt}. Trage es rechts über „Selbst eintragen“ ein.`}</p>
       <div class="actions"><button class="btn primary" data-pr="weiter" ${fertig.ok ? '' : 'disabled'}>Weiter zum Designsystem</button></div></div>` : `<div class="qcard">
-      <div class="qmeta"><span class="tag">Briefing · ${esc(f ? f.label : '')}</span>${a.nachfrage ? '<span class="tag follow">Nachfrage</span>' : ''}</div>
+      <div class="qmeta"><span class="tag">${esc(f ? f.label : '')}</span>${ART_TAG[a.art] || ''}${f && f.schwerpunkt && a.art === 'neu' ? '<span class="tag moved">Schwerpunkt</span>' : ''}<span class="spacer"></span><span class="small muted">Frage ${nr} von höchstens ${B.max}</span></div>
       <p class="question">${esc(a.frage)}</p>
       ${a.vorschlaege.length ? `<div class="chips">${a.vorschlaege.map((v, i) => `<button class="chip" data-pr="chip" data-i="${i}">${esc(v)}</button>`).join('')}</div>` : ''}
       <label class="small muted" for="pr-answer">Deine Antwort (Vorschlag anklicken, anpassen oder frei schreiben)</label>
@@ -220,23 +428,24 @@ function viewBriefing() {
       <div class="actions">
         <button class="btn primary" data-pr="send">Antworten</button>
         <button class="btn" data-pr="unknown">Weiß ich nicht, nimm etwas an</button>
-        ${f && !f.kern ? '<button class="btn ghost" data-pr="skip">Überspringen</button>' : ''}
+        ${f && f.prio !== 'kern' ? '<button class="btn ghost" data-pr="skip">Überspringen</button>' : ''}
         <span class="spacer"></span><span class="kbd">⌘ + Enter sendet</span>
       </div>
       <div class="actions" style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px">
-        <span class="small muted">${fertig.ok ? 'Schon genug? Offene Punkte bleiben einfach leer.' : 'Noch nötig: ' + fehlt + '.'}</span>
-        <span class="spacer"></span><button class="btn tiny" data-pr="weiter" ${fertig.ok ? '' : 'disabled'}>Weiter zum Designsystem</button>
+        <span class="small muted">${fertig.ok ? 'Schon genug? Offene Punkte leitet die KI ab oder lässt sie weg.' : 'Noch nötig: ' + fehlt + '.'}</span>
+        <span class="spacer"></span><button class="btn tiny" data-pr="weiter" ${fertig.ok ? '' : 'disabled'}>Genug gefragt, weiter</button>
       </div></div>`;
-  const status = x => x.status === 'uebersprungen' ? '<span class="status leer">übersprungen</span>' : `<span class="status ${x.status}">${STATUS_TEXT[x.status] || x.status}</span>`;
+  const status = x => x.unwichtig ? '<span class="status leer">nicht nötig</span>' : x.status === 'uebersprungen' ? '<span class="status leer">übersprungen</span>' : !x.wert && x.prio === 'auto' ? '<span class="status leer">leitet die KI ab</span>' : `<span class="status ${x.status}">${STATUS_TEXT[x.status] || x.status}</span>`;
+  const sichtbar = B.felder.filter(x => !x.unwichtig), wichtig = x => x.prio === 'kern' ? ' <span class="pr-pflicht" title="muss geklärt sein">•</span>' : '';
   return `${kopf('Briefing', '')}${pfad()}
   <section class="work">
-    <div>${errorBox()}${frage}${ui.busy ? '' : statLine()}</div>
+    <div>${errorBox()}${kopfzeile}${frage}${ui.busy ? '' : statLine()}</div>
     <aside class="side" aria-label="Briefing">
-      <div class="side-head"><h3>Briefing</h3><span class="small muted">${B.felder.filter(x => x.wert && x.status !== 'uebersprungen').length}/${B.felder.length}</span></div>
-      ${B.felder.map(x => `<div class="fact"><div class="fact-top"><span class="fact-label">${esc(x.label)}</span>${status(x)}</div>
+      <div class="side-head"><h3>Briefing</h3><span class="small muted">${sichtbar.filter(x => x.wert && x.status !== 'uebersprungen').length}/${sichtbar.length}</span></div>
+      ${B.felder.map(x => `<div class="fact ${x.unwichtig ? 'pr-unwichtig' : ''}"><div class="fact-top"><span class="fact-label">${esc(x.label)}${wichtig(x)}${x.schwerpunkt ? ' <span class="tag moved" style="font-size:.66rem">Schwerpunkt</span>' : ''}</span>${status(x)}</div>
         ${ui.praesEdit === x.id
           ? `<textarea id="pr-edit">${esc(x.status === 'uebersprungen' ? '' : x.wert)}</textarea><div class="fact-tools"><button class="linkbtn" data-pr="feldsave" data-id="${x.id}">Speichern</button><button class="linkbtn" data-pr="feldcancel">Abbrechen</button></div>`
-          : `<div class="fact-val ${x.wert && x.status !== 'uebersprungen' ? '' : 'empty'}">${x.wert && x.status !== 'uebersprungen' ? esc(x.wert) : 'noch offen'}</div>
+          : `<div class="fact-val ${x.wert && x.status !== 'uebersprungen' ? '' : 'empty'}">${x.wert && x.status !== 'uebersprungen' ? esc(x.wert) : esc(x.beschreibung)}</div>
              <div class="fact-tools"><button class="linkbtn" data-pr="feldedit" data-id="${x.id}">${x.wert && x.status !== 'uebersprungen' ? 'Ändern' : 'Selbst eintragen'}</button>${x.status === 'annahme' ? `<button class="linkbtn" data-pr="feldok" data-id="${x.id}">Bestätigen</button>` : ''}</div>`}
       </div>`).join('')}
     </aside>
@@ -245,9 +454,11 @@ function viewBriefing() {
 
 /* Zwei Musterfolien eines Designsystems mit den Angaben aus dem Briefing */
 function muster(sys) {
-  const b = Z().briefing || {}, roh = { titel: b.thema || 'Präsentation', folien: [
-    { layoutId: sys.layoutForTyp('title').id, inhalt: { title: b.thema || 'Titel der Präsentation', subtitle: b.kernbotschaft || '' } },
-    { layoutId: sys.layoutForTyp('content-bullets').id, inhalt: { title: b.kernbotschaft || 'Eine Aussage als Überschrift', bullets: [b.ziel || 'Erster Punkt', b.zielgruppe || 'Zweiter Punkt', b.cta || 'Dritter Punkt'].filter(Boolean) } }] };
+  const b = Z().briefing || {}, fest = ['schemaVersion', 'art', 'art_name', 'thema', 'umfang', 'kernbotschaft', 'folienzahl', 'annahmen'];
+  const werte = Object.entries(b).filter(([k, v]) => typeof v === 'string' && v && !fest.includes(k)).map(([, v]) => v.split(/[.\n]/)[0]);
+  const roh = { titel: b.thema || 'Präsentation', folien: [
+    { layoutId: sys.layoutForTyp('title').id, inhalt: { title: b.thema || 'Titel der Präsentation', subtitle: b.kernbotschaft || werte[0] || '' } },
+    { layoutId: (sys.layouts.find(l => l.typ === 'statement') || sys.layoutForTyp('content-bullets')).id, inhalt: { statement: b.kernbotschaft || werte[0] || 'Eine starke Aussage', title: b.kernbotschaft || 'Eine Aussage als Überschrift', bullets: werte.slice(0, 3) } }] };
   return buildSlides(kuerzeSpec(roh, sys).spec, sys, { schrift: Z().schrift }).map(slideHTML).join('');
 }
 
@@ -265,6 +476,7 @@ function viewSystem() {
         <span class="pr-tags">${s.meta.tags.map(t => `<i>${esc(t)}</i>`).join('')}</span></span>
     </button>`).join('') || '<p class="muted">Es wurde kein Designsystem gefunden. Lege eines unter design-systems/ ab.</p>'}
   </section>
+  ${schalter()}
   <div class="actions" style="margin-bottom:60px">
     <button class="btn primary" data-pr="erstellen" ${ui.busy || !gewaehlt ? 'disabled' : ''}>Präsentation schreiben (${z.briefing.folienzahl} Folien)</button>
     <button class="btn" data-pr="geh" data-s="briefing" ${ui.busy ? 'disabled' : ''}>Zurück zum Briefing</button>
@@ -273,6 +485,9 @@ function viewSystem() {
   </div>${!ui.busy && ui.error ? statLine() : ''}`;
 }
 
+/* Schalter: darf die KI Layouts anpassen? */
+const schalter = () => `<label class="pr-schalter"><input type="checkbox" id="pr-kilayout" ${Z().kiLayout ? 'checked' : ''} ${ui.busy ? 'disabled' : ''}><span class="pr-schiene" aria-hidden="true"></span><span><b>KI darf Layouts anpassen</b><br><span class="muted">${Z().kiLayout ? 'An: Die KI verschiebt und vergrößert Flächen, wenn der Inhalt es braucht, und spiegelt Bildfolien für Abwechslung. Der Kompass prüft jeden Vorschlag gegen Ränder, Überlappung und Lesbarkeit.' : 'Aus: Jede Folie sieht genau so aus wie im Designsystem.'}</span></span></label>`;
+
 /* Große Folie: Texte sind direkt bearbeitbar (außer Seitenzahl und Fußzeile) */
 const buehne = f => slideHTML(f).replace(/<div class="pf-t" (data-ph="[^"]+"(?: data-index="\d+" data-feld="[^"]+")?) style/g, '<div class="pf-t" contenteditable="true" spellcheck="false" $1 style');
 
@@ -280,6 +495,7 @@ function hinweise(m) {
   const z = Z(), l = [];
   validateSpec(z.spec, system()).errors.filter(e => !e.includes('gibt es in diesem Layout nicht')).forEach(e => l.push(['zuviel', e]));
   m.forEach(f => f.elemente.filter(e => e.gekuerzt).forEach(e => l.push(['zuviel', `Folie ${f.nr}, ${e.ph}: Der Text passt nicht in die Fläche und wird abgeschnitten.`])));
+  sprachVerstoesse().forEach(v => { if (!z.pruefen.some(t => t.startsWith(v.text))) l.push(['pruefen', v.text]); });
   z.pruefen.forEach(t => l.push(['pruefen', t]));
   z.protokoll.forEach(t => l.push(['info', t]));
   return l.length ? `<details ${l.some(x => x[0] !== 'info') ? 'open' : ''}><summary>${l.length} ${l.length === 1 ? 'Hinweis' : 'Hinweise'}</summary><ul>${l.map(([art, t]) => `<li class="${art}">${esc(t)}</li>`).join('')}</ul></details>` : '';
@@ -311,11 +527,16 @@ function viewVorschau() {
     <label>Titel <input class="input" id="pr-titel" value="${esc(z.spec.titel)}" maxlength="40"></label>
     <label>Designsystem <select class="input" id="pr-system">${reg.list().map(s => `<option value="${s.id}" ${s.id === sys.id ? 'selected' : ''}>${esc(s.meta.name)}</option>`).join('')}</select></label>
     <label>Schrift <select class="input" id="pr-schrift"><option value="system" ${z.schrift !== 'marke' ? 'selected' : ''}>Systemschrift (überall gleich)</option><option value="marke" ${z.schrift === 'marke' ? 'selected' : ''}>${esc(sys.tokens.typography.headingFont)} (muss installiert sein)</option></select></label>
-    <span class="spacer"></span>
+    <span class="spacer"></span>${schalter()}
+    <button class="btn" data-pr="sichern" ${ui.busy ? 'disabled' : ''}>${ungespeichert() ? 'Speichern' : 'Gespeichert'}</button>
+    <button class="btn ghost" data-pr="neuepraes" ${ui.busy ? 'disabled' : ''}>Neue Präsentation</button>
     <button class="btn" data-pr="pdf" ${ui.busy ? 'disabled' : ''}>Als PDF drucken</button>
     <button class="btn primary" data-pr="pptx" ${ui.busy || ui.praesExport ? 'disabled' : ''}>${ui.praesExport ? 'Datei wird erstellt …' : 'Als PowerPoint speichern'}</button>
   </div>
-  ${errorBox()}
+  ${errorBox()}${ui.notice ? `<div class="notice" role="status">${esc(ui.notice)}</div>` : ''}
+  ${(() => { const v = sprachVerstoesse(), neuR = richtlinienNeu(); if (ui.busy || (!v.length && !neuR)) return ''; const folien = [...new Set(v.map(x => x.i + 1))];
+    return `<div class="notice pr-passt"><span>${neuR ? `Die Formulierungsrichtlinien von „${esc(sys.meta.name)}“ wurden geändert, nachdem diese Folien geschrieben wurden. ` : ''}${v.length ? `${v.length === 1 ? 'Eine Stelle verstößt' : `${v.length} Stellen verstoßen`} gegen die Richtlinien (Folie ${folien.join(', ')}).` : ''}</span><button class="btn tiny primary" data-pr="sprache">${neuR ? 'Alle Folien nach den Richtlinien neu schreiben' : 'Diese Folien nachbessern lassen'}</button></div>`; })()}
+  ${(() => { const n = passtNicht(); return n.length && !ui.busy ? `<div class="notice pr-passt"><span>${n.length === 1 ? 'Eine Folie passt' : `${n.length} Folien passen`} nicht ganz in ${n.length === 1 ? 'ihr Layout' : 'ihre Layouts'} (Folie ${n.map(i => i + 1).join(', ')}).</span><button class="btn tiny primary" data-pr="anpassen">Texte von der KI anpassen lassen</button></div>` : ''; })()}
   <div id="pr-hinweise" class="pr-hinweise">${hinweise(m)}</div>
   <section class="pr-editor">
     <div class="pr-thumbs" aria-label="Folien">${m.map((x, n) => `<button class="pr-thumb" data-pr="sel" data-i="${n}" aria-pressed="${n === i}" aria-label="Folie ${n + 1}"><span class="pr-nr">${n + 1}</span><span class="pr-thumb-f">${slideHTML(x)}</span></button>`).join('')}</div>
@@ -331,8 +552,15 @@ function viewVorschau() {
       ${live()}${!ui.busy && ui.error ? statLine() : ''}
     </div>
     <aside class="panel pr-panel">
-      <label class="pr-feld"><span>Layout</span><select class="input" id="pr-layout">${sys.layouts.map(l => `<option value="${l.id}" ${l.id === layout.id ? 'selected' : ''}>${esc(l.name || l.id)}</option>`).join('')}</select></label>
+      <div class="pr-wirkung">
+        <label class="pr-feld"><span>Wirkung</span><select class="input" id="pr-form"><option value="">(nicht festgelegt)</option>${FORM_IDS.map(k => `<option value="${k}" ${f.form === k ? 'selected' : ''}>${esc(FORMEN[k].split(':')[0].split(',')[0])}</option>`).join('')}</select></label>
+        <label class="pr-betont"><input type="checkbox" id="pr-betont" ${f.betont ? 'checked' : ''}> betont</label>
+      </div>
+      ${(() => { const passend = f.form ? rangliste(f.form, f.betont, sys).map(l => l.id) : []; const gruppen = [...new Set(sys.layouts.map(l => l.typ))];
+        return `<label class="pr-feld"><span>Layout</span><select class="input" id="pr-layout">${passend.length ? `<optgroup label="Passt zur Wirkung">${passend.map(id => sys.layout(id)).map(l => `<option value="${l.id}" ${l.id === layout.id ? 'selected' : ''}>${esc(l.name || l.id)}</option>`).join('')}</optgroup>` : ''}${gruppen.map(t => `<optgroup label="${esc(typName(t))}">${sys.layouts.filter(l => l.typ === t && !passend.includes(l.id)).map(l => `<option value="${l.id}" ${l.id === layout.id ? 'selected' : ''}>${esc(l.name || l.id)}</option>`).join('')}</optgroup>`).join('')}</select></label>`; })()}
       <p class="small muted" style="margin:-4px 0 12px">${esc(layout.beschreibung)}</p>
+      ${z.kiLayout ? `<div class="pr-neu" style="margin-bottom:12px"><label class="pr-feld"><span>Layout dieser Folie anpassen</span><textarea rows="2" id="pr-lwunsch" placeholder="Optional: zum Beispiel Bild größer, Aussage weiter nach oben."></textarea></label>
+        <div class="actions" style="margin:0"><button class="btn tiny" data-pr="gestalten" ${ui.busy ? 'disabled' : ''}>Von der KI anpassen lassen</button>${f.anpassung ? '<button class="btn tiny ghost" data-pr="original">Original-Layout</button>' : ''}</div></div>` : (f.anpassung ? '<p class="small muted">Diese Folie hat Anpassungen der KI. Sie sind ausgeblendet, solange der Schalter aus ist.</p>' : '')}
       ${felder(f, layout)}
       <label class="pr-feld"><span>Sprechernotizen</span><textarea rows="3" id="pr-notizen">${esc(f.notizen || '')}</textarea></label>
       <div class="pr-neu"><label class="pr-feld"><span>Von der KI neu schreiben lassen</span><textarea rows="2" id="pr-wunsch" placeholder="Optional: Was soll anders werden? Zum Beispiel: kürzer, mit Beispiel, sachlicher."></textarea></label>
@@ -343,6 +571,7 @@ function viewVorschau() {
 
 function view() {
   const z = Z();
+  if (z.B && !z.B.art) { z.B = null; z.briefing = null; } /* Briefing aus einer älteren Version */
   if (z.schritt === 'briefing' && !z.B) z.schritt = 'start';
   if (z.schritt === 'system' && !z.briefing) z.schritt = z.B ? 'briefing' : 'start';
   if (z.schritt === 'vorschau' && !z.spec) z.schritt = 'start';
@@ -364,6 +593,17 @@ function klick(e) {
     case 'geh': return geh(d.s);
     case 'systeme': Z().vorSystemen = Z().schritt; return geh('systeme');
     case 'start': return starte();
+    case 'sichern': return sichere(false);
+    case 'neuepraes': return neuePraesentation();
+    case 'oeffnen': return oeffneGespeicherte(d.id);
+    case 'wegspeicher': return loescheGespeicherte(d.id);
+    case 'datei': return alsDatei(d.id);
+    case 'sprache': return nachRichtlinien();
+    case 'quelle': z.quelle = d.q; save(); return render();
+    case 'analyse': return erstAnalysieren();
+    case 'anpassen': return passeTexteAn();
+    case 'gestalten': ui.notice = null; return gestalte();
+    case 'original': delete folie().anpassung; save(); return render();
     case 'beispiel': return beispiel();
     case 'chip': { const t = document.getElementById('pr-answer'); t.value = z.B.aktuell.vorschlaege[+d.i]; return t.focus(); }
     case 'send': return antworte();
@@ -376,7 +616,7 @@ function klick(e) {
     case 'feldok': z.B.felder.find(x => x.id === d.id).status = 'bestaetigt'; save(); return render();
     case 'system': z.systemId = d.id; save(); return render();
     case 'erstellen': return erstelle();
-    case 'sel': z.auswahl = +d.i; save(); return render();
+    case 'sel': z.auswahl = +d.i; ui.notice = null; save(); return render();
     case 'fa': return folienAktion(d.a);
     case 'neu': return schreibeNeu();
     case 'itemweg': { const l = folie().inhalt[d.ph]; if (Array.isArray(l)) l.splice(+d.i, 1); save(); return render(); }
@@ -398,10 +638,14 @@ function wechsel(e) {
   if (!an()) return;
   if (Z().schritt === 'systeme') { wechselSysteme(e); return; }
   const t = e.target, z = Z();
-  if (t.id === 'pr-proj') { z.mitProjekt = t.checked; return save(); }
+  if (t.id === 'pr-datei' && t.files[0]) { ausDatei(t.files[0]); t.value = ''; return; }
+  if (t.id === 'pr-kilayout') { z.kiLayout = t.checked; save(); return render(); }
+  if (t.id === 'pr-form') { if (t.value) return setzeForm(t.value, !!folie().betont); delete folie().form; save(); return render(); }
+  if (t.id === 'pr-betont') { const f = folie(); if (f.form) return setzeForm(f.form, t.checked); f.betont = t.checked; save(); return render(); }
+  if (t.id === 'pr-art' && z.B && prompts) { P.setzeArt(z.B, t.value, prompts.arten); z.briefing = null; z.vorschlag = null; save(); return render(); }
   if (t.id === 'pr-system') return wechsleSystem(t.value);
   if (t.id === 'pr-schrift') { z.schrift = t.value; save(); return render(); }
-  if (t.id === 'pr-layout') { folie().layoutId = t.value; save(); return render(); }
+  if (t.id === 'pr-layout') { const f = folie(), l = system().layout(t.value); f.layoutId = t.value; delete f.anpassung; if (l) f.inhalt = ordneInhaltZu(f.inhalt, l); save(); return render(); }
   if (t.dataset && t.dataset.prb) { setze({ ph: t.dataset.prb }, t.value); return zeichneFolie(); }
   if (t.dataset && t.dataset.pri) return render(); /* neue leere Zeile für den nächsten Eintrag anbieten */
 }
@@ -442,7 +686,39 @@ const CSS = FOLIEN_CSS + SYSTEME_CSS + `
 .pr-pfad button[aria-current="step"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
 .pr-pfad button[aria-current="step"] b{background:var(--accent);color:var(--on-accent)}
 .pr-pfad button:disabled{opacity:.5;cursor:default}
+.pr-art{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:flex-end;margin:0 0 12px}
+.pr-art label{display:flex;flex-direction:column;gap:3px;font-size:.8rem;color:var(--muted)}
+.pr-art .input{width:auto;min-width:220px;color:var(--ink);background:var(--surface)}
+.pr-art .small{padding-bottom:9px}
+.qmeta .spacer{flex:1}
+.pr-pflicht{color:var(--accent);font-weight:700}
+.pr-unwichtig{opacity:.55}
 .pr-start{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:22px;align-items:start}
+.pr-quellen{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:6px 0 18px}
+.pr-quelle{display:flex;flex-direction:column;gap:6px;text-align:left;border:2px solid var(--line);background:var(--surface);border-radius:var(--radius-m);padding:12px 14px;font-size:.88rem;color:var(--muted)}
+.pr-quelle b{color:var(--ink);font-size:.98rem}
+.pr-quelle:hover{border-color:var(--muted)}
+.pr-quelle[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.pr-schalter{display:flex;gap:10px;align-items:flex-start;font-size:.84rem;max-width:520px;cursor:pointer;margin:0 0 14px}
+.pr-leiste .pr-schalter{margin:0;max-width:330px;font-size:.78rem}
+.pr-schalter input{position:absolute;opacity:0;width:1px;height:1px}
+.pr-schiene{flex:none;width:36px;height:20px;border-radius:999px;background:var(--line);position:relative;margin-top:2px;transition:background .15s}
+.pr-schiene::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}
+.pr-schalter input:checked+.pr-schiene{background:var(--accent)}
+.pr-schalter input:checked+.pr-schiene::after{left:18px}
+.pr-schalter input:focus-visible+.pr-schiene{outline:2px solid var(--accent);outline-offset:2px}
+.pr-wirkung{display:flex;gap:10px;align-items:flex-end}.pr-wirkung .pr-feld{flex:1}
+.pr-betont{display:flex;gap:6px;align-items:center;font-size:.82rem;margin-bottom:20px;white-space:nowrap}
+.pr-ablage{grid-column:1 / -1;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);padding:16px 18px}
+.pr-ablage .side-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.pr-ablage-liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.pr-karte{display:flex;flex-direction:column;gap:4px;font-size:.9rem}
+.pr-karte-bild{border:1px solid var(--line);border-radius:6px;padding:0;background:none;overflow:hidden;min-height:40px}
+.pr-karte.aktiv .pr-karte-bild{outline:2px solid var(--accent)}
+.pr-karte-tools{display:flex;gap:12px}
+.pr-passt{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.pr-weiter{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;border:2px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius-l);padding:14px 18px;margin:0 0 18px}
+.pr-weiter div{display:flex;flex-direction:column;gap:3px}.pr-weiter span{color:var(--muted);font-size:.92rem}
 .pr-ablauf{margin:0;padding-left:20px;font-size:.92rem}.pr-ablauf li{margin:0 0 8px}
 .pr-systeme{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;margin:6px 0 20px}
 .pr-system{text-align:left;border:2px solid var(--line);background:var(--surface);border-radius:var(--radius-l);padding:14px;display:flex;flex-direction:column;gap:12px}
@@ -502,6 +778,14 @@ initSysteme({ reg, ladePrompts, ki, zurueck: () => geh(Z().vorSystemen && Z().vo
 /* Zähler nach jedem Zeichnen füllen */
 new MutationObserver(() => { if (an()) document.querySelectorAll('[data-zaehler]').forEach(el => { if (!el.textContent) { const t = document.querySelector(`[data-prf="${el.dataset.zaehler}"]`); if (t) zaehler(el, t); } }); }).observe(app, { childList: true });
 
-window.Praes = { view, open, close, reg };
+/* Hinweis auf der Ergebnisseite der Projektanalyse, wenn die Person mit einer Präsentation gestartet ist */
+function hinweis() {
+  const z = S.praes;
+  if (!z || !z.nachAnalyse || !S.ergebnis) return '';
+  return `<div class="pr-weiter"><div><b>Deine Analyse ist fertig.</b><span>Jetzt die Präsentation: Ziel, Zielgruppe und Kernbotschaft sind schon bekannt, es bleiben nur wenige Fragen.</span></div><button class="btn primary" data-act="openpraes">Weiter zur Präsentation</button></div>`;
+}
+function oeffneNachAnalyse() { const z = Z(); if (z.nachAnalyse) { z.nachAnalyse = false; z.quelle = 'projekt'; z.schritt = z.spec ? z.schritt : 'start'; } open(); }
+
+window.Praes = { view, open: oeffneNachAnalyse, close, reg, hinweis };
 if (an()) render();
 reg.discover('design-systems/').then(ladeGespeicherte).then(() => { bereit = true; if (an()) render(); });

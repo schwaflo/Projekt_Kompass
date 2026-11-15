@@ -6,7 +6,13 @@
     "beschreibung": "Seriöses Unternehmensdesign in Dunkelblau mit türkisem Akzent. Dunkle Titel- und Kapitelfolien, helle Inhaltsfolien mit klarer Kopfzeile.",
     "version": "1.0.0",
     "autor": "Projekt-Kompass",
-    "tags": ["corporate", "seriös", "business", "dunkel", "klassisch"]
+    "tags": [
+      "corporate",
+      "seriös",
+      "business",
+      "dunkel",
+      "klassisch"
+    ]
   },
   "tokens": {
     "colors": {
@@ -23,32 +29,121 @@
       "onPrimary": "#FFFFFF",
       "onPrimaryMuted": "#B8C6DC",
       "border": "#D5DCE6",
-      "chartPalette": ["#12284C", "#17B3A3", "#2E5E8C", "#F2A541", "#7A5AF8", "#E4572E"]
+      "chartPalette": [
+        "#12284C",
+        "#17B3A3",
+        "#2E5E8C",
+        "#F2A541",
+        "#7A5AF8",
+        "#E4572E"
+      ]
     },
     "typography": {
       "headingFont": "Manrope",
       "bodyFont": "Inter",
-      "headingFallback": ["Arial", "Helvetica", "sans-serif"],
-      "bodyFallback": ["Arial", "Helvetica", "sans-serif"],
+      "headingFallback": [
+        "Arial",
+        "Helvetica",
+        "sans-serif"
+      ],
+      "bodyFallback": [
+        "Arial",
+        "Helvetica",
+        "sans-serif"
+      ],
       "googleFonts": true,
-      "sizes": { "display": 72, "title": 44, "h1": 30, "quote": 30, "kpi": 46, "h2": 20, "body": 18, "small": 14, "caption": 12 },
+      "sizes": {
+        "display": 72,
+        "title": 44,
+        "h1": 30,
+        "quote": 30,
+        "kpi": 46,
+        "h2": 20,
+        "body": 18,
+        "small": 14,
+        "caption": 12,
+        "statement": 40,
+        "bignumber": 110
+      },
       "lineHeight": 1.25,
       "headingBold": true
     },
-    "spacing": { "marginX": 6, "marginY": 8, "gap": 3, "grid": { "columns": 12, "gutter": 2 } },
-    "shapes": { "radius": 6, "lineWidth": 1, "shadow": "soft" }
+    "spacing": {
+      "marginX": 6,
+      "marginY": 8,
+      "gap": 3,
+      "grid": {
+        "columns": 12,
+        "gutter": 2
+      }
+    },
+    "shapes": {
+      "radius": 6,
+      "lineWidth": 1,
+      "shadow": "soft"
+    }
   },
   "masters": {
     "inhalt": {
       "background": "background",
       "deko": [
-        { "shape": "rect", "x": 6, "y": 9, "w": 5, "h": 0.8, "fill": "accent" },
-        { "shape": "rect", "x": 6, "y": 90.5, "w": 88, "h": 0.2, "fill": "border" }
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 9,
+          "w": 5,
+          "h": 0.8,
+          "fill": "accent"
+        },
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 90.5,
+          "w": 88,
+          "h": 0.2,
+          "fill": "border"
+        }
       ],
       "placeholders": [
-        { "id": "footer", "typ": "text", "auto": "presentationTitle", "x": 6, "y": 92.5, "w": 60, "h": 4.5, "style": { "size": "caption", "color": "textMuted", "valign": "middle" } },
-        { "id": "page", "typ": "text", "auto": "pageNumber", "x": 84, "y": 92.5, "w": 10, "h": 4.5, "style": { "size": "caption", "color": "textMuted", "align": "right", "valign": "middle" } },
-        { "id": "logo", "typ": "logo", "asset": "logo-icon", "x": 89.5, "y": 6, "w": 4.5, "h": 8, "fit": "contain" }
+        {
+          "id": "footer",
+          "typ": "text",
+          "auto": "presentationTitle",
+          "x": 6,
+          "y": 92.5,
+          "w": 60,
+          "h": 4.5,
+          "style": {
+            "size": "caption",
+            "color": "textMuted",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "page",
+          "typ": "text",
+          "auto": "pageNumber",
+          "x": 84,
+          "y": 92.5,
+          "w": 10,
+          "h": 4.5,
+          "style": {
+            "size": "caption",
+            "color": "textMuted",
+            "align": "right",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "logo",
+          "typ": "logo",
+          "asset": "logo-icon",
+          "x": 89.5,
+          "y": 6,
+          "w": 4.5,
+          "h": 8,
+          "fit": "contain"
+        }
       ]
     }
   },
@@ -59,15 +154,92 @@
       "beschreibung": "Erste Folie der Präsentation: Titel, Untertitel und eine Zeile für Anlass, Datum oder Vortragende.",
       "background": "primary",
       "deko": [
-        { "shape": "ellipse", "x": 64, "y": -30, "w": 56, "h": 100, "fill": "secondary", "opacity": 0.35 },
-        { "shape": "ellipse", "x": 78, "y": 38, "w": 40, "h": 71, "fill": "accent", "opacity": 0.18 },
-        { "shape": "rect", "x": 6, "y": 60.5, "w": 8, "h": 0.9, "fill": "accent" }
+        {
+          "shape": "ellipse",
+          "x": 64,
+          "y": -30,
+          "w": 56,
+          "h": 100,
+          "fill": "secondary",
+          "opacity": 0.35
+        },
+        {
+          "shape": "ellipse",
+          "x": 78,
+          "y": 38,
+          "w": 40,
+          "h": 71,
+          "fill": "accent",
+          "opacity": 0.18
+        },
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 60.5,
+          "w": 8,
+          "h": 0.9,
+          "fill": "accent"
+        }
       ],
       "placeholders": [
-        { "id": "logo", "typ": "logo", "asset": "logo-negative", "x": 6, "y": 8, "w": 18, "h": 8.5, "fit": "contain" },
-        { "id": "title", "typ": "text", "beschreibung": "Titel der Präsentation", "pflicht": true, "x": 6, "y": 26, "w": 60, "h": 32, "maxChars": 60, "style": { "font": "heading", "size": "title", "color": "onPrimary", "valign": "bottom" } },
-        { "id": "subtitle", "typ": "text", "beschreibung": "Untertitel: worum es geht, in einem Satz", "x": 6, "y": 65, "w": 60, "h": 14, "maxChars": 110, "style": { "size": "h2", "color": "onPrimaryMuted", "valign": "top" } },
-        { "id": "meta", "typ": "text", "beschreibung": "Anlass, Datum oder Vortragende", "x": 6, "y": 86, "w": 60, "h": 6, "maxChars": 60, "style": { "size": "caption", "color": "onPrimaryMuted", "valign": "middle", "uppercase": true } }
+        {
+          "id": "logo",
+          "typ": "logo",
+          "asset": "logo-negative",
+          "x": 6,
+          "y": 8,
+          "w": 18,
+          "h": 8.5,
+          "fit": "contain"
+        },
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Titel der Präsentation",
+          "pflicht": true,
+          "x": 6,
+          "y": 26,
+          "w": 60,
+          "h": 32,
+          "maxChars": 60,
+          "style": {
+            "font": "heading",
+            "size": "title",
+            "color": "onPrimary",
+            "valign": "bottom"
+          }
+        },
+        {
+          "id": "subtitle",
+          "typ": "text",
+          "beschreibung": "Untertitel: worum es geht, in einem Satz",
+          "x": 6,
+          "y": 65,
+          "w": 60,
+          "h": 14,
+          "maxChars": 110,
+          "style": {
+            "size": "h2",
+            "color": "onPrimaryMuted",
+            "valign": "top"
+          }
+        },
+        {
+          "id": "meta",
+          "typ": "text",
+          "beschreibung": "Anlass, Datum oder Vortragende",
+          "x": 6,
+          "y": 86,
+          "w": 60,
+          "h": 6,
+          "maxChars": 60,
+          "style": {
+            "size": "caption",
+            "color": "onPrimaryMuted",
+            "valign": "middle",
+            "uppercase": true
+          }
+        }
       ]
     },
     {
@@ -76,12 +248,138 @@
       "beschreibung": "Leitet einen neuen Abschnitt ein: Kapitelnummer, Kapiteltitel und ein kurzer Satz, was jetzt kommt.",
       "background": "primary",
       "deko": [
-        { "shape": "rect", "x": 0, "y": 0, "w": 2.2, "h": 100, "fill": "accent" }
+        {
+          "shape": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 2.2,
+          "h": 100,
+          "fill": "accent"
+        }
       ],
       "placeholders": [
-        { "id": "number", "typ": "text", "beschreibung": "Kapitelnummer, zum Beispiel 01", "x": 6, "y": 20, "w": 30, "h": 24, "maxChars": 2, "style": { "font": "heading", "size": "display", "color": "accent", "valign": "bottom" } },
-        { "id": "title", "typ": "text", "beschreibung": "Kapiteltitel", "pflicht": true, "x": 6, "y": 46, "w": 80, "h": 20, "maxChars": 50, "style": { "font": "heading", "size": "title", "color": "onPrimary", "valign": "top" } },
-        { "id": "subtitle", "typ": "text", "beschreibung": "Ein Satz zum Inhalt des Kapitels", "x": 6, "y": 70, "w": 70, "h": 14, "maxChars": 120, "style": { "size": "h2", "color": "onPrimaryMuted", "valign": "top" } }
+        {
+          "id": "number",
+          "typ": "text",
+          "beschreibung": "Kapitelnummer, zum Beispiel 01",
+          "x": 6,
+          "y": 20,
+          "w": 30,
+          "h": 24,
+          "maxChars": 2,
+          "style": {
+            "font": "heading",
+            "size": "display",
+            "color": "accent",
+            "valign": "bottom"
+          }
+        },
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Kapiteltitel",
+          "pflicht": true,
+          "x": 6,
+          "y": 46,
+          "w": 80,
+          "h": 20,
+          "maxChars": 50,
+          "style": {
+            "font": "heading",
+            "size": "title",
+            "color": "onPrimary",
+            "valign": "top"
+          }
+        },
+        {
+          "id": "subtitle",
+          "typ": "text",
+          "beschreibung": "Ein Satz zum Inhalt des Kapitels",
+          "x": 6,
+          "y": 70,
+          "w": 70,
+          "h": 14,
+          "maxChars": 120,
+          "style": {
+            "size": "h2",
+            "color": "onPrimaryMuted",
+            "valign": "top"
+          }
+        }
+      ]
+    },
+    {
+      "id": "statement",
+      "name": "Große Aussage",
+      "beschreibung": "Eine einzige starke Aussage groß auf dunklem Grund, darunter optional ein erklärender Satz. Für den Haken am Anfang, die Kernidee oder eine Empfehlung.",
+      "background": "primary",
+      "deko": [
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 27,
+          "w": 8,
+          "h": 0.9,
+          "fill": "accent"
+        },
+        {
+          "shape": "ellipse",
+          "x": 72,
+          "y": 46,
+          "w": 46,
+          "h": 82,
+          "fill": "secondary",
+          "opacity": 0.3
+        }
+      ],
+      "placeholders": [
+        {
+          "id": "statement",
+          "typ": "text",
+          "beschreibung": "Die Aussage als ganzer Satz, höchstens 12 Wörter",
+          "pflicht": true,
+          "x": 6,
+          "y": 31,
+          "w": 76,
+          "h": 40,
+          "maxChars": 80,
+          "style": {
+            "font": "heading",
+            "size": "statement",
+            "color": "onPrimary",
+            "valign": "top"
+          }
+        },
+        {
+          "id": "subline",
+          "typ": "text",
+          "beschreibung": "Ein Satz, der die Aussage einordnet",
+          "x": 6,
+          "y": 75,
+          "w": 66,
+          "h": 12,
+          "maxChars": 110,
+          "style": {
+            "size": "h2",
+            "color": "onPrimaryMuted",
+            "valign": "top"
+          }
+        },
+        {
+          "id": "page",
+          "typ": "text",
+          "auto": "pageNumber",
+          "x": 84,
+          "y": 92.5,
+          "w": 10,
+          "h": 4.5,
+          "style": {
+            "size": "caption",
+            "color": "onPrimaryMuted",
+            "align": "right",
+            "valign": "middle"
+          }
+        }
       ]
     },
     {
@@ -90,8 +388,40 @@
       "beschreibung": "Standardfolie: eine Aussage als Überschrift und bis zu fünf Stichpunkte. Für Argumente, Ergebnisse und Listen.",
       "master": "inhalt",
       "placeholders": [
-        { "id": "title", "typ": "text", "beschreibung": "Überschrift als Aussage", "pflicht": true, "x": 6, "y": 11.5, "w": 80, "h": 14, "maxChars": 70, "style": { "font": "heading", "size": "h1", "color": "primary", "valign": "middle" } },
-        { "id": "bullets", "typ": "bullets", "beschreibung": "Stichpunkte, jeder ein vollständiger Gedanke", "pflicht": true, "x": 6, "y": 29, "w": 86, "h": 57, "maxItems": 5, "maxCharsPerItem": 110, "style": { "size": "body", "color": "text", "bullet": "dot" } }
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 11.5,
+          "w": 80,
+          "h": 14,
+          "maxChars": 70,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "bullets",
+          "typ": "bullets",
+          "beschreibung": "Stichpunkte, jeder ein vollständiger Gedanke",
+          "pflicht": true,
+          "x": 6,
+          "y": 29,
+          "w": 86,
+          "h": 57,
+          "maxItems": 5,
+          "maxCharsPerItem": 110,
+          "style": {
+            "size": "body",
+            "color": "text",
+            "bullet": "dot"
+          }
+        }
       ]
     },
     {
@@ -100,14 +430,165 @@
       "beschreibung": "Stellt zwei Themen nebeneinander, zum Beispiel heute und künftig, Problem und Lösung, Option A und B.",
       "master": "inhalt",
       "deko": [
-        { "shape": "rect", "x": 49.9, "y": 30, "w": 0.2, "h": 54, "fill": "border" }
+        {
+          "shape": "rect",
+          "x": 49.9,
+          "y": 30,
+          "w": 0.2,
+          "h": 54,
+          "fill": "border"
+        }
       ],
       "placeholders": [
-        { "id": "title", "typ": "text", "beschreibung": "Überschrift als Aussage", "pflicht": true, "x": 6, "y": 11.5, "w": 80, "h": 14, "maxChars": 70, "style": { "font": "heading", "size": "h1", "color": "primary", "valign": "middle" } },
-        { "id": "leftTitle", "typ": "text", "beschreibung": "Titel der linken Spalte", "x": 6, "y": 29, "w": 40, "h": 8, "maxChars": 36, "style": { "font": "heading", "size": "h2", "color": "secondary", "valign": "middle" } },
-        { "id": "leftBullets", "typ": "bullets", "beschreibung": "Stichpunkte links", "pflicht": true, "x": 6, "y": 39, "w": 40, "h": 47, "maxItems": 4, "maxCharsPerItem": 80, "style": { "size": "body", "color": "text", "bullet": "dot" } },
-        { "id": "rightTitle", "typ": "text", "beschreibung": "Titel der rechten Spalte", "x": 54, "y": 29, "w": 40, "h": 8, "maxChars": 36, "style": { "font": "heading", "size": "h2", "color": "secondary", "valign": "middle" } },
-        { "id": "rightBullets", "typ": "bullets", "beschreibung": "Stichpunkte rechts", "pflicht": true, "x": 54, "y": 39, "w": 40, "h": 47, "maxItems": 4, "maxCharsPerItem": 80, "style": { "size": "body", "color": "text", "bullet": "dot" } }
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 11.5,
+          "w": 80,
+          "h": 14,
+          "maxChars": 70,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "leftTitle",
+          "typ": "text",
+          "beschreibung": "Titel der linken Spalte",
+          "x": 6,
+          "y": 29,
+          "w": 40,
+          "h": 8,
+          "maxChars": 36,
+          "style": {
+            "font": "heading",
+            "size": "h2",
+            "color": "secondary",
+            "valign": "middle"
+          },
+          "pflicht": true
+        },
+        {
+          "id": "leftBullets",
+          "typ": "bullets",
+          "beschreibung": "Stichpunkte links",
+          "pflicht": true,
+          "x": 6,
+          "y": 39,
+          "w": 40,
+          "h": 47,
+          "maxItems": 4,
+          "maxCharsPerItem": 80,
+          "style": {
+            "size": "body",
+            "color": "text",
+            "bullet": "dot"
+          }
+        },
+        {
+          "id": "rightTitle",
+          "typ": "text",
+          "beschreibung": "Titel der rechten Spalte",
+          "x": 54,
+          "y": 29,
+          "w": 40,
+          "h": 8,
+          "maxChars": 36,
+          "style": {
+            "font": "heading",
+            "size": "h2",
+            "color": "secondary",
+            "valign": "middle"
+          },
+          "pflicht": true
+        },
+        {
+          "id": "rightBullets",
+          "typ": "bullets",
+          "beschreibung": "Stichpunkte rechts",
+          "pflicht": true,
+          "x": 54,
+          "y": 39,
+          "w": 40,
+          "h": 47,
+          "maxItems": 4,
+          "maxCharsPerItem": 80,
+          "style": {
+            "size": "body",
+            "color": "text",
+            "bullet": "dot"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cards",
+      "name": "Drei Karten",
+      "beschreibung": "Zwei oder drei gleichwertige Punkte nebeneinander auf Karten, jeder mit kurzem Titel und einem Satz. Für die Bausteine einer Lösung, Vorteile oder Möglichkeiten.",
+      "master": "inhalt",
+      "placeholders": [
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 11.5,
+          "w": 80,
+          "h": 14,
+          "maxChars": 70,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "cards",
+          "typ": "items",
+          "beschreibung": "Die Punkte",
+          "pflicht": true,
+          "x": 6,
+          "y": 31,
+          "w": 88,
+          "h": 52,
+          "minItems": 2,
+          "maxItems": 3,
+          "variante": "karten",
+          "on": "surface",
+          "felder": [
+            {
+              "id": "title",
+              "beschreibung": "Kurzer Titel des Punkts",
+              "maxChars": 30,
+              "anteil": 32,
+              "style": {
+                "font": "heading",
+                "size": "h2",
+                "color": "primary",
+                "valign": "top"
+              }
+            },
+            {
+              "id": "text",
+              "beschreibung": "Ein Satz zum Punkt",
+              "maxChars": 100,
+              "anteil": 68,
+              "style": {
+                "size": "body",
+                "color": "text",
+                "valign": "top"
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -116,13 +597,154 @@
       "beschreibung": "Hochformatiges Bild über die ganze linke Seite, rechts Überschrift und Stichpunkte. Für Folien, die ein Thema anschaulich machen.",
       "background": "background",
       "deko": [
-        { "shape": "rect", "x": 46, "y": 9, "w": 5, "h": 0.8, "fill": "accent" }
+        {
+          "shape": "rect",
+          "x": 46,
+          "y": 9,
+          "w": 5,
+          "h": 0.8,
+          "fill": "accent"
+        }
       ],
       "placeholders": [
-        { "id": "image", "typ": "image", "beschreibung": "Hochformatiges Bild", "asset": "portrait-image", "x": 0, "y": 0, "w": 40, "h": 100, "fit": "cover" },
-        { "id": "title", "typ": "text", "beschreibung": "Überschrift als Aussage", "pflicht": true, "x": 46, "y": 11.5, "w": 48, "h": 20, "maxChars": 60, "style": { "font": "heading", "size": "h1", "color": "primary", "valign": "middle" } },
-        { "id": "bullets", "typ": "bullets", "beschreibung": "Stichpunkte", "pflicht": true, "x": 46, "y": 35, "w": 48, "h": 51, "maxItems": 4, "maxCharsPerItem": 90, "style": { "size": "body", "color": "text", "bullet": "dot" } },
-        { "id": "page", "typ": "text", "auto": "pageNumber", "x": 84, "y": 92.5, "w": 10, "h": 4.5, "style": { "size": "caption", "color": "textMuted", "align": "right", "valign": "middle" } }
+        {
+          "id": "image",
+          "typ": "image",
+          "beschreibung": "Hochformatiges Bild",
+          "asset": "portrait-image",
+          "x": 0,
+          "y": 0,
+          "w": 40,
+          "h": 100,
+          "fit": "cover"
+        },
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 46,
+          "y": 11.5,
+          "w": 48,
+          "h": 20,
+          "maxChars": 60,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "bullets",
+          "typ": "bullets",
+          "beschreibung": "Stichpunkte",
+          "pflicht": true,
+          "x": 46,
+          "y": 35,
+          "w": 48,
+          "h": 51,
+          "maxItems": 4,
+          "maxCharsPerItem": 90,
+          "style": {
+            "size": "body",
+            "color": "text",
+            "bullet": "dot"
+          }
+        },
+        {
+          "id": "page",
+          "typ": "text",
+          "auto": "pageNumber",
+          "x": 84,
+          "y": 92.5,
+          "w": 10,
+          "h": 4.5,
+          "style": {
+            "size": "caption",
+            "color": "textMuted",
+            "align": "right",
+            "valign": "middle"
+          }
+        }
+      ]
+    },
+    {
+      "id": "image-right",
+      "name": "Text links, Bild rechts",
+      "beschreibung": "Überschrift und Stichpunkte links, hochformatiges Bild über die ganze rechte Seite. Spiegelbild von image-left, für Abwechslung.",
+      "background": "background",
+      "deko": [
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 9,
+          "w": 5,
+          "h": 0.8,
+          "fill": "accent"
+        }
+      ],
+      "placeholders": [
+        {
+          "id": "image",
+          "typ": "image",
+          "beschreibung": "Hochformatiges Bild",
+          "asset": "portrait-image",
+          "x": 60,
+          "y": 0,
+          "w": 40,
+          "h": 100,
+          "fit": "cover"
+        },
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 11.5,
+          "w": 48,
+          "h": 20,
+          "maxChars": 60,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "bullets",
+          "typ": "bullets",
+          "beschreibung": "Stichpunkte",
+          "pflicht": true,
+          "x": 6,
+          "y": 35,
+          "w": 48,
+          "h": 51,
+          "maxItems": 4,
+          "maxCharsPerItem": 90,
+          "style": {
+            "size": "body",
+            "color": "text",
+            "bullet": "dot"
+          }
+        },
+        {
+          "id": "page",
+          "typ": "text",
+          "auto": "pageNumber",
+          "x": 44,
+          "y": 92.5,
+          "w": 10,
+          "h": 4.5,
+          "style": {
+            "size": "caption",
+            "color": "textMuted",
+            "align": "right",
+            "valign": "middle"
+          }
+        }
       ]
     },
     {
@@ -131,13 +753,70 @@
       "beschreibung": "Ein Bild füllt die ganze Folie, darüber eine kurze Aussage. Für emotionale Momente und starke Einstiege.",
       "background": "primary",
       "deko": [
-        { "shape": "rect", "x": 0, "y": 60, "w": 100, "h": 40, "fill": "primary", "opacity": 0.85 },
-        { "shape": "rect", "x": 6, "y": 66, "w": 5, "h": 0.8, "fill": "accent" }
+        {
+          "shape": "rect",
+          "x": 0,
+          "y": 60,
+          "w": 100,
+          "h": 40,
+          "fill": "primary",
+          "opacity": 0.85
+        },
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 66,
+          "w": 5,
+          "h": 0.8,
+          "fill": "accent"
+        }
       ],
       "placeholders": [
-        { "id": "image", "typ": "image", "beschreibung": "Querformatiges Bild, füllt die Folie", "asset": "hero-image", "x": 0, "y": 0, "w": 100, "h": 100, "fit": "cover" },
-        { "id": "title", "typ": "text", "beschreibung": "Kurze, starke Aussage", "pflicht": true, "x": 6, "y": 69, "w": 84, "h": 13, "maxChars": 60, "on": "primary", "style": { "font": "heading", "size": "h1", "color": "onPrimary", "valign": "middle" } },
-        { "id": "caption", "typ": "text", "beschreibung": "Ein erklärender Satz", "x": 6, "y": 83, "w": 84, "h": 10, "maxChars": 120, "on": "primary", "style": { "size": "h2", "color": "onPrimaryMuted", "valign": "top" } }
+        {
+          "id": "image",
+          "typ": "image",
+          "beschreibung": "Querformatiges Bild, füllt die Folie",
+          "asset": "hero-image",
+          "x": 0,
+          "y": 0,
+          "w": 100,
+          "h": 100,
+          "fit": "cover"
+        },
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Kurze, starke Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 69,
+          "w": 84,
+          "h": 13,
+          "maxChars": 60,
+          "on": "primary",
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "onPrimary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "caption",
+          "typ": "text",
+          "beschreibung": "Ein erklärender Satz",
+          "x": 6,
+          "y": 83,
+          "w": 84,
+          "h": 10,
+          "maxChars": 120,
+          "on": "primary",
+          "style": {
+            "size": "h2",
+            "color": "onPrimaryMuted",
+            "valign": "top"
+          }
+        }
       ]
     },
     {
@@ -146,13 +825,179 @@
       "beschreibung": "Zwei bis vier Kennzahlen groß nebeneinander, jede mit kurzer Erklärung. Nur verwenden, wenn echte Zahlen vorliegen.",
       "master": "inhalt",
       "placeholders": [
-        { "id": "title", "typ": "text", "beschreibung": "Überschrift als Aussage", "pflicht": true, "x": 6, "y": 11.5, "w": 80, "h": 14, "maxChars": 70, "style": { "font": "heading", "size": "h1", "color": "primary", "valign": "middle" } },
-        { "id": "kpis", "typ": "items", "beschreibung": "Kennzahlen", "pflicht": true, "x": 6, "y": 31, "w": 88, "h": 40, "minItems": 2, "maxItems": 4, "variante": "karten", "on": "surface",
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 11.5,
+          "w": 80,
+          "h": 14,
+          "maxChars": 70,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "kpis",
+          "typ": "items",
+          "beschreibung": "Kennzahlen",
+          "pflicht": true,
+          "x": 6,
+          "y": 31,
+          "w": 88,
+          "h": 40,
+          "minItems": 2,
+          "maxItems": 4,
+          "variante": "karten",
+          "on": "surface",
           "felder": [
-            { "id": "value", "beschreibung": "Die Zahl mit Einheit, zum Beispiel 42 % oder 1,2 Mio.", "maxChars": 9, "anteil": 55, "style": { "font": "heading", "size": "kpi", "color": "primary", "align": "center", "valign": "bottom" } },
-            { "id": "label", "beschreibung": "Was die Zahl bedeutet", "maxChars": 48, "anteil": 45, "style": { "size": "small", "color": "textMuted", "align": "center", "valign": "top" } }
-          ] },
-        { "id": "note", "typ": "text", "beschreibung": "Quelle oder Einordnung der Zahlen", "x": 6, "y": 76, "w": 88, "h": 10, "maxChars": 140, "style": { "size": "small", "color": "textMuted", "valign": "top" } }
+            {
+              "id": "value",
+              "beschreibung": "Die Zahl mit Einheit, zum Beispiel 42 % oder 1,2 Mio.",
+              "maxChars": 9,
+              "anteil": 55,
+              "style": {
+                "font": "heading",
+                "size": "kpi",
+                "color": "primary",
+                "align": "center",
+                "valign": "bottom"
+              }
+            },
+            {
+              "id": "label",
+              "beschreibung": "Was die Zahl bedeutet",
+              "maxChars": 48,
+              "anteil": 45,
+              "style": {
+                "size": "small",
+                "color": "textMuted",
+                "align": "center",
+                "valign": "top"
+              }
+            }
+          ]
+        },
+        {
+          "id": "note",
+          "typ": "text",
+          "beschreibung": "Quelle oder Einordnung der Zahlen",
+          "x": 6,
+          "y": 76,
+          "w": 88,
+          "h": 10,
+          "maxChars": 140,
+          "style": {
+            "size": "small",
+            "color": "textMuted",
+            "valign": "top"
+          }
+        }
+      ]
+    },
+    {
+      "id": "big-number",
+      "name": "Große Zahl",
+      "beschreibung": "Eine einzige Zahl riesig, daneben was sie bedeutet. Für einen Einstieg mit Wucht oder die eine entscheidende Kennzahl. Nur mit einer Zahl aus dem Briefing.",
+      "background": "background",
+      "deko": [
+        {
+          "shape": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 100,
+          "h": 2.2,
+          "fill": "primary"
+        },
+        {
+          "shape": "rect",
+          "x": 6,
+          "y": 24,
+          "w": 8,
+          "h": 0.9,
+          "fill": "accent"
+        }
+      ],
+      "placeholders": [
+        {
+          "id": "value",
+          "typ": "text",
+          "beschreibung": "Die Zahl mit Einheit, zum Beispiel 68 % oder 1.500 €",
+          "pflicht": true,
+          "x": 6,
+          "y": 28,
+          "w": 48,
+          "h": 42,
+          "maxChars": 8,
+          "style": {
+            "font": "heading",
+            "size": "bignumber",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "label",
+          "typ": "text",
+          "beschreibung": "Was die Zahl bedeutet, als Aussage",
+          "pflicht": true,
+          "x": 57,
+          "y": 32,
+          "w": 37,
+          "h": 34,
+          "maxChars": 70,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "text",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "note",
+          "typ": "text",
+          "beschreibung": "Quelle oder Einordnung der Zahl",
+          "x": 6,
+          "y": 78,
+          "w": 70,
+          "h": 8,
+          "maxChars": 120,
+          "style": {
+            "size": "small",
+            "color": "textMuted",
+            "valign": "top"
+          }
+        },
+        {
+          "id": "page",
+          "typ": "text",
+          "auto": "pageNumber",
+          "x": 84,
+          "y": 92.5,
+          "w": 10,
+          "h": 4.5,
+          "style": {
+            "size": "caption",
+            "color": "textMuted",
+            "align": "right",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "logo",
+          "typ": "logo",
+          "asset": "logo-icon",
+          "x": 89.5,
+          "y": 6,
+          "w": 4.5,
+          "h": 8,
+          "fit": "contain"
+        }
       ]
     },
     {
@@ -161,13 +1006,73 @@
       "beschreibung": "Drei bis fünf Schritte in zeitlicher Reihenfolge, zum Beispiel Projektphasen, Meilensteine oder nächste Schritte.",
       "master": "inhalt",
       "placeholders": [
-        { "id": "title", "typ": "text", "beschreibung": "Überschrift als Aussage", "pflicht": true, "x": 6, "y": 11.5, "w": 80, "h": 14, "maxChars": 70, "style": { "font": "heading", "size": "h1", "color": "primary", "valign": "middle" } },
-        { "id": "steps", "typ": "items", "beschreibung": "Schritte in zeitlicher Reihenfolge", "pflicht": true, "x": 6, "y": 32, "w": 88, "h": 52, "minItems": 3, "maxItems": 5, "variante": "zeitstrahl",
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Überschrift als Aussage",
+          "pflicht": true,
+          "x": 6,
+          "y": 11.5,
+          "w": 80,
+          "h": 14,
+          "maxChars": 70,
+          "style": {
+            "font": "heading",
+            "size": "h1",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "steps",
+          "typ": "items",
+          "beschreibung": "Schritte in zeitlicher Reihenfolge",
+          "pflicht": true,
+          "x": 6,
+          "y": 32,
+          "w": 88,
+          "h": 52,
+          "minItems": 3,
+          "maxItems": 5,
+          "variante": "zeitstrahl",
           "felder": [
-            { "id": "label", "beschreibung": "Zeitangabe, zum Beispiel Q1 oder März", "maxChars": 12, "anteil": 22, "style": { "font": "heading", "size": "h2", "color": "secondary", "valign": "bottom" } },
-            { "id": "title", "beschreibung": "Name des Schritts", "maxChars": 28, "anteil": 28, "style": { "size": "body", "color": "text", "bold": true, "valign": "top" } },
-            { "id": "text", "beschreibung": "Was in diesem Schritt passiert", "maxChars": 70, "anteil": 50, "style": { "size": "small", "color": "textMuted", "valign": "top" } }
-          ] }
+            {
+              "id": "label",
+              "beschreibung": "Zeitangabe, zum Beispiel Q1 oder März",
+              "maxChars": 12,
+              "anteil": 22,
+              "style": {
+                "font": "heading",
+                "size": "h2",
+                "color": "secondary",
+                "valign": "bottom"
+              }
+            },
+            {
+              "id": "title",
+              "beschreibung": "Name des Schritts",
+              "maxChars": 28,
+              "anteil": 28,
+              "style": {
+                "size": "body",
+                "color": "text",
+                "bold": true,
+                "valign": "top"
+              }
+            },
+            {
+              "id": "text",
+              "beschreibung": "Was in diesem Schritt passiert",
+              "maxChars": 70,
+              "anteil": 50,
+              "style": {
+                "size": "small",
+                "color": "textMuted",
+                "valign": "top"
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -176,12 +1081,58 @@
       "beschreibung": "Ein Zitat oder eine Kernaussage groß in der Mitte, darunter die Quelle. Höchstens einmal pro Präsentation.",
       "background": "surface",
       "deko": [
-        { "shape": "rect", "x": 8, "y": 26, "w": 0.6, "h": 40, "fill": "accent" }
+        {
+          "shape": "rect",
+          "x": 8,
+          "y": 26,
+          "w": 0.6,
+          "h": 40,
+          "fill": "accent"
+        }
       ],
       "placeholders": [
-        { "id": "quote", "typ": "text", "beschreibung": "Das Zitat ohne Anführungszeichen", "pflicht": true, "x": 12, "y": 24, "w": 76, "h": 44, "maxChars": 180, "style": { "font": "heading", "size": "quote", "color": "primary", "valign": "middle" } },
-        { "id": "author", "typ": "text", "beschreibung": "Von wem das Zitat stammt", "x": 12, "y": 71, "w": 76, "h": 7, "maxChars": 60, "style": { "size": "body", "color": "textMuted", "valign": "middle" } },
-        { "id": "logo", "typ": "logo", "asset": "logo-icon", "x": 89.5, "y": 6, "w": 4.5, "h": 8, "fit": "contain" }
+        {
+          "id": "quote",
+          "typ": "text",
+          "beschreibung": "Das Zitat ohne Anführungszeichen",
+          "pflicht": true,
+          "x": 12,
+          "y": 24,
+          "w": 76,
+          "h": 44,
+          "maxChars": 180,
+          "style": {
+            "font": "heading",
+            "size": "quote",
+            "color": "primary",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "author",
+          "typ": "text",
+          "beschreibung": "Von wem das Zitat stammt",
+          "x": 12,
+          "y": 71,
+          "w": 76,
+          "h": 7,
+          "maxChars": 60,
+          "style": {
+            "size": "body",
+            "color": "textMuted",
+            "valign": "middle"
+          }
+        },
+        {
+          "id": "logo",
+          "typ": "logo",
+          "asset": "logo-icon",
+          "x": 89.5,
+          "y": 6,
+          "w": 4.5,
+          "h": 8,
+          "fit": "contain"
+        }
       ]
     },
     {
@@ -190,27 +1141,191 @@
       "beschreibung": "Letzte Folie: Dank oder Schlussgedanke, die Handlungsaufforderung und eine Kontaktzeile.",
       "background": "primary",
       "deko": [
-        { "shape": "ellipse", "x": -18, "y": 40, "w": 50, "h": 89, "fill": "secondary", "opacity": 0.3 },
-        { "shape": "rect", "x": 46, "y": 50.5, "w": 8, "h": 0.9, "fill": "accent" }
+        {
+          "shape": "ellipse",
+          "x": -18,
+          "y": 40,
+          "w": 50,
+          "h": 89,
+          "fill": "secondary",
+          "opacity": 0.3
+        },
+        {
+          "shape": "rect",
+          "x": 46,
+          "y": 50.5,
+          "w": 8,
+          "h": 0.9,
+          "fill": "accent"
+        }
       ],
       "placeholders": [
-        { "id": "logo", "typ": "logo", "asset": "logo-negative", "x": 41, "y": 10, "w": 18, "h": 8.5, "fit": "contain" },
-        { "id": "title", "typ": "text", "beschreibung": "Schlussgedanke oder Dank", "pflicht": true, "x": 10, "y": 26, "w": 80, "h": 22, "maxChars": 50, "style": { "font": "heading", "size": "title", "color": "onPrimary", "align": "center", "valign": "bottom" } },
-        { "id": "body", "typ": "text", "beschreibung": "Handlungsaufforderung: was das Publikum jetzt tun soll", "x": 15, "y": 55, "w": 70, "h": 18, "maxChars": 160, "style": { "size": "h2", "color": "onPrimaryMuted", "align": "center", "valign": "top" } },
-        { "id": "contact", "typ": "text", "beschreibung": "Kontaktzeile: Name, E-Mail oder Website", "x": 15, "y": 82, "w": 70, "h": 7, "maxChars": 80, "style": { "size": "body", "color": "accent", "align": "center", "valign": "middle" } }
+        {
+          "id": "logo",
+          "typ": "logo",
+          "asset": "logo-negative",
+          "x": 41,
+          "y": 10,
+          "w": 18,
+          "h": 8.5,
+          "fit": "contain"
+        },
+        {
+          "id": "title",
+          "typ": "text",
+          "beschreibung": "Schlussgedanke oder Dank",
+          "pflicht": true,
+          "x": 10,
+          "y": 26,
+          "w": 80,
+          "h": 22,
+          "maxChars": 50,
+          "style": {
+            "font": "heading",
+            "size": "title",
+            "color": "onPrimary",
+            "align": "center",
+            "valign": "bottom"
+          }
+        },
+        {
+          "id": "body",
+          "typ": "text",
+          "beschreibung": "Handlungsaufforderung: was das Publikum jetzt tun soll",
+          "x": 15,
+          "y": 55,
+          "w": 70,
+          "h": 18,
+          "maxChars": 160,
+          "style": {
+            "size": "h2",
+            "color": "onPrimaryMuted",
+            "align": "center",
+            "valign": "top"
+          }
+        },
+        {
+          "id": "contact",
+          "typ": "text",
+          "beschreibung": "Kontaktzeile: Name, E-Mail oder Website",
+          "x": 15,
+          "y": 82,
+          "w": 70,
+          "h": 7,
+          "maxChars": 80,
+          "style": {
+            "size": "body",
+            "color": "accent",
+            "align": "center",
+            "valign": "middle"
+          }
+        }
       ]
     }
   ],
   "assets": [
-    { "id": "logo-primary", "file": "assets/logos/logo-primary.svg", "role": "logo-primary", "w": 600, "h": 160, "tags": ["logo", "hell"], "beschreibung": "Hauptlogo für helle Hintergründe", "verwendung": ["Folien mit hellem Hintergrund"] },
-    { "id": "logo-negative", "file": "assets/logos/logo-negative.svg", "role": "logo-negative", "w": 600, "h": 160, "tags": ["logo", "dunkel"], "beschreibung": "Logo in Weiß für dunkle Hintergründe", "verwendung": ["title", "closing"] },
-    { "id": "logo-icon", "file": "assets/logos/logo-icon.svg", "role": "logo-icon", "w": 256, "h": 256, "tags": ["logo", "bildmarke"], "beschreibung": "Bildmarke ohne Schriftzug, quadratisch", "verwendung": ["content-bullets", "two-column", "kpi-grid", "timeline", "quote"] },
-    { "id": "hero", "file": "assets/images/hero.svg", "role": "hero-image", "w": 1920, "h": 1080, "tags": ["hero", "querformat", "stimmung"], "beschreibung": "Großes Stimmungsbild im Querformat", "verwendung": ["image-full"] },
-    { "id": "portrait", "file": "assets/images/portrait.svg", "role": "portrait-image", "w": 1280, "h": 1800, "tags": ["hochformat", "detail"], "beschreibung": "Bild im Hochformat für die linke Folienhälfte", "verwendung": ["image-left"] },
-    { "id": "square", "file": "assets/images/square.svg", "role": "square-image", "w": 1200, "h": 1200, "tags": ["quadrat", "detail"], "beschreibung": "Quadratisches Bild, als Ausschnitt auch für image-left nutzbar", "verwendung": ["image-left"] }
+    {
+      "id": "logo-primary",
+      "file": "assets/logos/logo-primary.svg",
+      "role": "logo-primary",
+      "w": 600,
+      "h": 160,
+      "tags": [
+        "logo",
+        "hell"
+      ],
+      "beschreibung": "Hauptlogo für helle Hintergründe",
+      "verwendung": [
+        "Folien mit hellem Hintergrund"
+      ]
+    },
+    {
+      "id": "logo-negative",
+      "file": "assets/logos/logo-negative.svg",
+      "role": "logo-negative",
+      "w": 600,
+      "h": 160,
+      "tags": [
+        "logo",
+        "dunkel"
+      ],
+      "beschreibung": "Logo in Weiß für dunkle Hintergründe",
+      "verwendung": [
+        "title",
+        "closing"
+      ]
+    },
+    {
+      "id": "logo-icon",
+      "file": "assets/logos/logo-icon.svg",
+      "role": "logo-icon",
+      "w": 256,
+      "h": 256,
+      "tags": [
+        "logo",
+        "bildmarke"
+      ],
+      "beschreibung": "Bildmarke ohne Schriftzug, quadratisch",
+      "verwendung": [
+        "content-bullets",
+        "two-column",
+        "kpi-grid",
+        "timeline",
+        "quote"
+      ]
+    },
+    {
+      "id": "hero",
+      "file": "assets/images/hero.svg",
+      "role": "hero-image",
+      "w": 1920,
+      "h": 1080,
+      "tags": [
+        "hero",
+        "querformat",
+        "stimmung"
+      ],
+      "beschreibung": "Großes Stimmungsbild im Querformat",
+      "verwendung": [
+        "image-full"
+      ]
+    },
+    {
+      "id": "portrait",
+      "file": "assets/images/portrait.svg",
+      "role": "portrait-image",
+      "w": 1280,
+      "h": 1800,
+      "tags": [
+        "hochformat",
+        "detail"
+      ],
+      "beschreibung": "Bild im Hochformat für die linke Folienhälfte",
+      "verwendung": [
+        "image-left"
+      ]
+    },
+    {
+      "id": "square",
+      "file": "assets/images/square.svg",
+      "role": "square-image",
+      "w": 1200,
+      "h": 1200,
+      "tags": [
+        "quadrat",
+        "detail"
+      ],
+      "beschreibung": "Quadratisches Bild, als Ausschnitt auch für image-left nutzbar",
+      "verwendung": [
+        "image-left"
+      ]
+    }
   ],
   "rules": {
-    "logoAuf": ["title", "closing"],
+    "logoAuf": [
+      "title",
+      "closing"
+    ],
     "maxBullets": 5,
     "bildstil": "Echte Fotos aus dem Arbeitsalltag, ruhig und aufgeräumt, kühle Farbstimmung. Keine Stockfoto-Klischees wie Händeschütteln.",
     "hinweise": [
