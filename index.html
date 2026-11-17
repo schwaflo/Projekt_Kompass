@@ -1447,10 +1447,13 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   const msgs = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
   /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
   if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }
+  /* Manche Modelle denken auch dann nach, wenn die Denkphase abgeschaltet ist (z. B. qwen3-vl).
+     Sie bekommen das größere Antwortlimit, sonst geht das ganze Limit fürs Nachdenken drauf. */
+  const limit = tokLimit(kind, (ui.denktImmer || {})[model] ? undefined : think);
   const body = oa
-    ? { model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
+    ? { model, stream: true, temperature: temp, max_tokens: limit, messages: msgs,
         ...(rf === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'antwort', schema, strict: false } } } : rf === 'json_object' ? { response_format: { type: 'json_object' } } : {}) }
-    : { model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: tokLimit(kind, think) }, messages: msgs };
+    : { model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: limit }, messages: msgs };
   if (think === false && !oa) body.think = false;
   const ctrl = new AbortController();
   let abortWhy = null;
@@ -1512,7 +1515,7 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
         if (c.done) L.doneReason = c.done_reason;
       if (c.done) L.stats = { load: c.load_duration, promptTokens: c.prompt_eval_count, promptDur: c.prompt_eval_duration, outTokens: c.eval_count, outDur: c.eval_duration, total: c.total_duration };
       }
-      if (think === false && L.thinkTokens > 150) ui.thinkIgnored = true;
+      if (think === false && L.thinkTokens > 150) { ui.thinkIgnored = true; (ui.denktImmer = ui.denktImmer || {})[model] = true; }
       if (!abortWhy && L.phase === 'denken') {
         if (looksLikeLoop(L.thinking.slice(-1200)) || (L.thinkTokens % 50 === 0 && looksLikeLoop(L.thinking))) abortWhy = 'loop';
         else if (L.thinkTokens > THINK_MAX_TOKENS || L.thinking.length > 12000 || now() - L.tThink > 90000) abortWhy = 'long';

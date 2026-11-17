@@ -7,7 +7,7 @@
    → Debug-Vorschau prüfen → Design vorschlagen → speichern oder
    in den Flyer-Entwurf übernehmen.
    ============================================================ */
-/* global recIndex */
+/* global recIndex, isOpenAI, apiBase, authH */
 /* global S, ui, render, run, save, esc, toast, liveInner, designState, addLog, slug, KIND, TOK, FORMATE, errorBox, loadAssets */
 import { STANDARD, konfig, analysiereBild, parseRaster, parseRasterListe, alleKacheln } from './kern.js';
 import * as G from './design.js';
@@ -66,8 +66,36 @@ function merkeNeue() {
   if (neu.length) { z.asset = neu[neu.length - 1]; neu.forEach(id => ui.bdBekannt.add(id)); z.tab = 'analyse'; }
 }
 const modelle = () => ui.models || [];
-const vlmName = () => (Z().vlm && modelle().includes(Z().vlm) ? Z().vlm : modelle().find(m => VLM_WUNSCH.test(m)) || S.model);
-const designName = () => (Z().modell && modelle().includes(Z().modell) ? Z().modell : modelle().find(m => DESIGN_WUNSCH.test(m)) || S.model);
+/* Welche Modelle verstehen Bilder? Ollama sagt es über /api/show. Bei anderen Servern ist es
+   nicht abfragbar; dort gilt jedes Modell als möglich. */
+ui.bdFaehig = ui.bdFaehig || {}; ui.bdGroesse = ui.bdGroesse || {};
+let faehigLauf = null;
+function ladeFaehigkeiten() {
+  if (typeof isOpenAI === 'function' && isOpenAI()) return Promise.resolve();
+  if (faehigLauf) return faehigLauf;
+  const offen = modelle().filter(m => !(m in ui.bdFaehig)); if (!offen.length) return Promise.resolve();
+  faehigLauf = (async () => {
+    for (const m of offen) {
+      try { const r = await fetch(apiBase() + '/api/show', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ model: m }) }); const d = r.ok ? await r.json() : {}; ui.bdFaehig[m] = Array.isArray(d.capabilities) ? d.capabilities : null; ui.bdGroesse[m] = parseFloat((d.details || {}).parameter_size) || 0; }
+      catch { ui.bdFaehig[m] = null; }
+    }
+    faehigLauf = null; if (an() && !ui.busy) render();
+  })();
+  return faehigLauf;
+}
+/* Vor jedem Lauf: Fähigkeiten kennen und ein Modell haben, das Bilder versteht */
+async function bildModell() { await ladeFaehigkeiten(); const m = vlmName(); if (!m) throw new Error(OHNE_BILDMODELL); return m; }
+const sieht = m => { const c = ui.bdFaehig[m]; return !Array.isArray(c) || c.includes('vision'); };
+/* Modelle, die auch bei abgeschalteter Denkphase lange nachdenken: Die App merkt es beim ersten Aufruf
+   (ui.denktImmer); von qwen3-vl ist es bekannt. Sie funktionieren kaum, weil jeder der vielen Aufrufe
+   dann eine Minute und mehr dauert. */
+const denktImmer = m => !!(ui.denktImmer || {})[m] || /qwen3-?vl/i.test(m);
+/* Reihenfolge: Dauerdenker zuletzt, sonst das kleinere (schnellere) Modell zuerst */
+const bildModelle = () => modelle().filter(sieht).sort((a, b) => denktImmer(a) - denktImmer(b) || (ui.bdGroesse[a] || 99) - (ui.bdGroesse[b] || 99));
+/* Vision-Modell: die eigene Wahl, sonst qwen2.5vl, sonst das Modell von der Startseite, sonst das erste, das Bilder versteht (Dauerdenker zuletzt) */
+const vlmName = () => { const b = bildModelle(), z = Z(); return z.vlm && b.includes(z.vlm) ? z.vlm : b.find(m => VLM_WUNSCH.test(m)) || (S.model && b.includes(S.model) && !denktImmer(S.model) ? S.model : b[0] || ''); };
+const OHNE_BILDMODELL = 'Keines deiner Modelle versteht Bilder. Lade eines in Ollama, zum Beispiel mit „ollama pull qwen2.5vl:7b“, und klicke danach auf der Startseite auf „Verbinden“.';
+const designName = () => (Z().modell && modelle().includes(Z().modell) ? Z().modell : modelle().find(m => DESIGN_WUNSCH.test(m)) || (S.model && !denktImmer(S.model) ? S.model : modelle().find(m => !denktImmer(m)) || S.model));
 const texte = () => { const t = designState().texte || {}; return { headline: t.headline || '', subline: t.subline || '', cta: t.cta || '' }; };
 /* Textbreite mit der echten Schrift messen, damit Zeilen und Größen genau stimmen */
 const messFlaeche = document.createElement('canvas').getContext('2d');
@@ -119,7 +147,16 @@ const messbild = (img, max) => { const { c, x } = flaeche(img, 0, 0, img.natural
 const alsJpeg = (img, sx, sy, sw, sh, laengste, vergr) => flaeche(img, sx, sy, sw, sh, laengste, vergr).c.toDataURL('image/jpeg', 0.88);
 
 /* ---------- Analyse ---------- */
-const frage = o => window.KompassKI.frage(o);
+/* Aufruf der KI. Fehler, die am Modell liegen, bekommen eine Meldung, mit der man etwas anfangen kann. */
+async function frage(o) {
+  try { return await window.KompassKI.frage(o); }
+  catch (e) {
+    const t = String(e.message || e);
+    if (o.bilder && /multimodal|does not support image|vision|image input/i.test(t)) throw new Error(`Das Modell „${o.modell}“ versteht keine Bilder. Wähle links unter „Modelle“ ein Vision-Modell.`);
+    if (/Denkphase nicht abschalten|kommt zu keinem Ende|kommt zu keiner Antwort/.test(t)) throw new Error(`Das Modell „${o.modell}“ denkt bei jedem Aufruf sehr lange nach und kommt nicht zu einem Ergebnis. Wähle links unter „Modelle“ ein anderes, zum Beispiel eines ohne Denkphase.`);
+    throw e;
+  }
+}
 function fortschritt(text) { ui.busyText = text; const el = document.getElementById('bd-fort'); if (el) el.textContent = text; }
 function vermiss(a, img, alt) {
   const z = Z();
@@ -145,8 +182,9 @@ function analysiere(liste, nurFehlende) {
   const z = Z();
   if (!liste.length) return;
   if (!parseRasterListe(z.raster).length) { ui.error = 'Wähle mindestens ein Raster.'; return render(); }
+  if (!vlmName()) { ui.error = OHNE_BILDMODELL; return render(); }
   run(liste.length > 1 ? 'Bilder werden analysiert …' : 'Bild wird analysiert …', async () => {
-    const modell = vlmName();
+    const modell = await bildModell();
     for (const [nr, a] of liste.entries()) {
       const vor = liste.length > 1 ? `Bild ${nr + 1} von ${liste.length} · ` : '';
       fortschritt(vor + 'Farben, Schärfe und Freiraum werden gemessen');
@@ -275,9 +313,10 @@ async function beurteile(s, bild, modell) {
 function skizziere(weiter) {
   const z = Z(), a = asset(), A = a && z.analysen[a.id];
   if (!A || !A.free_map) return;
+  if (!vlmName()) { ui.error = OHNE_BILDMODELL; return render(); }
   run(weiter ? 'Skizzen werden weiterentwickelt …' : 'Skizzen entstehen …', async () => {
     const alt = weiter ? z.skizzen[a.id] || [] : [], runde = alt.reduce((m, s) => Math.max(m, s.runde || 1), 0) + 1;
-    const blatt = z.skizzen[a.id] = [...alt], img = await ladeBild(ui.assetURL[a.id]), modell = vlmName();
+    const blatt = z.skizzen[a.id] = [...alt], img = await ladeBild(ui.assetURL[a.id]), modell = await bildModell();
     const foto = alsJpeg(img, 0, 0, img.naturalWidth, img.naturalHeight, 1024);
     if (!weiter) {
       fortschritt('Die KI sieht das Foto und entwirft frei');
@@ -331,10 +370,11 @@ function loeseEntwurf() {
 function freiWunsch() {
   const z = Z(), a = asset(), A = a && z.analysen[a.id], f = a && z.frei[a.id], feld = document.getElementById('bd-freiwunsch'), wunsch = feld ? feld.value.trim() : '';
   if (!f) return;
+  if (!vlmName()) { ui.error = OHNE_BILDMODELL; return render(); }
   run('Entwurf wird überarbeitet …', async () => {
     fortschritt(wunsch ? 'Die KI sieht den Entwurf und setzt deinen Wunsch um' : 'Die KI sieht den Entwurf und überarbeitet ihn');
     const img = await ladeBild(ui.assetURL[a.id]);
-    const [n] = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.ueberarbeitePrompt(A, inhalt(), f, { messung: F.messeLayout(A, f.layout, messe), wunsch }), schema: F.FREI_EINZEL_SCHEMA, art: 'bild_frei2', bilder: [zeichneFrei(img, A, f.layout).toDataURL('image/jpeg', 0.88)], modell: vlmName(), denken: false }));
+    const [n] = F.leseFrei(await frage({ system: F.FREI_SYSTEM, prompt: F.ueberarbeitePrompt(A, inhalt(), f, { messung: F.messeLayout(A, f.layout, messe), wunsch }), schema: F.FREI_EINZEL_SCHEMA, art: 'bild_frei2', bilder: [zeichneFrei(img, A, f.layout).toDataURL('image/jpeg', 0.88)], modell: await bildModell(), denken: false }));
     if (!n) throw new Error('Das Modell hat kein brauchbares Layout geliefert. Versuch es noch einmal.');
     setzeSauber(A)(n);
     z.frei[a.id] = { name: n.name, idee: n.idee, layout: n.layout, rein: n.rein, davor: { name: f.name, idee: f.idee, layout: f.layout } }; ui.bfWahl = '';
@@ -427,7 +467,8 @@ function panel() {
   merkeNeue();
   const z = Z(), D = designState(), liste = bilder(), a = asset(), t = D.texte, cfg = konfig(z.cfg), A = a && z.analysen[a.id];
   const raster = [...new Set([...RASTER_FEST, ...z.eigene])];
-  const wahl = (feld, auto) => `<select class="input" data-bdf="${feld}"><option value="">Automatisch (${esc(auto || 'kein Modell')})</option>${modelle().map(m => `<option ${z[feld] === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`;
+  ladeFaehigkeiten();
+  const wahl = (feld, auto, nur = modelle()) => `<select class="input" data-bdf="${feld}"><option value="">Automatisch (${esc(auto || 'kein Modell')})</option>${nur.map(m => `<option value="${esc(m)}" ${z[feld] === m ? 'selected' : ''}>${esc(m)}${denktImmer(m) ? ' (denkt immer, sehr langsam)' : ''}</option>`).join('')}</select>`;
   const abweichend = Object.keys(z.cfg).length > 0;
   return `<aside class="ds-panel bd-panel">
     <details open><summary>Bild <span class="muted small">${liste.length || ''}</span></summary>
@@ -451,9 +492,9 @@ function panel() {
     </details>
     ${stilPanel()}
     <details><summary>Modelle</summary>
-      <label class="ds-l">Vision-Modell (sieht das Bild)${wahl('vlm', vlmName())}</label>
+      <label class="ds-l">Vision-Modell (sieht das Bild)${wahl('vlm', vlmName(), bildModelle())}</label>
       <label class="ds-l">Design-Modell (führt zusammen)${wahl('modell', designName())}</label>
-      <p class="small muted">Automatisch nimmt qwen2.5vl für das Sehen und Gemma 4 für das Design, wenn sie installiert sind, sonst das Modell von der Startseite. Das Vision-Modell muss Bilder verstehen.${A ? ' <button class="linkbtn" data-bd="analyse">Dieses Bild noch einmal analysieren</button>' : ''}</p>
+      <p class="small muted">${bildModelle().length < modelle().length ? `Für das Sehen stehen nur die ${bildModelle().length} Modelle zur Wahl, die Bilder verstehen. ` : ''}Automatisch nimmt qwen2.5vl für das Sehen und Gemma 4 für das Design, wenn sie installiert sind, sonst das Modell von der Startseite. Modelle, die immer nachdenken (z. B. qwen3-vl), sind hier kaum brauchbar: Eine Analyse besteht aus vielen Aufrufen, und jeder dauert dann eine Minute oder länger.${A ? ' <button class="linkbtn" data-bd="analyse">Dieses Bild noch einmal analysieren</button>' : ''}</p>
     </details>
     <details ${abweichend ? 'open' : ''}><summary>Schwellwerte ${abweichend ? '<span class="muted small">angepasst</span>' : ''}</summary>
       ${SCHWELLEN.map(([pfad, name, info, schritt]) => `<label class="bd-schwelle" title="${esc(info)}"><span>${name}<small>${esc(info)}</small></span><input class="input" type="number" min="0" step="${schritt}" data-bdcfg="${pfad}" value="${lies(cfg, pfad)}"></label>`).join('')}
