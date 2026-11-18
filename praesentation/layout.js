@@ -6,10 +6,10 @@
    deshalb sehen beide gleich aus.
 
    Folie:   { nr, layoutId, typ, background, elemente[], notizen }
-   Element: { art: 'form' | 'bild' | 'text', x, y, w, h (Prozent), … }
+   Element: { art: 'form' | 'bild' | 'text' | 'tabelle', x, y, w, h (Prozent), … }
    ============================================================ */
-import { inhaltsPlatzhalter } from './spec.js';
-import { einpassen, blockHoehe } from './text.js';
+import { inhaltsPlatzhalter, tabellenFlaeche, istTabelle } from './spec.js';
+import { einpassen, blockHoehe, textBreite, zeilen as zeilenZahl } from './text.js';
 import { farbeVon } from './validate.js';
 
 export const FOLIE_PT = { w: 960, h: 540 };
@@ -57,6 +57,8 @@ export function buildSlides(spec, system, opts = {}) {
   }
   const bildEl = (box, ref, fit, extra = {}) => {
     const a = system.asset(ref);
+    /* Grafiken der Person (Diagramme, Screenshots) werden ganz gezeigt, nie beschnitten */
+    if (a && a.fit && !extra.logo && !extra.deko) fit = a.fit;
     return { art: 'bild', ...box, fit: fit || 'cover', src: a ? system.assetUrl(a.id) : null, assetId: a ? a.id : null, alt: a ? (a.beschreibung || a.id) : '', ...(a && a.w && a.h ? { ratio: a.w / a.h } : {}), ...extra };
   };
   const box = (x, y, w, h) => ({ x: r(x), y: r(y), w: r(w), h: r(h) });
@@ -117,6 +119,57 @@ export function buildSlides(spec, system, opts = {}) {
     return out;
   }
 
+  /* Tabelle der Person in der Inhaltsfläche: Schrift so groß wie möglich, höchstens Fließtext.
+     Spalten so breit wie ihr Inhalt, Zahlenspalten rechtsbündig, Text bricht um. Was auch in der
+     kleinsten Schrift nicht passt, wird abgeschnitten und markiert. */
+  function tabelleEl(t, fl) {
+    const kopf = (t.kopf || []).map(c => String(c ?? '')), roh = (t.zeilen || []).map(z => (z || []).map(c => String(c ?? '')));
+    const n = Math.max(kopf.length, ...roh.map(z => z.length), 0);
+    if (!n) return null;
+    let zellen = [...(kopf.length ? [kopf] : []), ...roh].map(z => Array.from({ length: n }, (_, j) => z[j] || ''));
+    const W = fl.w / 100 * FOLIE_PT.w, H = fl.h / 100 * FOLIE_PT.h, f = schrift('body'), lh = 1.2;
+    const zahl = c => /^[-+−–]?\s?(€|\$|£)?\s?\d[\d.,'\s]*\s?(%|‰|€|\$|£|Mio\.?|Mrd\.?|Tsd\.?|T€|k)?(\s?(€|\$))?$/i.test(c.trim());
+    const daten = kopf.length ? zellen.slice(1) : zellen;
+    const align = Array.from({ length: n }, (_, j) => { const v = daten.map(z => z[j]).filter(Boolean); return j > 0 && v.length && v.filter(zahl).length >= v.length * 0.6 ? 'right' : 'left'; });
+    const stil = i => ({ font: f.face, bold: !!kopf.length && i === 0, lineHeight: lh });
+    const soll = Math.min(ty.sizes.body || 18, 20), min = 9;
+    const rechne = pt => {
+      const px = pt * 0.55, py = pt * 0.34;
+      const natur = Array.from({ length: n }, (_, j) => Math.max(...zellen.map((z, i) => textBreite(z[j], pt, stil(i)))) + 2 * px);
+      const wort = Array.from({ length: n }, (_, j) => Math.max(...zellen.map((z, i) => Math.max(0, ...z[j].split(/\s+/).map(w => textBreite(w, pt, stil(i)))))) + 2 * px);
+      if (wort.reduce((a, b) => a + b, 0) > W) return null;
+      const summe = natur.reduce((a, b) => a + b, 0);
+      let breiten;
+      if (summe <= W) {
+        /* Luft verteilen: kleine Tabellen werden etwas breiter, aber nicht auf jede Fläche gezogen */
+        const ziel = Math.min(W, Math.max(summe * 1.3, W * 0.62));
+        breiten = natur.map(b => b * ziel / summe);
+      } else {
+        /* Zu breit: Textspalten umbrechen, jede höchstens bis auf ihr längstes Wort */
+        breiten = natur.slice();
+        for (let s = 0; s < 60 && breiten.reduce((a, b) => a + b, 0) > W + 0.1; s++) {
+          const ueber = breiten.reduce((a, b) => a + b, 0) - W, dehnbar = breiten.map((b, j) => b - wort[j]), luft = dehnbar.reduce((a, b) => a + b, 0);
+          if (luft <= 0.1) return null;
+          breiten = breiten.map((b, j) => b - ueber * dehnbar[j] / luft);
+        }
+      }
+      const hoehen = zellen.map((z, i) => Math.max(...z.map((c, j) => zeilenZahl(c || ' ', Math.max(1, breiten[j] - 2 * px), pt, stil(i)))) * pt * lh + 2 * py);
+      return { pt, px, py, breiten, hoehen };
+    };
+    let g = null;
+    for (let pt = soll; pt >= min && !(g && g.hoehen.reduce((a, b) => a + b, 0) <= H); pt -= 0.5) g = rechne(pt) || g;
+    if (!g) g = rechne(min) || { pt: min, px: min * 0.55, py: min * 0.34, breiten: Array(n).fill(W / n), hoehen: zellen.map(() => min * lh + min * 0.68) };
+    let gekuerzt = false;
+    while (zellen.length > 1 && g.hoehen.reduce((a, b) => a + b, 0) > H + 0.5) { zellen = zellen.slice(0, -1); g.hoehen = g.hoehen.slice(0, -1); gekuerzt = true; }
+    const w = g.breiten.reduce((a, b) => a + b, 0), h = g.hoehen.reduce((a, b) => a + b, 0);
+    return {
+      art: 'tabelle', ...box(fl.x, fl.y, w / FOLIE_PT.w * 100, h / FOLIE_PT.h * 100), kopf: !!kopf.length, zellen,
+      spalten: g.breiten.map((b, j) => ({ w: r(b / FOLIE_PT.w * 100), align: align[j] })), zeilenH: g.hoehen.map(x => r(x / FOLIE_PT.h * 100)),
+      pt: g.pt, px: r(g.px), py: r(g.py), schrift: f.face, schriftCss: f.css, zeilenhoehe: lh,
+      farbe: C.text, kopfLinie: C.primary || C.text, linie: C.border || C.textMuted || C.text, ph: 'tabelle', ...(gekuerzt ? { gekuerzt: true } : {})
+    };
+  }
+
   /* Gestaltung ohne Inhalt */
   const farbe = f => farbeVon(C, f) || C.text;
   function dekoEl(d) {
@@ -141,6 +194,9 @@ export function buildSlides(spec, system, opts = {}) {
     const inhalt = f.inhalt || {}, el = [], bilder = [];
     const auto = { pageNumber: String(i + 1), presentationTitle: spec.titel || '', date: opts.datum || '' };
     const istInhalt = new Set(inhaltsPlatzhalter(layout).map(p => p.id));
+    /* Tabelle: belegt die Inhaltsfläche, deren Platzhalter bleiben leer */
+    const tabFl = istTabelle(f.tabelle) ? tabellenFlaeche(layout) : null;
+    if (tabFl) { tabFl.ids.forEach(id => istInhalt.delete(id)); const t = tabelleEl(f.tabelle, tabFl); if (t) el.push(t); }
 
     layout.placeholders.forEach(ph => {
       const b = box(ph.x, ph.y, ph.w, ph.h), v = inhalt[ph.id];

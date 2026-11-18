@@ -44,6 +44,8 @@ Alle Dateien liegen in [`praesentation/`](../praesentation/) und sind ES-Module 
 | `analyse.js` | Profil jedes Layouts (Schriftgrößen, Bildanteil, Kacheln, Wucht), Formen, Layoutwahl | Browser, Node |
 | `richtlinien.js` | Formulierungsrichtlinien aus PowerPoint, Word oder Text lesen, von der KI auswerten lassen, in voice.md schreiben; prüfbare Sprachregeln | Browser (Lesen), überall (Rest) |
 | `pipeline.js` | Briefing, Outline, Folien, Layout-Anpassung; Wiederholung bei Fehlern; Faktenprüfung | Browser, Node |
+| `material.js` | Material der Person: Tabellen lesen (Text, HTML, Excel), Texte für die KI, Bilder als Assets, jedem Stück eine Folie sichern | Browser, Node |
+| `ui-material.js` | Feld „Material, das hinein muss“: Dateien, Einfügen, Text; Bilder beschreiben lassen und im Browser ablegen | nur Browser |
 | `bilder.js` | Bilder für den Export zuschneiden und als PNG oder JPG einbetten | nur Browser |
 | `assets.js` | Rolle, Tags und Beschreibung für Bilddateien vorschlagen | Vorschlag überall, Bildanalyse nur Browser |
 | `pakete.js` | ZIP lesen und schreiben, Designsysteme im Browser speichern, Kopien | nur Browser |
@@ -105,6 +107,17 @@ Das Briefing ist ein gesteuertes Gespräch: Die App entscheidet in jeder Runde, 
 - Nachfragen höchstens einmal je Punkt, Vertiefung höchstens einmal je Schwerpunkt.
 - Höchstens sechs Fragen; danach nur noch fehlende Kernpunkte.
 
+## Material der Person
+
+Fotos, Tabellen und Texte, die in die Präsentation müssen, liegen als `material` im Zustand der Präsentation (`S.praes`). Jedes Stück hat eine ID (`M1`, `M2` …), eine Art (`bild`, `tabelle`, `text`) und optional einen Hinweis der Person. Bilder selbst liegen in der Ablage `assets` der IndexedDB (Schlüssel `material-…`) und gehen in die `.kompass.json` mit.
+
+- **Lesen.** `material.js` liest Tabellen aus Tabulatortext, aus der HTML-Zwischenablage (Excel, Numbers, Google Tabellen) und aus `.xlsx`. Höchstens 8 Spalten; je Folie 12 Zeilen, längere Tabellen gehen über mehrere Folien. Word und PowerPoint werden als Text gelesen.
+- **Verstehen.** Bilder beschreibt ein Modell mit Bildverständnis (`material-bild.md`), lange Texte werden zusammengefasst (`material-text.md`). Beides ist optional.
+- **Briefing.** Material geht in die erste Runde und in jede weitere. Kommt Material mitten im Gespräch dazu, trägt `briefing-material.md` ein, was es belegt, und passt die offene Frage an. Bestätigte Angaben, Thema und Umfang überschreibt Material nie.
+- **Outline.** Jede Folie nennt das Material, das sie trägt. Die Form `tabelle` gibt es nur, wenn Tabellen dabei sind. `sichereMaterial` gibt jedem Stück ohne Folie eine passende vorhandene Folie oder eine neue an passender Stelle.
+- **Folie.** Bilder der Person werden über `mitMaterial` zu Assets des Designsystems; die KI wählt sie nicht aus, die App setzt sie. Fotos füllen die Bildfläche, Grafiken (Diagramme, Screenshots) werden ganz gezeigt (`fit: contain`). Tabellen belegen die größte freie Fläche des Layouts und werden in Vorschau und PowerPoint-Datei als echte Tabelle gezeichnet. Die Faktenprüfung kennt die Zahlen des Materials.
+- **Später.** Material, das bei fertigen Folien dazukommt, bekommt sofort eine Folie. Beim Wechsel des Designsystems und beim Neuschreiben einzelner Folien bleibt die Zuordnung erhalten.
+
 ## Welches Layout für welche Folie
 
 Die KI wählt kein Layout, sondern die Form, in der eine Aussage wirken soll (`analyse.js`, `FORMEN`): Kernsatz, Zahl, Kennzahlen, Liste, Bausteine, Vergleich, Ablauf, Bild, Zitat, Kapitel, Titel, Abschluss. Dazu markiert sie die zwei, drei wichtigsten Aussagen als betont.
@@ -157,7 +170,8 @@ Jedes Paket wird beim Laden geprüft. Ungültige Pakete erscheinen mit ihren Feh
 - **PowerPoint-Master.** Der Export zeichnet jede Folie vollständig (Hintergrund, Formen, Bilder, Texte). Die Folienmaster der Vorlage stecken nicht als Master in der exportierten Datei.
 - **Import.** Tabellen, Diagramme, SmartArt und Videos werden nicht übernommen, Bilder im Format EMF oder WMF ebenfalls nicht. Seltene PowerPoint-Grundformen zeigt die Vorschau angenähert; im Export sind sie exakt.
 - **Schriften.** Eine `.pptx` kennt keine Ersatzschriften. Standard ist deshalb die erste Ersatzschrift des Designsystems (zum Beispiel Arial). Die Wunschschrift lässt sich wählen, muss dann aber auf dem Rechner installiert sein.
-- **Diagramme und Tabellen.** Die Platzhaltertypen `chart` und `table` sind im Schema vorgesehen, werden aber noch nicht gezeichnet. Die Prüfung meldet das.
+- **Diagramme.** Der Platzhaltertyp `chart` ist im Schema vorgesehen, wird aber noch nicht gezeichnet. Die Prüfung meldet das. Tabellen der Person werden gezeichnet, auch ohne eigenen `table`-Platzhalter im Layout.
+- **Material.** Aus PDF wird kein Text gelesen. Tabellen in Word- oder PowerPoint-Dateien kommen als Text an, nicht als Tabelle.
 - **Faktenprüfung.** Sie erkennt Zahlen und Kontaktdaten, keine erfundenen Namen oder Zitate ohne Zahl.
 - **Bildbeschreibung per KI.** Braucht ein Modell mit Bildverständnis.
 

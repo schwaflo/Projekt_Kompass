@@ -97,6 +97,16 @@ Für einen Server in der Cloud reicht jeder Dienst, der statische Dateien oder d
 
 Die KI liefert nur Inhalt und Struktur. Farben, Schriften, Layouts und Logos kommen aus dem Designsystem. Zwei Demo-Systeme sind dabei; **Beispiel ansehen, ohne KI** zeigt sie sofort.
 
+### Material, das hinein muss
+
+Fotos, Grafiken, Tabellen und Texte, die auf jeden Fall in die Präsentation gehören, ziehst du in das Feld **Material, das hinein muss**, fügst sie mit ⌘V ein oder schreibst sie hinein. Das geht vor dem Briefing, mitten im Gespräch, beim Designsystem und noch bei fertigen Folien.
+
+- **Dateien:** Bilder, `.xlsx`, `.csv`, `.tsv`, `.docx`, `.pptx`, `.txt`, `.md`. Eine aus Excel oder Numbers kopierte Tabelle wird als Tabelle erkannt.
+- **Im Briefing:** Was das Material schon belegt (Zahlen, Ergebnisse, Daten), fragt die KI nicht mehr. Die offene Frage wird an das Material angepasst.
+- **Auf den Folien:** Jedes Stück bekommt sicher eine Folie. Fotos füllen die Bildfläche, Grafiken und Screenshots werden ganz gezeigt, Tabellen als echte PowerPoint-Tabelle, lange Tabellen auf mehrere Folien verteilt. Wer Material bei fertigen Folien hinzufügt, bekommt sofort eine Folie an passender Stelle.
+- Zu jedem Stück kannst du einen Hinweis schreiben, zum Beispiel „auf die Abschlussfolie“ oder „zeigt das neue Team“.
+- Bilder beschreibt ein Modell mit Bildverständnis. Ohne ein solches Modell kommen sie trotzdem auf die Folien, die KI kennt dann nur deinen Hinweis und den Dateinamen.
+
 | Mehr dazu | |
 |---|---|
 | [docs/eigenes-designsystem.md](docs/eigenes-designsystem.md) | Eigenes Designsystem anlegen: im Editor, aus einer PowerPoint-Vorlage oder von Hand |

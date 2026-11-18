@@ -12,14 +12,17 @@ Wer einen Prompt ändert, erhöht `version`. Die Version steht im Protokoll jede
 | [briefing-start.md](briefing-start.md) | Briefing, erste Runde | bekannte Angaben, Schwerpunkte, unwichtige Punkte, erste Frage |
 | [briefing-runde.md](briefing-runde.md) | Briefing, jede weitere Runde | Einträge, Nachfrage, Vertiefung oder nächste Frage |
 | [briefing-annahme.md](briefing-annahme.md) | Briefing, wenn die Person „Weiß ich nicht“ wählt | – |
+| [briefing-material.md](briefing-material.md) | Briefing, wenn die Person mitten im Gespräch Material hinzufügt | Einträge, die das Material belegt; offene Frage neu oder die nächste |
 | [designsystem.md](designsystem.md) | Designsystem vorschlagen | ID eines Designsystems, Begründung |
 | [system.md](system.md) | Rolle für Outline und Folien, enthält `voice.md` und die Regeln des Designsystems | – |
-| [outline.md](outline.md) | Gliederung nach der Dramaturgie der Art | Titel, Storyline, Kernbotschaft, Folien mit Abschnitt, Form (Kernsatz, Zahl, Vergleich …), Betonung und Kernaussage. Das Layout wählt danach die App. |
+| [outline.md](outline.md) | Gliederung nach der Dramaturgie der Art | Titel, Storyline, Kernbotschaft, Folien mit Abschnitt, Form (Kernsatz, Zahl, Vergleich …), Betonung, Kernaussage und dem Material, das die Folie trägt. Das Layout wählt danach die App; Material ohne Folie bekommt eine. |
 | [folie.md](folie.md) | Eine Folie schreiben oder neu schreiben | Inhalte je Feld, Sprechernotizen |
 | [richtlinien.md](richtlinien.md) | Designsystem-Editor: Formulierungsrichtlinien einer Marke aus einer Datei lesen, Teil für Teil | Tonalität, Anrede, Regeln, verbotene und bevorzugte Begriffe, Schreibweisen, Beispiele. Die App führt die Teile zusammen und schreibt sie in voice.md. |
 | [gestalten.md](gestalten.md) | Nur mit dem Schalter „KI darf Layouts anpassen“: Positionen und Größen der Flächen einer fertigen Folie verbessern | Geänderte Flächen, Spiegeln ja/nein, Begründung. Die App prüft Ränder, Überlappung und Lesbarkeit. |
 | [korrektur.md](korrektur.md) | Anhang bei ungültiger Antwort | – |
 | [asset-beschreiben.md](asset-beschreiben.md) | Designsystem-Editor: Bild beschreiben lassen (optional, braucht ein Modell mit Bildverständnis) | Beschreibung, Tags |
+| [material-bild.md](material-bild.md) | Material: Bild der Person beschreiben (braucht ein Modell mit Bildverständnis) | Beschreibung, Foto oder Grafik, Aussage, lesbarer Text |
+| [material-text.md](material-text.md) | Material: langen Text der Person zusammenfassen | Kurzfassung, wichtigste Aussagen |
 
 ## Präsentationsarten
 
@@ -34,6 +37,8 @@ Art erkennen ──► Briefing-Gespräch ──► Briefing (JSON) ──► Ou
 ```
 
 Jede Folie wird einzeln geschrieben. So bekommt die KI genau die Felder und Limits ihres Layouts als Antwortformat vorgegeben, und eine ungültige Folie wird allein wiederholt.
+
+Material der Person (Fotos, Tabellen, Texte) läuft durch alle Schritte mit: im Briefing als `{{material}}`, in der Outline als Liste mit IDs, beim Schreiben einer Folie vollständig als `MATERIAL`. Kommt Material mitten im Briefing dazu, folgt ein Aufruf mit `briefing-material.md`. Bilder und Tabellen setzt die App selbst auf die Folie; die KI schreibt nur Überschrift, Aussage und Notizen dazu.
 
 ## Prüfung und Wiederholung
 

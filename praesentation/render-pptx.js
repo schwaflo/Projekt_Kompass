@@ -55,6 +55,14 @@ export async function exportPptx(folien, opts) {
       } else if (e.art === 'bild') {
         const b = e.src && opts.ladeBild ? await opts.ladeBild(e) : null;
         if (b) s.addImage({ data: b.data.replace(/^data:/, ''), x: b.x, y: b.y, w: b.w, h: b.h, altText: e.alt || '', ...(e.rot ? { rotate: e.rot } : {}), ...(e.flipH ? { flipH: true } : {}), ...(e.deckkraft !== undefined ? { transparency: Math.round((1 - e.deckkraft) * 100) } : {}) });
+      } else if (e.art === 'tabelle') {
+        /* Echte PowerPoint-Tabelle: Linie unter dem Kopf, feine Linien zwischen den Zeilen, keine senkrechten Linien */
+        const ohne = { type: 'none' }, linie = (pt, farbe) => [ohne, ohne, { type: 'solid', pt, color: hex(farbe) }, ohne];
+        const zeilen = e.zellen.map((z, i) => z.map((t, j) => ({ text: t, options: { align: e.spalten[j].align, bold: e.kopf && i === 0, border: e.kopf && i === 0 ? linie(1.5, e.kopfLinie) : linie(0.75, e.linie) } })));
+        s.addTable(zeilen, {
+          x: X(e.x), y: Y(e.y), w: X(e.w), colW: e.spalten.map(sp => X(sp.w)), rowH: e.zeilenH.map(h => Y(h)),
+          fontFace: e.schrift, fontSize: e.pt, color: hex(e.farbe), valign: 'top', margin: [e.py, e.px, e.py, e.px].map(v => Math.max(1, +v.toFixed(1))), autoPage: false
+        });
       } else if (e.art === 'text') {
         const n = e.absaetze.length;
         const teile = e.absaetze.map((a, i) => ({

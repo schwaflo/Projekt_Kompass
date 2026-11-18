@@ -27,7 +27,7 @@ Object.assign(KIND, {
 Object.assign(TOK, { bild_gesamt: 600, bild_kachel: 260, bild_design: 1000, bild_farben: 300, bild_frei: 4600, bild_frei2: 1800, bild_urteil: 500 });
 
 const RASTER_FEST = ['2x2', '4x2', '4x4'];
-const VLM_WUNSCH = /qwen2\.5-?vl/i, DESIGN_WUNSCH = /gemma-?4/i;
+const DESIGN_WUNSCH = /gemma-?4/i;
 
 /* ---------- Zustand (liegt in S.design.bild und wird mit dem Projekt gespeichert) ---------- */
 function Z() {
@@ -68,32 +68,16 @@ function merkeNeue() {
 const modelle = () => ui.models || [];
 /* Welche Modelle verstehen Bilder? Ollama sagt es über /api/show. Bei anderen Servern ist es
    nicht abfragbar; dort gilt jedes Modell als möglich. */
-ui.bdFaehig = ui.bdFaehig || {}; ui.bdGroesse = ui.bdGroesse || {};
-let faehigLauf = null;
-function ladeFaehigkeiten() {
-  if (typeof isOpenAI === 'function' && isOpenAI()) return Promise.resolve();
-  if (faehigLauf) return faehigLauf;
-  const offen = modelle().filter(m => !(m in ui.bdFaehig)); if (!offen.length) return Promise.resolve();
-  faehigLauf = (async () => {
-    for (const m of offen) {
-      try { const r = await fetch(apiBase() + '/api/show', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ model: m }) }); const d = r.ok ? await r.json() : {}; ui.bdFaehig[m] = Array.isArray(d.capabilities) ? d.capabilities : null; ui.bdGroesse[m] = parseFloat((d.details || {}).parameter_size) || 0; }
-      catch { ui.bdFaehig[m] = null; }
-    }
-    faehigLauf = null; if (an() && !ui.busy) render();
-  })();
-  return faehigLauf;
-}
+/* Welche Modelle verstehen Bilder? Die Angaben kommen aus dem gemeinsamen KI-Aufruf in index.html
+   (window.KompassKI); neu gelesen wird nur, was noch fehlt. */
+const KI = () => window.KompassKI;
+const ladeFaehigkeiten = () => KI().ladeModellInfo().then(neu => { if (neu && an() && !ui.busy) render(); });
 /* Vor jedem Lauf: Fähigkeiten kennen und ein Modell haben, das Bilder versteht */
-async function bildModell() { await ladeFaehigkeiten(); const m = vlmName(); if (!m) throw new Error(OHNE_BILDMODELL); return m; }
-const sieht = m => { const c = ui.bdFaehig[m]; return !Array.isArray(c) || c.includes('vision'); };
-/* Modelle, die auch bei abgeschalteter Denkphase lange nachdenken: Die App merkt es beim ersten Aufruf
-   (ui.denktImmer); von qwen3-vl ist es bekannt. Sie funktionieren kaum, weil jeder der vielen Aufrufe
-   dann eine Minute und mehr dauert. */
-const denktImmer = m => !!(ui.denktImmer || {})[m] || /qwen3-?vl/i.test(m);
-/* Reihenfolge: Dauerdenker zuletzt, sonst das kleinere (schnellere) Modell zuerst */
-const bildModelle = () => modelle().filter(sieht).sort((a, b) => denktImmer(a) - denktImmer(b) || (ui.bdGroesse[a] || 99) - (ui.bdGroesse[b] || 99));
-/* Vision-Modell: die eigene Wahl, sonst qwen2.5vl, sonst das Modell von der Startseite, sonst das erste, das Bilder versteht (Dauerdenker zuletzt) */
-const vlmName = () => { const b = bildModelle(), z = Z(); return z.vlm && b.includes(z.vlm) ? z.vlm : b.find(m => VLM_WUNSCH.test(m)) || (S.model && b.includes(S.model) && !denktImmer(S.model) ? S.model : b[0] || ''); };
+async function bildModell() { await KI().ladeModellInfo(); const m = vlmName(); if (!m) throw new Error(OHNE_BILDMODELL); return m; }
+const denktImmer = m => KI().denktImmer(m);
+const bildModelle = () => KI().bildModelle();
+/* Vision-Modell: die eigene Wahl, sonst wie überall in der App (qwen2.5vl, Modell der Startseite, schnellstes Bildmodell) */
+const vlmName = () => KI().bildModell(Z().vlm);
 const OHNE_BILDMODELL = 'Keines deiner Modelle versteht Bilder. Lade eines in Ollama, zum Beispiel mit „ollama pull qwen2.5vl:7b“, und klicke danach auf der Startseite auf „Verbinden“.';
 const designName = () => (Z().modell && modelle().includes(Z().modell) ? Z().modell : modelle().find(m => DESIGN_WUNSCH.test(m)) || (S.model && !denktImmer(S.model) ? S.model : modelle().find(m => !denktImmer(m)) || S.model));
 const texte = () => { const t = designState().texte || {}; return { headline: t.headline || '', subline: t.subline || '', cta: t.cta || '' }; };
