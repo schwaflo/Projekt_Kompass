@@ -12,7 +12,7 @@
       wenige reine Textfolien) und Betonung (wichtige Aussagen
       bekommen Layouts mit großer, kräftiger Schrift).
    ============================================================ */
-import { inhaltsPlatzhalter } from './spec.js';
+import { inhaltsPlatzhalter, tabellenFlaeche } from './spec.js';
 import { kontrast } from './validate.js';
 
 export const FORMEN = {
@@ -27,7 +27,8 @@ export const FORMEN = {
   ablauf: 'Schritte, Phasen oder Termine in zeitlicher Reihenfolge',
   bild: 'eine Szene oder ein Beispiel, das ein Bild trägt, mit kurzer Aussage',
   zitat: 'ein Zitat oder eine Stimme aus der Zielgruppe',
-  abschluss: 'letzte Folie: Bitte, nächster Schritt, Kontakt'
+  abschluss: 'letzte Folie: Bitte, nächster Schritt, Kontakt',
+  tabelle: 'Tabelle: eine Tabelle der Person mit einer Überschrift, die sagt, was sie zeigt (nur für Tabellen aus dem Material)'
 };
 export const FORM_IDS = Object.keys(FORMEN);
 
@@ -44,7 +45,8 @@ const FORM_TYPEN = {
   ablauf: { timeline: 1, cards: 0.5, 'content-bullets': 0.45 },
   bild: { 'image-left': 1, 'image-right': 1, 'image-full': 0.9 },
   zitat: { quote: 1, statement: 0.6 },
-  abschluss: { closing: 1, statement: 0.3 }
+  abschluss: { closing: 1, statement: 0.3 },
+  tabelle: { 'content-bullets': 1, 'two-column': 0.45, comparison: 0.45, 'kpi-grid': 0.4, cards: 0.35, timeline: 0.3 }
 };
 /* Umgekehrt: welche Form ein Layouttyp am besten trägt (für alte Gliederungen mit layoutId) */
 export const FORM_VON_TYP = { title: 'titel', section: 'kapitel', statement: 'kernsatz', 'content-bullets': 'liste', cards: 'bausteine', 'two-column': 'vergleich', comparison: 'vergleich', 'image-left': 'bild', 'image-right': 'bild', 'image-full': 'bild', 'big-number': 'zahl', 'kpi-grid': 'kennzahlen', timeline: 'ablauf', quote: 'zitat', closing: 'abschluss' };
@@ -67,7 +69,8 @@ export function profil(layout, system) {
   const bildSeite = bilder.length && bildAnteil < 0.7 ? (bilder[0].x + bilder[0].w / 2 < 50 ? 'links' : 'rechts') : bildAnteil >= 0.7 ? 'voll' : '';
   const kapazitaet = texte.reduce((s, p) => s + (p.maxChars || 0), 0) + listen.reduce((s, p) => s + p.maxItems * p.maxCharsPerItem, 0) + kacheln.reduce((s, p) => s + p.maxItems * p.felder.reduce((t, f) => t + f.maxChars, 0), 0);
   const zahlKachel = kacheln.some(p => p.felder.some(f => /^(value|zahl|number|wert)$/i.test(f.id) || groesse(system, (f.style || {}).size) >= body * 1.8));
-  return { typ: layout.typ, texte: texte.length, listen: listen.length, kacheln: kacheln.length, kachelZahl: kacheln.reduce((s, p) => s + p.maxItems, 0), zahlKachel, bilder: bilder.length, bildAnteil, bildSeite, maxPt, wucht, dunkel, kapazitaet };
+  const tf = tabellenFlaeche(layout), tabelle = tf ? tf.w * tf.h / 10000 : 0;
+  return { typ: layout.typ, tabelle, texte: texte.length, listen: listen.length, kacheln: kacheln.length, kachelZahl: kacheln.reduce((s, p) => s + p.maxItems, 0), zahlKachel, bilder: bilder.length, bildAnteil, bildSeite, maxPt, wucht, dunkel, kapazitaet };
 }
 
 /* Eignung eines Layouts für eine Form (0 = gar nicht) */
@@ -77,6 +80,8 @@ export function eignung(layout, system, form, p = profil(layout, system)) {
   if (form === 'liste' && !p.listen && !p.kacheln) return 0;
   if (form === 'vergleich' && p.listen + p.kacheln < 2 && !(p.kacheln && p.kachelZahl >= 2)) w *= 0.5;
   if (form === 'bild' && !p.bilder) return 0;
+  /* Tabellen brauchen eine große Inhaltsfläche und stehen nicht neben Fotos */
+  if (form === 'tabelle') return p.tabelle >= 0.25 && !p.bilder ? Math.max(w, 0.25) * Math.min(1, p.tabelle / 0.4) : 0;
   if ((form === 'kennzahlen' || form === 'bausteine' || form === 'ablauf') && !p.kacheln && !p.listen) return 0;
   if (form === 'kennzahlen' && p.kacheln && !p.zahlKachel) w *= 0.7;
   if ((form === 'kernsatz' || form === 'zahl') && p.listen) w *= 0.4;
@@ -88,6 +93,7 @@ export function eignung(layout, system, form, p = profil(layout, system)) {
    folien: [{ form, betont, layoutId? }]  (layoutId: Wunsch, wird nur genommen, wenn er zur Form passt)
    opts.spiegeln: Bildlayouts dürfen gespiegelt werden, wenn es nur eine Bildseite gibt
    opts.bilder: false, wenn das Designsystem keine Fotos hat (dann keine Bildlayouts)
+   Je Folie kann f.bild (true/false) das für diese Folie festlegen, etwa für ein Bild der Person.
    Liefert [{ layoutId, form, spiegeln? }] */
 export function waehleLayouts(folien, system, opts = {}) {
   const n = folien.length, profile = new Map(system.layouts.map(l => [l.id, profil(l, system)]));
@@ -106,18 +112,25 @@ export function waehleLayouts(folien, system, opts = {}) {
     const vor = out[i - 1], vorTyp = vor ? (system.layout(vor.layoutId) || {}).typ : '';
 
     let best = null, bestWert = 0, bestSpiegeln = false;
+    const bilder = typeof f.bild === 'boolean' ? f.bild : opts.bilder !== false;
+    /* Eine Tabelle über mehrere Folien behält ihr Layout */
+    const fortsetzung = form === 'tabelle' && vor && vor.form === 'tabelle';
     system.layouts.forEach((l, idx) => {
       const p = profile.get(l.id);
-      if (opts.bilder === false && p.bilder) return; /* ohne Fotos keine leeren Bildflächen */
+      if (!bilder && p.bilder) return; /* ohne Fotos keine leeren Bildflächen */
       let w = eignung(l, system, form, p);
       if (w <= 0) return;
       if (f.layoutId === l.id) w += 0.25;
       if (f.betont) w += 0.35 * p.wucht; else if (['liste', 'vergleich', 'ablauf', 'bausteine'].includes(form)) w -= 0.1 * p.wucht;
-      if (vor && vor.layoutId === l.id) w -= 0.7;
-      else if (vorTyp && vorTyp === l.typ) w -= 0.3;
-      w -= 0.14 * (benutzt.get(l.id) || 0);
-      if (TEXT_TYPEN.includes(l.typ) && textFolien >= grenzeText) w -= 0.35;
-      if (l.typ === 'quote' && (benutzt.get(l.id) || 0) >= 1) w -= 0.5;
+      /* Tabellen brauchen vor allem Platz: keine Abzüge für Wiederholung, eine Fortsetzung behält ihr Layout */
+      if (form === 'tabelle') { if (fortsetzung && vor.layoutId === l.id) w += 0.5; }
+      else {
+        if (vor && vor.layoutId === l.id) w -= 0.7;
+        else if (vorTyp && vorTyp === l.typ) w -= 0.3;
+        w -= 0.14 * (benutzt.get(l.id) || 0);
+        if (TEXT_TYPEN.includes(l.typ) && textFolien >= grenzeText) w -= 0.35;
+        if (l.typ === 'quote' && (benutzt.get(l.id) || 0) >= 1) w -= 0.5;
+      }
       /* Bildseiten wechseln; gibt es nur eine Seite, darf gespiegelt werden */
       let spiegeln = false;
       if (p.bildSeite && p.bildSeite !== 'voll' && p.bildSeite === letzteBildSeite) {
@@ -154,7 +167,7 @@ const TYP_NAMEN = { title: 'Titelfolie', section: 'Kapiteltrenner', statement: '
 export const typName = t => TYP_NAMEN[t] || t;
 
 export function beschreibe(layout, system, p = profil(layout, system)) {
-  const formen = FORM_IDS.map(f => [f, eignung(layout, system, f, p)]).filter(([, w]) => w >= 0.5).sort((a, b) => b[1] - a[1]).map(([f]) => f);
+  const formen = FORM_IDS.filter(f => f !== 'tabelle').map(f => [f, eignung(layout, system, f, p)]).filter(([, w]) => w >= 0.5).sort((a, b) => b[1] - a[1]).map(([f]) => f);
   const teile = [];
   if (p.wucht >= 0.6) teile.push('sehr betont, große kräftige Schrift');
   else if (p.wucht >= 0.35) teile.push('betont');

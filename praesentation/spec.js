@@ -12,6 +12,11 @@
      bullets → ["Punkt", "Punkt"]
      items   → [{ <feldId>: "Text", … }]
      image   → "asset-id" oder "tag" aus dem Designsystem
+
+   Eine Folie kann zusätzlich eine Tabelle der Person tragen:
+     tabelle: { kopf: ["Spalte", …], zeilen: [["Zelle", …], …] }
+   Sie nimmt die Inhaltsfläche des Layouts ein (tabellenFlaeche);
+   die Platzhalter darin bleiben dann leer.
    ============================================================ */
 import { checkSchema } from './validate.js';
 
@@ -37,6 +42,23 @@ export const SPEC_SCHEMA = {
 /* Platzhalter, die Inhalt aus der Slide-Spec bekommen (also nicht Seitenzahl, Fußzeile, Logo) */
 export const inhaltsPlatzhalter = layout => layout.placeholders.filter(p => !p.auto && p.typ !== 'logo');
 
+/* Fläche für eine Tabelle: alle Inhaltsflächen außer Überschrift und Bild, zusammen als ein Rechteck.
+   Bei „Inhalt mit Aufzählung“ ist das die Fläche der Stichpunkte, bei zwei Spalten beide Spalten.
+   Kleine Textfelder wie eine Seitenzahl zählen nicht mit. Liefert { x, y, w, h, ids } oder null. */
+export function tabellenFlaeche(layout) {
+  if (!layout) return null;
+  const phs = inhaltsPlatzhalter(layout);
+  const titel = phs.find(p => p.id === 'title') || phs.filter(p => p.typ === 'text' && (p.style || {}).font === 'heading').sort((a, b) => a.y - b.y)[0];
+  const teile = phs.filter(p => p !== titel && p.typ !== 'image' && (p.typ !== 'text' || p.w * p.h >= 150));
+  if (!teile.length) return null;
+  const x = Math.min(...teile.map(p => p.x)), y = Math.min(...teile.map(p => p.y));
+  const w = Math.max(...teile.map(p => p.x + p.w)) - x, h = Math.max(...teile.map(p => p.y + p.h)) - y;
+  if (w < 30 || h < 25 || (titel && y < titel.y + titel.h - 1 && x < titel.x + titel.w && titel.x < x + w)) return null;
+  return { x, y, w, h, ids: teile.map(p => p.id) };
+}
+/* Ist das eine brauchbare Tabelle? */
+export const istTabelle = t => !!t && typeof t === 'object' && Array.isArray(t.kopf) && Array.isArray(t.zeilen) && t.zeilen.every(Array.isArray) && (t.kopf.length > 0 || t.zeilen.length > 0);
+
 const leer = v => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
 const laenge = s => [...String(s)].length;
 
@@ -53,8 +75,13 @@ export function validateSpec(spec, system) {
     if (!layout) { errors.push(`${wo}: Das Layout „${f.layoutId}“ gibt es nicht. Erlaubt: ${system.layouts.map(l => l.id).join(', ')}.`); return; }
     const phs = inhaltsPlatzhalter(layout), ids = phs.map(p => p.id);
     Object.keys(f.inhalt).forEach(k => { if (!ids.includes(k)) errors.push(`${wo} (${layout.id}): Den Platzhalter „${k}“ gibt es in diesem Layout nicht. Erlaubt: ${ids.join(', ')}.`); });
+    /* Eine Tabelle belegt die Inhaltsfläche: deren Platzhalter dürfen leer sein */
+    const tab = f.tabelle ? tabellenFlaeche(layout) : null, besetzt = new Set(tab ? tab.ids : []);
+    if (f.tabelle && !istTabelle(f.tabelle)) errors.push(`${wo}: Die Tabelle ist beschädigt.`);
+    else if (f.tabelle && !tab) errors.push(`${wo} (${layout.id}): Dieses Layout hat keinen Platz für die Tabelle. Wähle ein Layout mit Überschrift und großer Inhaltsfläche.`);
 
     phs.forEach(ph => {
+      if (besetzt.has(ph.id)) return;
       const v = f.inhalt[ph.id], p = `${wo} (${layout.id}), ${ph.id}`;
       if (leer(v)) { if (ph.pflicht) errors.push(`${p}: Pflichtinhalt fehlt.`); return; }
       switch (ph.typ) {
@@ -139,8 +166,10 @@ export function kuerzeSpec(spec, system) {
     const roh = f.inhalt && typeof f.inhalt === 'object' ? f.inhalt : {}, inhalt = {};
     let layout = system.layout(f.layoutId);
     if (!layout) { layout = passendesLayout(system, roh); aenderungen.push(`${wo}: Layout „${f.layoutId}“ unbekannt, ersetzt durch „${layout.id}“.`); }
+    const tab = istTabelle(f.tabelle) ? tabellenFlaeche(layout) : null, besetzt = new Set(tab ? tab.ids : []);
 
     inhaltsPlatzhalter(layout).forEach(ph => {
+      if (besetzt.has(ph.id)) return;
       let v = roh[ph.id];
       if (leer(v)) return;
       const p = `${wo}, ${ph.id}`;
@@ -171,6 +200,7 @@ export function kuerzeSpec(spec, system) {
     });
     /* Pflichtinhalte, die fehlen, werden als sichtbare Lücke markiert statt erfunden */
     inhaltsPlatzhalter(layout).forEach(ph => {
+      if (besetzt.has(ph.id)) return;
       const p = `${wo}, ${ph.id}`;
       if (ph.typ === 'items' && ph.minItems && inhalt[ph.id] && inhalt[ph.id].length < ph.minItems) {
         while (inhalt[ph.id].length < ph.minItems) inhalt[ph.id].push({ [ph.felder[0].id]: LUECKE });
@@ -181,7 +211,7 @@ export function kuerzeSpec(spec, system) {
       aenderungen.push(`${p}: Pflichtinhalt fehlt, Lücke markiert.`);
     });
     Object.keys(roh).forEach(k => { if (!inhaltsPlatzhalter(layout).some(ph => ph.id === k)) aenderungen.push(`${wo}: Inhalt „${k}“ passt in kein Feld des Layouts und wurde weggelassen.`); });
-    out.folien.push({ ...(f.id ? { id: String(f.id) } : {}), layoutId: layout.id, inhalt, ...(typeof f.notizen === 'string' && f.notizen ? { notizen: f.notizen } : {}) });
+    out.folien.push({ ...(f.id ? { id: String(f.id) } : {}), layoutId: layout.id, inhalt, ...(typeof f.notizen === 'string' && f.notizen ? { notizen: f.notizen } : {}), ...(istTabelle(f.tabelle) ? { tabelle: f.tabelle } : {}), ...(typeof f.material === 'string' && f.material ? { material: f.material } : {}) });
   });
   return { spec: out, aenderungen };
 }

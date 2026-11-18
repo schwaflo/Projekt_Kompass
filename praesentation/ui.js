@@ -8,7 +8,7 @@
 /* global S, ui, render, run, save, esc, toast, akte, errorBox, liveInner, statLine, hasProject, doPrint, slug, STATUS_TEXT, progress, MODULE_ORDER, MODULE, modDone */
 import { createRegistry } from './registry.js';
 import * as P from './pipeline.js';
-import { validateSpec, kuerzeSpec, remapSpec, inhaltsPlatzhalter, ordneInhaltZu, SPEC_VERSION } from './spec.js';
+import { validateSpec, kuerzeSpec, remapSpec, inhaltsPlatzhalter, ordneInhaltZu, tabellenFlaeche, SPEC_VERSION } from './spec.js';
 import { buildSlides } from './layout.js';
 import { slideHTML, FOLIEN_CSS, fontUrl } from './render-html.js';
 import { exportPptx } from './render-pptx.js';
@@ -17,17 +17,34 @@ import { waehleLayouts, rangliste, FORMEN, FORM_IDS, typName } from './analyse.j
 import { leseSprachregeln } from './richtlinien.js';
 import { ladePaket } from './pakete.js';
 import { initSysteme, ladeGespeicherte, viewSysteme, klickSysteme, wechselSysteme, dragSysteme, SYSTEME_CSS } from './ui-systeme.js';
+import * as M from './material.js';
+import { initMaterial, materialFeld, klickMaterial, eingabeMaterial, wechselMaterial, tasteMaterial, dragMaterial, einfuegenMaterial, ladeMaterialBilder, bilderVon, legeBilderAb, raeumeAuf, matUrl, MATERIAL_CSS } from './ui-material.js';
 
 const reg = createRegistry();
 let bereit = false, prompts = null;
 const lese = async p => { try { const r = await fetch(p, { cache: 'no-cache' }); return r.ok ? await r.text() : null; } catch { return null; } };
-const ladePrompts = async () => (prompts = prompts || await P.ladePrompts(lese));
+/* Prompts laden. Fehlt eine Datei, liegt es fast immer daran, wie die Seite ausgeliefert wird:
+   direkt als Datei geöffnet, oder GitHub Pages ohne .nojekyll (dann werden .md-Dateien zu Webseiten). */
+async function ladePrompts() {
+  if (prompts) return prompts;
+  try { prompts = await P.ladePrompts(lese); return prompts; }
+  catch (e) { throw new Error(`${e.message} ${ladeHilfe()}`); }
+}
+function ladeHilfe() {
+  if (location.protocol === 'file:') return 'Die Seite ist direkt als Datei geöffnet. Der Präsentationsgenerator braucht einen kleinen Webserver, weil er Prompts und Designsysteme nachlädt: im Projektordner „python3 -m http.server 8765“ starten und http://localhost:8765 öffnen.';
+  if (/github\.io$/.test(location.hostname)) return 'GitHub Pages wandelt .md-Dateien in Webseiten um, solange im obersten Ordner des Repositorys die leere Datei „.nojekyll“ fehlt. Mit dieser Datei und neu veröffentlicht sind die Prompts wieder erreichbar.';
+  return 'Der Webserver liefert die Datei nicht aus. Prüfe, ob der Ordner prompts/ mit veröffentlicht ist.';
+}
 const ki = () => window.KompassKI;
 
 /* ---------- Zustand (liegt in S.praes und wird mit dem Projekt gespeichert) ---------- */
-const neu = () => ({ schritt: 'start', beschreibung: '', quelle: '', B: null, briefing: null, systemId: '', vorschlag: null, spec: null, protokoll: [], pruefen: [], schrift: 'system', auswahl: 0, zurueck: 'start', kiLayout: false, nachAnalyse: false });
-const Z = () => { if (!S.praes) S.praes = neu(); return S.praes; };
-const system = () => reg.get(Z().systemId) || reg.list()[0] || null;
+const neu = () => ({ schritt: 'start', beschreibung: '', quelle: '', B: null, briefing: null, systemId: '', vorschlag: null, spec: null, protokoll: [], pruefen: [], schrift: 'system', auswahl: 0, zurueck: 'start', kiLayout: false, nachAnalyse: false, material: [] });
+const Z = () => { if (!S.praes) S.praes = neu(); if (!Array.isArray(S.praes.material)) S.praes.material = []; return S.praes; };
+/* Designsystem samt den Bildern der Person (Material), damit Layoutwahl, Vorschau und Export sie wie eigene Bilder behandeln */
+const mitBildern = sys => M.mitMaterial(sys, Z().material, matUrl);
+const system = () => mitBildern(reg.get(Z().systemId) || reg.list()[0] || null);
+/* Material als Text für die Prompts */
+const materialText = () => Z().material.length ? M.materialListe(Z().material) : '';
 const folie = () => { const z = Z(); z.auswahl = Math.max(0, Math.min(z.auswahl || 0, z.spec.folien.length - 1)); return z.spec.folien[z.auswahl]; };
 const modell = () => buildSlides(Z().spec, system(), { schrift: Z().schrift, anpassen: !!Z().kiLayout });
 /* Startet die Präsentation aus der Projektanalyse? Standard, sobald es ein Projekt gibt. */
@@ -53,6 +70,7 @@ function open() {
   const z = Z();
   if (S.screen !== 'praes') z.zurueck = S.screen;
   S.screen = 'praes'; ui.error = null; save(); render(); window.scrollTo({ top: 0 });
+  ladeMaterialBilder().then(n => { if (n && an()) render(); });
 }
 function close() { const z = Z(); S.screen = z.zurueck && z.zurueck !== 'praes' ? z.zurueck : 'start'; ui.error = null; save(); render(); window.scrollTo({ top: 0 }); }
 function geh(schritt) { Z().schritt = schritt; ui.error = null; ui.praesEdit = null; save(); render(); window.scrollTo({ top: 0 }); }
@@ -70,7 +88,7 @@ function starte() {
     if (z.spec) { if (!(await sichere(true))) return; Object.assign(z, { spec: null, gespeichertId: undefined, gespeichertStand: undefined, protokoll: [], pruefen: [], auswahl: 0 }); }
     await ladePrompts();
     const B = P.neuesBriefing(z.beschreibung || `Präsentation zum Projekt „${S.titel}“`);
-    await P.briefingStart(ki(), prompts, B, mitProjekt ? projektKontext() : '', { ausProjekt: mitProjekt && !!S.ergebnis });
+    await P.briefingStart(ki(), prompts, B, mitProjekt ? projektKontext() : '', { ausProjekt: mitProjekt && !!S.ergebnis, material: materialText() });
     z.B = B; z.briefing = null; z.schritt = 'briefing'; z.vorschlag = null;
   });
 }
@@ -88,7 +106,7 @@ function antworte(text, annahme) {
   const z = Z(), a = (text ?? (document.getElementById('pr-answer') || {}).value ?? '').trim();
   if (!a || !z.B || !z.B.aktuell) return;
   ui.notice = null;
-  run('Antwort wird einsortiert …', async () => { await ladePrompts(); await P.briefingAntwort(ki(), prompts, z.B, a, { annahme }); });
+  run('Antwort wird einsortiert …', async () => { await ladePrompts(); await P.briefingAntwort(ki(), prompts, z.B, a, { annahme, material: materialText() }); });
 }
 
 function briefingWeiter() {
@@ -108,7 +126,7 @@ function erstelle() {
   z.systemId = sys.id;
   run('Präsentation wird geschrieben …', async () => {
     await ladePrompts();
-    const r = await P.erstellePraesentation(ki(), prompts, z.briefing, sys, { gestalten: !!z.kiLayout, fortschritt: s => { ui.praesFortschritt = s.schritt === 'outline' ? 'Gliederung wird erstellt' : s.schritt === 'gestalten' ? `Layout von Folie ${s.nr} von ${s.anzahl} wird angepasst` : `Folie ${s.nr} von ${s.anzahl} wird geschrieben`; const el = document.getElementById('pr-fort'); if (el) el.textContent = ui.praesFortschritt; } });
+    const r = await P.erstellePraesentation(ki(), prompts, z.briefing, sys, { gestalten: !!z.kiLayout, materialien: z.material, fortschritt: s => { ui.praesFortschritt = s.schritt === 'outline' ? 'Gliederung wird erstellt' : s.schritt === 'gestalten' ? `Layout von Folie ${s.nr} von ${s.anzahl} wird angepasst` : `Folie ${s.nr} von ${s.anzahl} wird geschrieben`; const el = document.getElementById('pr-fort'); if (el) el.textContent = ui.praesFortschritt; } });
     r.spec.folien.forEach((f, i) => { f.kernaussage = r.outline.folien[i].kernaussage; f.abschnitt = r.outline.folien[i].abschnitt; });
     r.spec.richtlinien = fingerabdruck(sys.voice);
     Object.assign(z, { spec: r.spec, protokoll: r.protokoll, pruefen: r.pruefen, auswahl: 0, schritt: 'vorschau' });
@@ -124,28 +142,84 @@ async function beispiel() {
   ui.error = null; save(); render();
 }
 
+/* Gliederung aus den fertigen Folien, damit eine Folie mit ihrem Umfeld neu geschrieben werden kann */
+const titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
+function outlineAusSpec(sys = system()) {
+  const z = Z();
+  return { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: (sys.layout(x.layoutId) || sys.layoutForTyp('content-bullets')).id, form: x.form, betont: x.betont, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '', ...(x.material ? { material: x.material } : {}), ...(x.teile > 1 ? { teil: x.teil, teile: x.teile } : {}) })) };
+}
+/* Was eine neu geschriebene Folie von der alten behält */
+const bleibt = f => ({ kernaussage: f.kernaussage, abschnitt: f.abschnitt, form: f.form, betont: f.betont, ...(f.anpassung ? { anpassung: f.anpassung } : {}), ...(f.teile > 1 ? { teil: f.teil, teile: f.teile } : {}) });
+
 function schreibeNeu() {
   const z = Z(), sys = system(), i = z.auswahl, f = folie(), wunsch = ((document.getElementById('pr-wunsch') || {}).value || '').trim();
   run(`Folie ${i + 1} wird neu geschrieben …`, async () => {
     await ladePrompts();
-    const titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
-    const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: (sys.layout(x.layoutId) || sys.layoutForTyp('content-bullets')).id, form: x.form, betont: x.betont, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '' })) };
-    const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch });
-    z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage, abschnitt: f.abschnitt, form: f.form, betont: f.betont, ...(f.anpassung ? { anpassung: f.anpassung } : {}) };
+    const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline: outlineAusSpec(sys), index: i, system: sys, materialien: z.material }, { bisher: f.inhalt, wunsch });
+    z.spec.folien[i] = { ...r.folie, ...bleibt(f) };
     const nr = new RegExp(`^Folie ${i + 1}[,:]`);
     z.protokoll = [...z.protokoll.filter(t => !nr.test(t)), ...r.aenderungen];
     z.pruefen = [...z.pruefen.filter(t => !nr.test(t)), ...r.pruefen];
   });
 }
 
+/* ---------- Material ---------- */
+/* Hinweise mit Foliennummern ab einer Stelle verschieben, wenn davor Folien dazukommen */
+const verschiebe = (liste, ab, um) => liste.map(t => t.replace(/^Folie (\d+)/, (x, n) => +n >= ab ? `Folie ${+n + um}` : x));
+/* Neues Material: im Briefing einsortieren (die nächste Frage greift es auf),
+   bei fertigen Folien sofort eine Folie dafür an passender Stelle. Davor und beim Designsystem
+   wird es erst beim Schreiben verwendet. */
+async function nachMaterial(neue) {
+  const z = Z();
+  if (z.schritt === 'briefing' && z.B) {
+    await ladePrompts();
+    ui.busyText = 'Material wird ins Briefing einsortiert';
+    const alt = z.material.filter(m => !neue.includes(m));
+    await P.briefingMaterial(ki(), prompts, z.B, M.materialListe(neue), alt.length ? M.materialListe(alt) : '');
+    z.briefing = null; z.vorschlag = null;
+  } else if (z.schritt === 'vorschau' && z.spec) {
+    for (const m of neue) await folieFuer(m);
+  }
+}
+/* Eine Folie (bei langen Tabellen mehrere) für ein Material schreiben und an passender Stelle einfügen */
+async function folieFuer(m) {
+  const z = Z(), sys = system();
+  await ladePrompts();
+  const outline = outlineAusSpec(sys), pos = M.materialPosition(outline.folien, m);
+  const teile = m.art === 'tabelle' ? M.tabellenTeile(m.tabelle) : 1, form = M.formFuer(m);
+  const fotos = P.freieBilder(sys).length > 0;
+  for (let t = 1; t <= teile; t++) {
+    const i = pos + t - 1, nachbarn = [outline.folien[i - 1], outline.folien[i]].filter(Boolean).map(f => f.layoutId);
+    const layout = rangliste(form, false, sys, nachbarn).find(l => form === 'bild' || fotos || !inhaltsPlatzhalter(l).some(p => p.typ === 'image')) || sys.layoutForTyp('content-bullets');
+    const kern = (m.notiz || (m.art === 'bild' ? m.aussage || m.beschreibung : m.art === 'text' ? m.kurz : '') || `Was „${m.name}“ zeigt`).slice(0, 160);
+    const plan = { abschnitt: '', form, betont: false, kernaussage: kern + (teile > 1 ? ` (Teil ${t} von ${teile})` : ''), inhalt: `Material ${m.id}`, material: m.id, layoutId: layout.id, ...(teile > 1 ? { teil: t, teile } : {}) };
+    outline.folien.splice(i, 0, plan);
+    ui.busyText = `Folie für „${m.name}“ wird geschrieben${teile > 1 ? ` (Teil ${t} von ${teile})` : ''}`;
+    const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys, materialien: z.material });
+    z.protokoll = verschiebe(z.protokoll, i + 1, 1); z.pruefen = verschiebe(z.pruefen, i + 1, 1);
+    z.spec.folien.splice(i, 0, { ...r.folie, form, betont: false, kernaussage: plan.kernaussage, abschnitt: '', ...(teile > 1 ? { teil: t, teile } : {}) });
+    z.protokoll.push(...r.aenderungen); z.pruefen.push(...r.pruefen);
+  }
+  z.protokoll.push(`${M.ART_NAME[m.art]} „${m.name}“ steht jetzt auf Folie ${pos + 1}${teile > 1 ? ` bis ${pos + teile}` : ''}.`);
+  z.auswahl = pos;
+}
+/* Zur ersten Folie mit diesem Material springen */
+function zeigeFolie(id) {
+  const z = Z(), wo = (M.materialOrte(z.spec, z.material)[id] || [])[0];
+  if (!wo) return;
+  z.auswahl = wo - 1; save(); render();
+  const st = document.getElementById('pr-stage'); if (st) st.scrollIntoView({ block: 'nearest' });
+}
+
 /* Designsystem wechseln: Folien mit bekannter Form bekommen das passende Layout des neuen Systems,
    ältere über den Layouttyp. Anpassungen gelten nur im alten System. */
 function wechsleSystem(id) {
-  const z = Z(), alt = system(), neuS = reg.get(id);
+  const z = Z(), alt = system(), neuS = mitBildern(reg.get(id));
   if (!neuS || !z.spec) return;
   const spec = remapSpec(z.spec, alt, neuS);
   if (spec.folien.every(f => f.form)) {
-    const wahl = waehleLayouts(spec.folien.map(f => ({ form: f.form, betont: f.betont })), neuS, { spiegeln: !!z.kiLayout, bilder: P.bildAssets(neuS).length > 0 });
+    const fotos = P.freieBilder(neuS).length > 0, mitBild = f => Object.values(f.inhalt || {}).some(v => typeof v === 'string' && v.startsWith('material-'));
+    const wahl = waehleLayouts(spec.folien.map(f => ({ form: f.form, betont: f.betont, bild: fotos || mitBild(f) })), neuS, { spiegeln: !!z.kiLayout, bilder: fotos });
     spec.folien.forEach((f, i) => { f.layoutId = wahl[i].layoutId; f.inhalt = ordneInhaltZu(f.inhalt, neuS.layout(f.layoutId)); });
     spec.folien = remapSpec(spec, neuS, neuS).folien;
     spec.folien.forEach((f, i) => { delete f.anpassung; if (wahl[i].spiegeln) f.anpassung = { spiegeln: true }; });
@@ -166,10 +240,9 @@ function schreibeFolienNeu(liste, wunsch, text, danach) {
     await ladePrompts();
     for (const [n, i] of liste.entries()) {
       ui.busyText = `${text.replace(/ …$/, '')}: Folie ${i + 1} (${n + 1} von ${liste.length})`;
-      const f = z.spec.folien[i], titelVon = x => x.kernaussage || Object.values(x.inhalt).find(v => typeof v === 'string') || '';
-      const outline = { titel: z.spec.titel, folien: z.spec.folien.map(x => ({ layoutId: x.layoutId, form: x.form, betont: x.betont, kernaussage: titelVon(x), abschnitt: x.abschnitt || '', inhalt: '' })) };
-      const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline, index: i, system: sys }, { bisher: f.inhalt, wunsch });
-      z.spec.folien[i] = { ...r.folie, kernaussage: f.kernaussage, abschnitt: f.abschnitt, form: f.form, betont: f.betont, ...(f.anpassung ? { anpassung: f.anpassung } : {}) };
+      const f = z.spec.folien[i];
+      const r = await P.erstelleFolie(ki(), prompts, { briefing: z.briefing || { thema: z.spec.titel }, outline: outlineAusSpec(sys), index: i, system: sys, materialien: z.material }, { bisher: f.inhalt, wunsch });
+      z.spec.folien[i] = { ...r.folie, ...bleibt(f) };
       const nr = new RegExp(`^Folie ${i + 1}[,:]`);
       z.pruefen = [...z.pruefen.filter(t => !nr.test(t)), ...r.pruefen];
     }
@@ -224,6 +297,7 @@ async function oeffneGespeicherte(id) {
   if (ungespeichert()) await sichere(true);
   S.praes = { ...neu(), ...e.zustand, zurueck: Z().zurueck, gespeichertId: e.id };
   S.praes.gespeichertStand = specStand(S.praes);
+  await ladeMaterialBilder();
   if (!reg.get(S.praes.systemId)) ui.notice = `Das Designsystem „${e.systemName || e.systemId}“ gibt es in diesem Browser nicht. Die Folien werden im ersten verfügbaren Designsystem gezeigt.`;
   ui.error = null; save(); render(); window.scrollTo({ top: 0 });
 }
@@ -232,7 +306,7 @@ async function loescheGespeicherte(id) {
   if (!e || !confirm(`Präsentation „${e.titel}“ löschen? Das lässt sich nicht rückgängig machen.`)) return;
   await IDB.del(id, ABLAGE);
   if (Z().gespeichertId === id) { delete Z().gespeichertId; delete Z().gespeichertStand; }
-  await gespeicherte(true); render();
+  await gespeicherte(true); raeumeAuf(); render();
 }
 async function neuePraesentation() {
   const z = Z();
@@ -245,7 +319,8 @@ async function alsDatei(id) {
   const e = (await gespeicherte()).find(x => x.id === id);
   if (!e) return;
   const sys = reg.get(e.systemId);
-  const inhalt = { format: 'kompass-praesentation', version: 1, ...e, ...(sys && sys.paket ? { designsystem: sys.paket } : {}) };
+  const bilder = await bilderVon((e.zustand && e.zustand.material) || []);
+  const inhalt = { format: 'kompass-praesentation', version: 1, ...e, ...(sys && sys.paket ? { designsystem: sys.paket } : {}), ...(Object.keys(bilder).length ? { materialBilder: bilder } : {}) };
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([JSON.stringify(inhalt)], { type: 'application/json' })), download: (slug(e.titel) || 'praesentation') + '.kompass.json' });
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
@@ -257,7 +332,8 @@ async function ausDatei(datei) {
       const r = await ladePaket(d.designsystem);
       if (r.ok) { try { await IDB.put(r.system.id, d.designsystem, 'designsysteme'); } catch {} reg.add(r); }
     }
-    const { designsystem, format, version, ...eintrag } = d;
+    const { designsystem, format, version, materialBilder, ...eintrag } = d;
+    if (materialBilder) await legeBilderAb(materialBilder, eintrag.zustand.material || []);
     eintrag.id = 'p' + Date.now().toString(36);
     await IDB.put(eintrag.id, eintrag, ABLAGE);
     await gespeicherte(true);
@@ -393,6 +469,7 @@ function viewStart() {
       </div>
       <label class="fieldlabel" for="pr-desc">${mitProjekt ? 'Was soll die Präsentation leisten? <span class="muted">(optional, hilft bei der Art)</span>' : 'Worum geht es in der Präsentation?'}</label>
       <textarea class="bigtext" id="pr-desc" placeholder="${mitProjekt ? 'Zum Beispiel: Ich stelle das Projekt der Geschäftsleitung vor und brauche die Freigabe für das Budget.' : 'Zum Beispiel: Ich stelle dem Vorstand in zehn Minuten vor, warum wir ein neues Kundenportal brauchen.'}">${esc(z.beschreibung)}</textarea>
+      ${materialFeld('start')}
       <div class="actions"><button class="btn primary" data-pr="start" ${ui.busy ? 'disabled' : ''}>Briefing starten</button>
         ${z.B ? '<button class="btn" data-pr="geh" data-s="briefing">Briefing fortsetzen</button>' : ''}
         ${z.spec ? '<button class="btn" data-pr="geh" data-s="vorschau">Zu den Folien</button>' : ''}
@@ -439,7 +516,7 @@ function viewBriefing() {
   const sichtbar = B.felder.filter(x => !x.unwichtig), wichtig = x => x.prio === 'kern' ? ' <span class="pr-pflicht" title="muss geklärt sein">•</span>' : '';
   return `${kopf('Briefing', '')}${pfad()}
   <section class="work">
-    <div>${errorBox()}${kopfzeile}${frage}${ui.busy ? '' : statLine()}</div>
+    <div>${errorBox()}${kopfzeile}${frage}${materialFeld('briefing')}${ui.busy ? '' : statLine()}</div>
     <aside class="side" aria-label="Briefing">
       <div class="side-head"><h3>Briefing</h3><span class="small muted">${sichtbar.filter(x => x.wert && x.status !== 'uebersprungen').length}/${sichtbar.length}</span></div>
       ${B.felder.map(x => `<div class="fact ${x.unwichtig ? 'pr-unwichtig' : ''}"><div class="fact-top"><span class="fact-label">${esc(x.label)}${wichtig(x)}${x.schwerpunkt ? ' <span class="tag moved" style="font-size:.66rem">Schwerpunkt</span>' : ''}</span>${status(x)}</div>
@@ -477,6 +554,7 @@ function viewSystem() {
     </button>`).join('') || '<p class="muted">Es wurde kein Designsystem gefunden. Lege eines unter design-systems/ ab.</p>'}
   </section>
   ${schalter()}
+  ${materialFeld('system')}
   <div class="actions" style="margin-bottom:60px">
     <button class="btn primary" data-pr="erstellen" ${ui.busy || !gewaehlt ? 'disabled' : ''}>Präsentation schreiben (${z.briefing.folienzahl} Folien)</button>
     <button class="btn" data-pr="geh" data-s="briefing" ${ui.busy ? 'disabled' : ''}>Zurück zum Briefing</button>
@@ -494,16 +572,25 @@ const buehne = f => slideHTML(f).replace(/<div class="pf-t" (data-ph="[^"]+"(?: 
 function hinweise(m) {
   const z = Z(), l = [];
   validateSpec(z.spec, system()).errors.filter(e => !e.includes('gibt es in diesem Layout nicht')).forEach(e => l.push(['zuviel', e]));
-  m.forEach(f => f.elemente.filter(e => e.gekuerzt).forEach(e => l.push(['zuviel', `Folie ${f.nr}, ${e.ph}: Der Text passt nicht in die Fläche und wird abgeschnitten.`])));
+  m.forEach(f => f.elemente.filter(e => e.gekuerzt).forEach(e => l.push(['zuviel', e.art === 'tabelle' ? `Folie ${f.nr}: Die Tabelle passt nicht ganz auf die Folie, die letzten Zeilen fehlen. Kürze Zellen oder entferne Zeilen.` : `Folie ${f.nr}, ${e.ph}: Der Text passt nicht in die Fläche und wird abgeschnitten.`])));
   sprachVerstoesse().forEach(v => { if (!z.pruefen.some(t => t.startsWith(v.text))) l.push(['pruefen', v.text]); });
   z.pruefen.forEach(t => l.push(['pruefen', t]));
   z.protokoll.forEach(t => l.push(['info', t]));
   return l.length ? `<details ${l.some(x => x[0] !== 'info') ? 'open' : ''}><summary>${l.length} ${l.length === 1 ? 'Hinweis' : 'Hinweise'}</summary><ul>${l.map(([art, t]) => `<li class="${art}">${esc(t)}</li>`).join('')}</ul></details>` : '';
 }
 
+/* Tabelle der Folie: Zellen direkt bearbeiten */
+function tabellenFeld(f, passt) {
+  const t = f.tabelle, n = Math.max(t.kopf.length, ...t.zeilen.map(z => z.length), 1);
+  const zeile = (z, i) => `<div class="pm-tz">${Array.from({ length: n }, (_, j) => `<input class="input" data-prt="${i}" data-j="${j}" value="${esc(z[j] || '')}" aria-label="${i === 'k' ? 'Kopf' : `Zeile ${+i + 1}`}, Spalte ${j + 1}"${i === 'k' ? ' style="font-weight:600"' : ''}>`).join('')}</div>`;
+  return `<div class="pr-feld"><span>Tabelle${f.teile > 1 ? ` <i>Teil ${f.teil} von ${f.teile}</i>` : ''}</span>
+    ${passt ? '' : '<p class="small" style="color:var(--review);margin:0">Dieses Layout hat keinen Platz für die Tabelle. Wähle unter „Layout“ eines mit Überschrift und großer Inhaltsfläche, etwa „Inhalt mit Aufzählung“.</p>'}
+    <div class="pm-teditor" style="--n:${n}">${t.kopf.length ? zeile(t.kopf, 'k') : ''}${t.zeilen.map((z, i) => zeile(z, i)).join('')}</div>
+    <button class="linkbtn" data-pr="tabweg" style="align-self:flex-start">Tabelle von dieser Folie nehmen</button></div>`;
+}
 function felder(f, layout) {
-  const sys = system();
-  return inhaltsPlatzhalter(layout).map(ph => {
+  const sys = system(), tab = f.tabelle ? tabellenFlaeche(layout) : null, besetzt = new Set(tab ? tab.ids : []);
+  return (f.tabelle ? tabellenFeld(f, !!tab) : '') + inhaltsPlatzhalter(layout).filter(ph => !besetzt.has(ph.id)).map(ph => {
     const v = f.inhalt[ph.id], name = `${esc(ph.beschreibung || ph.id)}${ph.pflicht ? '' : ' <span class="muted">(optional)</span>'}`;
     if (ph.typ === 'text') return `<label class="pr-feld"><span>${name}<i data-zaehler="${ph.id}"></i></span><textarea rows="2" data-prf="${ph.id}" data-typ="text" data-max="${ph.maxChars}">${esc(v || '')}</textarea></label>`;
     if (ph.typ === 'bullets') return `<label class="pr-feld"><span>${name}, ein Punkt pro Zeile<i data-zaehler="${ph.id}"></i></span><textarea rows="${Math.max(3, (v || []).length + 1)}" data-prf="${ph.id}" data-typ="bullets" data-max="${Math.min(ph.maxItems, sys.rules.maxBullets || ph.maxItems)}">${esc((Array.isArray(v) ? v : []).join('\n'))}</textarea></label>`;
@@ -538,6 +625,8 @@ function viewVorschau() {
     return `<div class="notice pr-passt"><span>${neuR ? `Die Formulierungsrichtlinien von „${esc(sys.meta.name)}“ wurden geändert, nachdem diese Folien geschrieben wurden. ` : ''}${v.length ? `${v.length === 1 ? 'Eine Stelle verstößt' : `${v.length} Stellen verstoßen`} gegen die Richtlinien (Folie ${folien.join(', ')}).` : ''}</span><button class="btn tiny primary" data-pr="sprache">${neuR ? 'Alle Folien nach den Richtlinien neu schreiben' : 'Diese Folien nachbessern lassen'}</button></div>`; })()}
   ${(() => { const n = passtNicht(); return n.length && !ui.busy ? `<div class="notice pr-passt"><span>${n.length === 1 ? 'Eine Folie passt' : `${n.length} Folien passen`} nicht ganz in ${n.length === 1 ? 'ihr Layout' : 'ihre Layouts'} (Folie ${n.map(i => i + 1).join(', ')}).</span><button class="btn tiny primary" data-pr="anpassen">Texte von der KI anpassen lassen</button></div>` : ''; })()}
   <div id="pr-hinweise" class="pr-hinweise">${hinweise(m)}</div>
+  ${(() => { const l = z.material, orte = M.materialOrte(z.spec, l), offen = l.filter(x => !orte[x.id]).length;
+    return `<details class="pr-material" ${ui.praesMaterial || offen ? 'open' : ''}><summary data-pr="materialauf">Material${l.length ? ` <span class="muted">${l.length}${offen ? `, ${offen} ohne Folie` : ''}</span>` : ' <span class="muted">hinzufügen</span>'}</summary>${materialFeld('vorschau')}</details>`; })()}
   <section class="pr-editor">
     <div class="pr-thumbs" aria-label="Folien">${m.map((x, n) => `<button class="pr-thumb" data-pr="sel" data-i="${n}" aria-pressed="${n === i}" aria-label="Folie ${n + 1}"><span class="pr-nr">${n + 1}</span><span class="pr-thumb-f">${slideHTML(x)}</span></button>`).join('')}</div>
     <div class="pr-mitte">
@@ -553,7 +642,7 @@ function viewVorschau() {
     </div>
     <aside class="panel pr-panel">
       <div class="pr-wirkung">
-        <label class="pr-feld"><span>Wirkung</span><select class="input" id="pr-form"><option value="">(nicht festgelegt)</option>${FORM_IDS.map(k => `<option value="${k}" ${f.form === k ? 'selected' : ''}>${esc(FORMEN[k].split(':')[0].split(',')[0])}</option>`).join('')}</select></label>
+        <label class="pr-feld"><span>Wirkung</span><select class="input" id="pr-form"><option value="">(nicht festgelegt)</option>${FORM_IDS.filter(k => k !== 'tabelle' || f.tabelle).map(k => `<option value="${k}" ${f.form === k ? 'selected' : ''}>${esc(FORMEN[k].split(':')[0].split(',')[0])}</option>`).join('')}</select></label>
         <label class="pr-betont"><input type="checkbox" id="pr-betont" ${f.betont ? 'checked' : ''}> betont</label>
       </div>
       ${(() => { const passend = f.form ? rangliste(f.form, f.betont, sys).map(l => l.id) : []; const gruppen = [...new Set(sys.layouts.map(l => l.typ))];
@@ -586,9 +675,12 @@ const an = () => S.screen === 'praes';
 function klick(e) {
   if (!an()) return;
   if (Z().schritt === 'systeme' && klickSysteme(e)) return;
+  if (klickMaterial(e)) return;
   const b = e.target.closest('[data-pr]'); if (!b || b.disabled) return;
   const d = b.dataset, z = Z();
   switch (d.pr) {
+    case 'materialauf': { const det = b.closest('details'); ui.praesMaterial = det ? !det.open : true; return; }
+    case 'tabweg': { const f = folie(); if (!confirm('Die Tabelle von dieser Folie nehmen? Sie bleibt im Material und lässt sich wieder einfügen.')) return; delete f.tabelle; if (f.material && (z.material.find(x => x.id === f.material) || {}).art === 'tabelle') delete f.material; if (f.form === 'tabelle') delete f.form; save(); return render(); }
     case 'zu': return close();
     case 'geh': return geh(d.s);
     case 'systeme': Z().vorSystemen = Z().schritt; return geh('systeme');
@@ -626,17 +718,20 @@ function klick(e) {
 }
 function eingabe(e) {
   if (!an() || Z().schritt === 'systeme') return;
+  if (eingabeMaterial(e)) return;
   const t = e.target, d = t.dataset || {};
   if (t.id === 'pr-desc') { Z().beschreibung = t.value; return; }
   if (Z().schritt !== 'vorschau') return;
   if (d.prf) { setze({ ph: d.prf }, d.typ === 'bullets' ? t.value : t.value.trim()); return zeichneFolie(); }
   if (d.pri) { setze({ ph: d.pri, index: +d.index, feld: d.feld }, t.value.trim()); return zeichneFolie(); }
+  if (d.prt !== undefined) { const tb = folie().tabelle; if (!tb) return; const z = d.prt === 'k' ? tb.kopf : tb.zeilen[+d.prt]; if (z) { z[+d.j] = t.value; save(); zeichneFolie(); } return; }
   if (t.id === 'pr-notizen') { folie().notizen = t.value; return save(); }
   if (t.id === 'pr-titel') { Z().spec.titel = t.value || 'Präsentation'; save(); return zeichneFolie(); }
 }
 function wechsel(e) {
   if (!an()) return;
   if (Z().schritt === 'systeme') { wechselSysteme(e); return; }
+  if (wechselMaterial(e)) return;
   const t = e.target, z = Z();
   if (t.id === 'pr-datei' && t.files[0]) { ausDatei(t.files[0]); t.value = ''; return; }
   if (t.id === 'pr-kilayout') { z.kiLayout = t.checked; save(); return render(); }
@@ -670,12 +765,17 @@ function fokusWeg(e) {
 }
 function taste(e) {
   if (!an()) return;
+  if (tasteMaterial(e)) return;
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (e.target.id === 'pr-answer') { e.preventDefault(); antworte(); } else if (e.target.id === 'pr-desc') { e.preventDefault(); starte(); } }
   /* einzeilige Felder auf der Folie: Enter beendet die Eingabe */
   if (e.key === 'Enter' && e.target.isContentEditable && !Array.isArray(roh(e.target.dataset))) { e.preventDefault(); e.target.blur(); }
 }
 
-const CSS = FOLIEN_CSS + SYSTEME_CSS + `
+const CSS = FOLIEN_CSS + SYSTEME_CSS + MATERIAL_CSS + `
+.pr-material{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:8px 14px;margin-bottom:14px;font-size:.9rem}
+.pr-material>summary{cursor:pointer;font-weight:600}
+.pr-material .pm{border:0;background:none;padding:6px 0 0;margin:0}
+.pm-start{background:none;border:0;border-top:1px solid var(--line);border-radius:0;padding:14px 0 0;margin:14px 0 6px}
 .praes{padding-bottom:40px}
 .pr-kopf{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:26px 0 6px}
 .pr-kopf h1{font-size:clamp(1.8rem,3.4vw,2.6rem);font-weight:700}
@@ -773,8 +873,10 @@ app.addEventListener('change', wechsel);
 app.addEventListener('focusin', fokus);
 app.addEventListener('focusout', fokusWeg);
 app.addEventListener('keydown', taste);
-['dragstart', 'dragover', 'dragleave', 'drop'].forEach(t => app.addEventListener(t, e => { if (an() && Z().schritt === 'systeme') dragSysteme(e); }));
+['dragstart', 'dragover', 'dragleave', 'drop'].forEach(t => app.addEventListener(t, e => { if (!an()) return; if (Z().schritt === 'systeme') dragSysteme(e); else dragMaterial(e); }));
+document.addEventListener('paste', e => { if (an()) einfuegenMaterial(e, Z().schritt); });
 initSysteme({ reg, ladePrompts, ki, zurueck: () => geh(Z().vorSystemen && Z().vorSystemen !== 'systeme' ? Z().vorSystemen : 'start') });
+initMaterial({ Z, ladePrompts, ki, nachMaterial, zeigeFolie });
 /* Zähler nach jedem Zeichnen füllen */
 new MutationObserver(() => { if (an()) document.querySelectorAll('[data-zaehler]').forEach(el => { if (!el.textContent) { const t = document.querySelector(`[data-prf="${el.dataset.zaehler}"]`); if (t) zaehler(el, t); } }); }).observe(app, { childList: true });
 
@@ -788,4 +890,5 @@ function oeffneNachAnalyse() { const z = Z(); if (z.nachAnalyse) { z.nachAnalyse
 
 window.Praes = { view, open: oeffneNachAnalyse, close, reg, hinweis };
 if (an()) render();
-reg.discover('design-systems/').then(ladeGespeicherte).then(() => { bereit = true; if (an()) render(); });
+ladeMaterialBilder().then(n => { if (n && an()) render(); });
+reg.discover('design-systems/').then(ladeGespeicherte).then(() => { bereit = true; if (an()) render(); }).then(raeumeAuf);

@@ -16,6 +16,10 @@ export const FOLIEN_CSS = `
 .pf-t p.pf-b::before { content: attr(data-z); position: absolute; left: 0; }
 .pf-i img { width: 100%; height: 100%; display: block; }
 .pf-leer { display: grid; place-items: center; border: .15cqw dashed currentColor; opacity: .45; font: 1.6cqw sans-serif; }
+.pf-tab table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pf-tab th, .pf-tab td { padding: var(--pf-py) var(--pf-px); vertical-align: top; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; font-weight: 400; }
+.pf-tab th { font-weight: 700; border-bottom: .156cqw solid var(--pf-kopf); }
+.pf-tab td { border-bottom: .078cqw solid var(--pf-linie); }
 `;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -56,6 +60,11 @@ function element(e) {
   if (e.art === 'bild') {
     if (!e.src) return e.deko ? '' : `<div class="pf-leer" style="${pos(e)}">Bild</div>`;
     return `<div class="pf-i" style="${pos(e)}${e.deckkraft !== undefined ? `opacity:${e.deckkraft};` : ''}${dreh(e)}"><img src="${esc(e.src)}" alt="${esc(e.alt)}" style="object-fit:${e.fit === 'contain' ? 'contain' : 'cover'}"></div>`;
+  }
+  if (e.art === 'tabelle') {
+    const zelle = (t, j, tag) => `<${tag} style="text-align:${e.spalten[j].align}">${esc(t)}</${tag}>`;
+    const kopf = e.kopf ? e.zellen[0] : null, rumpf = e.kopf ? e.zellen.slice(1) : e.zellen;
+    return `<div class="pf-tab" data-ph="tabelle" style="${pos(e)}font-family:${esc(e.schriftCss)};font-size:${cqw(e.pt)};line-height:${e.zeilenhoehe};color:${e.farbe};--pf-px:${cqw(e.px)};--pf-py:${cqw(e.py)};--pf-kopf:${e.kopfLinie};--pf-linie:${e.linie}"><table><colgroup>${e.spalten.map(sp => `<col style="width:${(sp.w / e.w * 100).toFixed(2)}%">`).join('')}</colgroup>${kopf ? `<thead><tr>${kopf.map((t, j) => zelle(t, j, 'th')).join('')}</tr></thead>` : ''}<tbody>${rumpf.map(z => `<tr>${z.map((t, j) => zelle(t, j, 'td')).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   let n = 0;
   const abs = e.absaetze.map(a => a.bullet ? `<p class="pf-b" data-z="${esc(zeichen(a, ++n))}">${esc(a.text)}</p>` : `<p>${esc(a.text).replace(/\n/g, '<br>')}</p>`).join('');

@@ -11,14 +11,15 @@
    Alle Prompts kommen aus prompts/*.md, hier steht kein Prompttext.
    ============================================================ */
 import { checkSchema } from './validate.js';
-import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, kuerze, SPEC_VERSION } from './spec.js';
+import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, kuerze, tabellenFlaeche, SPEC_VERSION } from './spec.js';
 import { FORMEN, FORM_IDS, FORM_VON_TYP, waehleLayouts, eignung, profil } from './analyse.js';
 import { buildSlides, passeAn, FOLIE_PT } from './layout.js';
 import { blockHoehe } from './text.js';
 import { leseSprachregeln, pruefeSprache } from './richtlinien.js';
+import { materialListe, materialVoll, materialQuelle, sichereMaterial, assetId, tabellenTeil, begrenzeTabelle, ART_NAME } from './material.js';
 
 export const MAX_VERSUCHE = 3;
-export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten', 'richtlinien'];
+export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'briefing-material', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten', 'richtlinien', 'material-bild', 'material-text'];
 
 /* ---------- Prompts ---------- */
 /* Datei mit Kopf (--- name/version/… ---) lesen */
@@ -173,7 +174,8 @@ const kandidatenText = (B, ids) => ids.map(id => { const f = B.felder.find(x => 
 
 /* Erste Runde: Art erkennen (sofern nicht gesetzt), Bekanntes eintragen, Schwerpunkte, erste Frage.
    opts.ausProjekt: Die Angaben stammen aus einer Projektanalyse, die die Person schon durchlaufen hat.
-   Was daraus sicher hervorgeht, wird nicht noch einmal gefragt, und es gibt weniger Fragen. */
+   Was daraus sicher hervorgeht, wird nicht noch einmal gefragt, und es gibt weniger Fragen.
+   opts.material: Material der Person als Text (materialListe); es fließt in Einträge und Fragen ein. */
 export async function briefingStart(ki, prompts, B, projekt = '', opts = {}) {
   const arten = prompts.arten, sys = fuelle(prompts['system-briefing']);
   if (!B.art) {
@@ -188,10 +190,13 @@ export async function briefingStart(ki, prompts, B, projekt = '', opts = {}) {
   const a = art(arten, B.art), kand = kandidaten(B);
   const res = await ki.frage({
     art: 'praes_briefing', system: sys, schema: startSchema(B, kand),
-    prompt: fuelle(prompts['briefing-start'], { art: a.name, artKurz: a.kurz, beschreibung: B.beschreibung || '(keine)', projekt: projekt || '(keine)', felder: felderListe(B), kandidaten: kandidatenText(B, kand) })
+    prompt: fuelle(prompts['briefing-start'], { art: a.name, artKurz: a.kurz, beschreibung: B.beschreibung || '(keine)', projekt: projekt || '(keine)', material: opts.material || '(keins)', felder: felderListe(B), kandidaten: kandidatenText(B, kand) })
   });
+  const vorher = new Map(B.felder.map(f => [f.id, f.wert]));
   trageEin(B, res.vorbefuellt);
   B.felder.forEach(f => { if (f.wert && !f.gefragt) f.vorbefuellt = true; });
+  /* Was das Material der Person ausdrücklich belegt, gilt als geklärt */
+  if (opts.material && opts.material !== '(keins)') B.felder.forEach(f => { if (f.wert && f.wert !== vorher.get(f.id) && f.status === 'bestaetigt' && belegt(f.wert, opts.material)) { f.gefragt = true; f.ausMaterial = true; } });
   if (opts.ausProjekt) {
     B.max = Math.min(B.max, 4);
     /* Was das Projekt sicher klärt, wird nicht noch einmal gefragt. Punkte zur Präsentation selbst
@@ -245,6 +250,12 @@ export function wendeRundeAn(B, res, antwort, opts = {}) {
   return B;
 }
 
+/* Steht der Eintrag (im Wesentlichen) im Material? Mindestens die Hälfte seiner Wörter und jede Zahl. */
+function belegt(wert, material) {
+  const m = String(material).toLowerCase(), w = String(wert).toLowerCase().match(/[\p{L}\d]{4,}/gu) || [], z = String(wert).match(/\d+/g) || [];
+  return w.length > 0 && w.filter(x => m.includes(x)).length / w.length >= 0.5 && z.every(x => m.includes(x));
+}
+
 export async function briefingAntwort(ki, prompts, B, antwort, opts = {}) {
   const cur = B.aktuell, f = B.felder.find(x => x.id === cur.feld), a = art(prompts.arten, B.art);
   B.verlauf.push({ feld: cur.feld, frage: cur.frage, antwort });
@@ -256,6 +267,7 @@ export async function briefingAntwort(ki, prompts, B, antwort, opts = {}) {
       art: a.name,
       felder: JSON.stringify(B.felder.filter(x => x.status !== 'uebersprungen').map(x => ({ id: x.id, label: x.label, wert: x.wert, status: x.status }))),
       verlauf: B.verlauf.slice(-6).map(v => `- F: ${v.frage}\n  A: ${v.antwort}`).join('\n'),
+      material: opts.material || '(keins)',
       feld: cur.feld, label: f ? f.label : '', frage: cur.frage,
       antwort: opts.annahme ? fuelle(prompts['briefing-annahme'], { label: f ? f.label : cur.feld }).trim() : antwort,
       nachfrageErlaubt: darfNachfragen
@@ -272,6 +284,54 @@ export function briefingUeberspringen(B) {
   const f = B.aktuell && B.felder.find(x => x.id === B.aktuell.feld);
   if (f) { f.wert = '–'; f.status = 'uebersprungen'; f.gefragt = true; }
   B.aktuell = naechsteOffene(B);
+  return B;
+}
+
+/* Neues Material mitten im Briefing: Was es eindeutig belegt, wird eingetragen und nicht mehr gefragt.
+   Die offene Frage wird mit Blick auf das Material neu gestellt; hat das Material sie beantwortet,
+   kommt die nächste. Zählt nicht als Frage. neu: Text des neuen Materials, alle: alles Material. */
+export const materialSchema = (B, erlaubt) => ({
+  type: 'object',
+  properties: { updates: { type: 'array', items: s_update(B.felder.map(f => f.id)), maxItems: 3 }, naechste_frage: s_frage([...new Set([...erlaubt, ''])]) },
+  required: ['updates', 'naechste_frage']
+});
+export async function briefingMaterial(ki, prompts, B, neu, alle = '') {
+  const a = art(prompts.arten, B.art), cur = B.aktuell, f = cur && B.felder.find(x => x.id === cur.feld);
+  const andere = kandidaten(B).filter(id => !cur || id !== cur.feld), erlaubt = [...(cur ? [cur.feld] : []), ...andere];
+  const res = await ki.frage({
+    art: 'praes_material', system: fuelle(prompts['system-briefing']), schema: materialSchema(B, erlaubt),
+    prompt: fuelle(prompts['briefing-material'], {
+      art: a.name,
+      /* Auch aussortierte Punkte zeigen: Bringt das Material zum Beispiel Zahlen, gehören sie in „Daten“ */
+      felder: JSON.stringify(B.felder.filter(x => !GESPERRT.has(x.id) && (x.status !== 'uebersprungen' || x.unwichtig)).map(x => ({ id: x.id, label: x.label, wert: x.status === 'uebersprungen' ? '' : x.wert, status: x.status === 'uebersprungen' ? 'leer' : x.status }))),
+      material: neu, bisher: alle || '(keins)',
+      frage: cur ? `zu „${f ? f.label : cur.feld}“ (feld "${cur.feld}"): ${cur.frage}` : '(keine offene Frage, das Briefing ist fertig)',
+      auftrag: !cur ? 'Es ist genug gefragt. Setze feld = "" und frage = "".'
+        : `Wähle die Frage, die mit Blick auf das Material jetzt am meisten bringt: entweder „${f ? f.label : cur.feld}“ (feld "${cur.feld}"), neu formuliert mit Bezug auf das Material, oder einen dieser offenen Punkte: ${andere.length ? kandidatenText(B, andere) : '(keine)'}. Hat das Material „${f ? f.label : cur.feld}“ schon beantwortet, nimm einen der anderen.`
+    })
+  });
+  return wendeMaterialAn(B, res, alle ? `${alle}\n${neu}` : neu);
+}
+/* Was Material nie ändert: Arbeitstitel und Länge der Präsentation sagt es nicht */
+const GESPERRT = new Set(['thema', 'umfang']);
+/* Antwort auf neues Material einsortieren (ohne KI-Aufruf testbar) */
+export function wendeMaterialAn(B, res, material = '') {
+  const cur = B.aktuell, vorher = new Map(B.felder.map(f => [f.id, f.wert]));
+  /* Material ergänzt, es überschreibt nichts Bestätigtes. Als unwichtig aussortierte Punkte (etwa „Daten“) belebt es wieder. */
+  const updates = ((res && res.updates) || []).filter(u => {
+    const f = u && B.felder.find(x => x.id === u.feld);
+    if (!f || GESPERRT.has(f.id) || (f.wert && f.status === 'bestaetigt')) return false;
+    if (f.status === 'uebersprungen' && f.unwichtig) Object.assign(f, { status: 'leer', wert: '', unwichtig: false });
+    return true;
+  });
+  trageEin(B, updates);
+  B.felder.forEach(f => { if (f.wert && f.wert !== vorher.get(f.id) && f.status === 'bestaetigt' && belegt(f.wert, material)) { f.gefragt = true; f.ausMaterial = true; } });
+  if (!cur) return B;
+  const f = B.felder.find(x => x.id === cur.feld), q = (res && res.naechste_frage) || {};
+  /* Hat das Material die offene Frage beantwortet, oder ist eine andere Frage mit Blick auf das Material jetzt wichtiger: wechseln */
+  if (f && f.ausMaterial && f.wert !== vorher.get(f.id)) { setzeFrage(B, q, kandidaten(B), 'neu'); return B; }
+  if (q.frage && q.feld && q.feld !== cur.feld && kandidaten(B).includes(q.feld)) { setzeFrage(B, q, kandidaten(B), 'neu'); return B; }
+  if (q.feld === cur.feld && q.frage) B.aktuell = { ...cur, frage: String(q.frage), vorschlaege: (q.vorschlaege || []).map(String).slice(0, 4) };
   return B;
 }
 
@@ -342,13 +402,17 @@ const systemPrompt = (prompts, system) => fuelle(prompts.system, {
   regeln: [...(system.rules.hinweise || []), system.rules.maxBullets ? `Höchstens ${system.rules.maxBullets} Stichpunkte pro Folie.` : '', system.rules.bildstil ? `Bildstil: ${system.rules.bildstil}` : ''].filter(Boolean).map(r => '- ' + r).join('\n') || '(keine)'
 });
 
-/* Formen, die dieses Designsystem darstellen kann. Ohne Fotos keine Bildfolien. */
-export function verfuegbareFormen(system) {
+/* Formen, die dieses Designsystem darstellen kann. Ohne Fotos keine Bildfolien.
+   Die Form tabelle gibt es nur, wenn die Person Tabellen mitbringt (opts.tabellen). */
+export function verfuegbareFormen(system, opts = {}) {
   const fotos = bildAssets(system).length > 0;
-  return FORM_IDS.filter(f => system.layouts.some(l => (fotos || !profil(l, system).bilder) && eignung(l, system, f) > 0));
+  return FORM_IDS.filter(f => (f !== 'tabelle' || opts.tabellen) && system.layouts.some(l => (fotos || !profil(l, system).bilder) && eignung(l, system, f) > 0));
 }
-export function outlineSchema(system, folienzahl) {
-  const formen = verfuegbareFormen(system);
+/* materialien: Material der Person. Mit Material bekommt jede Folie das Feld material (ID oder ""),
+   und die Form tabelle gibt es nur, wenn eine Tabelle dabei ist. */
+export function outlineSchema(system, folienzahl, materialien = []) {
+  const mat = (materialien || []).filter(m => m && m.status !== 'fehler'), tabellen = mat.some(m => m.art === 'tabelle');
+  const formen = verfuegbareFormen(system, { tabellen }), extra = mat.filter(m => m.art !== 'text').length;
   return {
     type: 'object',
     properties: {
@@ -356,8 +420,12 @@ export function outlineSchema(system, folienzahl) {
       storyline: S_STR,
       kernbotschaft: S_STR,
       folien: {
-        type: 'array', minItems: Math.max(3, folienzahl - 2), maxItems: Math.min(30, folienzahl + 2),
-        items: { type: 'object', properties: { abschnitt: S_STR, form: { type: 'string', enum: formen.length ? formen : ['liste'] }, betont: { type: 'boolean' }, kernaussage: { type: 'string', minLength: 1 }, inhalt: S_STR }, required: ['abschnitt', 'form', 'betont', 'kernaussage', 'inhalt'] }
+        type: 'array', minItems: Math.max(3, folienzahl - 2), maxItems: Math.min(30, folienzahl + 2 + extra),
+        items: {
+          type: 'object',
+          properties: { abschnitt: S_STR, form: { type: 'string', enum: formen.length ? formen : ['liste'] }, betont: { type: 'boolean' }, kernaussage: { type: 'string', minLength: 1 }, inhalt: S_STR, ...(mat.length ? { material: { type: 'string', enum: ['', ...mat.map(m => m.id)] } } : {}) },
+          required: ['abschnitt', 'form', 'betont', 'kernaussage', 'inhalt', ...(mat.length ? ['material'] : [])]
+        }
       }
     },
     required: ['titel', 'storyline', 'kernbotschaft', 'folien']
@@ -399,15 +467,18 @@ export function abwechslung(folien, system) {
   return out;
 }
 
-/* opts.spiegeln: Bildlayouts dürfen für Abwechslung gespiegelt werden (nur wenn die KI Layouts anpassen darf) */
+/* opts.spiegeln: Bildlayouts dürfen für Abwechslung gespiegelt werden (nur wenn die KI Layouts anpassen darf)
+   opts.materialien: Material der Person; jedes Stück bekommt danach sicher eine Folie (sichereMaterial) */
 export async function erstelleOutline(ki, prompts, briefing, system, opts = {}) {
-  const schema = outlineSchema(system, briefing.folienzahl), a = art(prompts.arten, briefing.art), formen = schema.properties.folien.items.properties.form.enum;
+  const materialien = (opts.materialien || []).filter(m => m && m.status !== 'fehler');
+  const schema = outlineSchema(system, briefing.folienzahl, materialien), a = art(prompts.arten, briefing.art), formen = schema.properties.folien.items.properties.form.enum;
   const r = await frageGeprueft(ki, prompts, {
     art: 'praes_outline', system: systemPrompt(prompts, system), schema,
     prompt: fuelle(prompts.outline, {
       art: a.name, briefing: JSON.stringify(briefing), folienzahl: briefing.folienzahl,
       dramaturgie: a.dramaturgie.map((d, i) => `${i + 1}. ${d}`).join('\n'), stil: a.stil,
-      formen: formen.map(f => `- ${f} – ${FORMEN[f]}`).join('\n')
+      formen: formen.map(f => `- ${f} – ${FORMEN[f]}`).join('\n'),
+      material: materialien.length ? materialListe(materialien) : '(keins)'
     })
   }, a => checkSchema(a, schema, 'Gliederung'));
 
@@ -417,12 +488,15 @@ export async function erstelleOutline(ki, prompts, briefing, system, opts = {}) 
     /* Form aus der Antwort; ältere Antworten mit Layout-ID werden über den Layouttyp übersetzt */
     let form = formen.includes(f.form) ? f.form : system.layout(f.layoutId) ? FORM_VON_TYP[system.layout(f.layoutId).typ] : null;
     if (!form || !formen.includes(form)) { if (f.form || f.layoutId) aenderungen.push(`Gliederung, Folie ${i + 1}: Form „${f.form || f.layoutId}“ gibt es nicht, ersetzt durch „liste“.`); form = 'liste'; }
-    return { abschnitt: String(f.abschnitt || ''), form, betont: f.betont === true, kernaussage: String(f.kernaussage || ''), inhalt: String(f.inhalt || ''), ...(system.layout(f.layoutId) ? { layoutId: f.layoutId } : {}) };
+    return { abschnitt: String(f.abschnitt || ''), form, betont: f.betont === true, kernaussage: String(f.kernaussage || ''), inhalt: String(f.inhalt || ''), ...(system.layout(f.layoutId) ? { layoutId: f.layoutId } : {}), ...(typeof f.material === 'string' && f.material ? { material: f.material } : {}) };
   });
   if (!folien.length) throw new Error('Die KI hat keine brauchbare Gliederung geliefert. Versuche es erneut oder wähle ein anderes Modell.');
+  /* Jedes Material bekommt seine Folie, ohne KI */
+  const eigeneFotos = freieBilder(system).length > 0, gesichert = sichereMaterial(folien, materialien, { eigeneFotos });
+  aenderungen.push(...gesichert.aenderungen);
   /* Das Layout wählt die App: passend zur Form, mit Abwechslung und Betonung */
-  const wahl = waehleLayouts(folien, system, { spiegeln: !!opts.spiegeln, bilder: bildAssets(system).length > 0 });
-  const mitLayout = folien.map((f, i) => ({ ...f, layoutId: wahl[i].layoutId, form: wahl[i].form, ...(wahl[i].spiegeln ? { spiegeln: true } : {}) }));
+  const wahl = waehleLayouts(gesichert.folien, system, { spiegeln: !!opts.spiegeln, bilder: eigeneFotos });
+  const mitLayout = gesichert.folien.map(({ bild, ...f }, i) => ({ ...f, layoutId: wahl[i].layoutId, form: wahl[i].form, ...(wahl[i].spiegeln ? { spiegeln: true } : {}) }));
   return { outline: { titel: kuerze(String(roh.titel || briefing.thema).replace(/\s*[–-]?\s*(präsentation|pitch)\b/gi, '').trim() || String(briefing.thema), 40), storyline: String(roh.storyline || ''), kernbotschaft: String(roh.kernbotschaft || briefing.kernbotschaft || ''), folien: mitLayout }, versuche: r.versuche, aenderungen };
 }
 
@@ -430,25 +504,29 @@ export async function erstelleOutline(ki, prompts, briefing, system, opts = {}) 
    4. Slide-Spec: jede Folie einzeln
    ============================================================ */
 export const bildAssets = system => system.manifest.assets.filter(a => !/^(logo|deko|background|icon)/.test(a.role));
+/* Bilder, die die KI frei wählen darf: die des Designsystems. Bilder der Person setzt die App selbst. */
+export const freieBilder = system => bildAssets(system).filter(a => !a.material);
 
-/* Antwortformat für genau ein Layout: nur dessen Felder, mit Limits und festen Bild-IDs */
-export function folienSchema(layout, system, maxPunkte = Infinity) {
-  const props = {}, pflicht = [];
+/* Antwortformat für genau ein Layout: nur dessen Felder, mit Limits und festen Bild-IDs.
+   opts.ohne: Platzhalter, die die App selbst füllt (Tabelle, Bild der Person) */
+export function folienSchema(layout, system, maxPunkte = Infinity, opts = {}) {
+  const props = {}, pflicht = [], ohne = new Set(opts.ohne || []);
   inhaltsPlatzhalter(layout).forEach(ph => {
+    if (ohne.has(ph.id)) return;
     /* Zeichenlimits stehen absichtlich NICHT im Schema: Server mit Grammatik (Ollama, llama.cpp) brechen den Text
        sonst mitten im Wort ab. Die Limits stehen im Prompt und werden danach geprüft. */
     if (ph.typ === 'text') props[ph.id] = { type: 'string' };
     else if (ph.typ === 'bullets') props[ph.id] = { type: 'array', minItems: ph.pflicht ? 1 : 0, maxItems: Math.min(ph.maxItems, system.rules.maxBullets || ph.maxItems, maxPunkte), items: { type: 'string' } };
     else if (ph.typ === 'items') props[ph.id] = { type: 'array', minItems: ph.minItems || 1, maxItems: ph.maxItems, items: { type: 'object', properties: Object.fromEntries(ph.felder.map(f => [f.id, { type: 'string' }])), required: [ph.felder[0].id] } };
-    else if (ph.typ === 'image') { const ids = bildAssets(system).map(a => a.id); if (!ids.length) return; props[ph.id] = { type: 'string', enum: ids }; }
+    else if (ph.typ === 'image') { const ids = freieBilder(system).map(a => a.id); if (!ids.length) return; props[ph.id] = { type: 'string', enum: ids }; }
     else return;
     if (ph.pflicht) pflicht.push(ph.id);
   });
   return { type: 'object', properties: { inhalt: { type: 'object', properties: props, required: pflicht }, notizen: S_STR }, required: ['inhalt', 'notizen'] };
 }
 
-function felderBeschreibung(layout, system, maxPunkte = Infinity) {
-  return inhaltsPlatzhalter(layout).map(ph => {
+function felderBeschreibung(layout, system, maxPunkte = Infinity, ohne = new Set()) {
+  return inhaltsPlatzhalter(layout).filter(ph => !ohne.has(ph.id)).map(ph => {
     const p = ph.pflicht ? 'Pflicht' : 'optional', b = ph.beschreibung ? ` ${ph.beschreibung}.` : '';
     if (ph.typ === 'text') return `- ${ph.id} (Text, ${p}, höchstens ${ph.maxChars} Zeichen):${b}`;
     if (ph.typ === 'bullets') return `- ${ph.id} (Liste, ${p}, höchstens ${Math.min(ph.maxItems, system.rules.maxBullets || ph.maxItems, maxPunkte)} Punkte mit je höchstens ${ph.maxCharsPerItem} Zeichen):${b}`;
@@ -502,16 +580,25 @@ export function pruefeStil(folie, layout, sprache = null) {
 }
 
 /* Eine Folie schreiben. opts.wunsch: Änderungswunsch beim Neu-Generieren; opts.bisher: der bisherige Inhalt.
+   materialien: Material der Person. Trägt die Folie ein Material (plan.material), setzt die App ein Bild
+   oder eine Tabelle selbst ein; die KI schreibt die übrigen Felder dazu. Zahlen aus dem Material gelten als belegt.
    Liefert immer eine gültige Folie: { folie, versuche, aenderungen, pruefen }.
    pruefen nennt Zahlen und Kontaktdaten, die nicht im Briefing stehen. */
-export async function erstelleFolie(ki, prompts, { briefing, outline, index, system }, opts = {}) {
+export async function erstelleFolie(ki, prompts, { briefing, outline, index, system, materialien = [] }, opts = {}) {
   const plan = outline.folien[index], layout = system.layout(plan.layoutId) || system.layoutForTyp('content-bullets');
   const a = art(prompts.arten, briefing.art), maxPunkte = a.maxPunkte || Infinity;
-  const schema = folienSchema(layout, system, maxPunkte), hatBild = inhaltsPlatzhalter(layout).some(p => p.typ === 'image');
-  const einzel = a => ({ titel: outline.titel || 'Präsentation', folien: [{ layoutId: layout.id, inhalt: a && a.inhalt && typeof a.inhalt === 'object' ? a.inhalt : {}, notizen: a && typeof a.notizen === 'string' ? a.notizen : '' }] });
+  const mat = plan.material ? (materialien || []).find(m => m && m.id === plan.material && m.status !== 'fehler') || null : null, teil = plan.teil || 1;
+  const tabDaten = mat && mat.art === 'tabelle' && mat.tabelle ? tabellenTeil(begrenzeTabelle(mat.tabelle).tabelle, teil) : null;
+  const tabFl = tabDaten ? tabellenFlaeche(layout) : null;
+  const bildPh = mat && mat.art === 'bild' ? inhaltsPlatzhalter(layout).find(p => p.typ === 'image') : null;
+  const ohne = new Set([...(tabFl ? tabFl.ids : []), ...(bildPh ? [bildPh.id] : [])]);
+  const schema = folienSchema(layout, system, maxPunkte, { ohne }), hatBild = inhaltsPlatzhalter(layout).some(p => p.typ === 'image' && !ohne.has(p.id));
+  /* Was die App selbst einsetzt: Bild der Person, Tabelle, Verweis auf das Material */
+  const fest = f => { if (bildPh) f.inhalt[bildPh.id] = assetId(mat); if (tabFl) f.tabelle = tabDaten; if (mat) f.material = mat.id; return f; };
+  const einzel = a => ({ titel: outline.titel || 'Präsentation', folien: [fest({ layoutId: layout.id, inhalt: a && a.inhalt && typeof a.inhalt === 'object' ? { ...a.inhalt } : {}, notizen: a && typeof a.notizen === 'string' ? a.notizen : '' })] });
   /* Quelle für die Faktenprüfung: nur Inhalte, keine technischen Angaben wie die Schema-Version („2.0“ wäre sonst die Zahl 20) */
   const { schemaVersion, folienzahl, ...inhaltlich } = briefing;
-  const quelle = JSON.stringify(inhaltlich) + ' ' + (opts.wunsch || '') + ' ' + JSON.stringify(opts.bisher || '');
+  const quelle = JSON.stringify(inhaltlich) + ' ' + materialQuelle(materialien) + ' ' + (opts.wunsch || '') + ' ' + JSON.stringify(opts.bisher || '');
   const fakten = f => pruefeFakten(f, layout, quelle);
   const sprache = leseSprachregeln(system.voice);
   const stil = f => [...pruefeStil(f, layout, sprache), ...inhaltsPlatzhalter(layout).filter(ph => ph.typ === 'bullets' && Array.isArray(f.inhalt[ph.id]) && f.inhalt[ph.id].length > maxPunkte).map(ph => `${ph.id}: ${f.inhalt[ph.id].length} Stichpunkte, bei dieser Präsentationsart höchstens ${maxPunkte}. Schreibe weniger, dafür stärkere Punkte.`)];
@@ -525,8 +612,9 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
       gliederung: outline.folien.map((f, i) => `${i === index ? '►' : ' '} ${i + 1}. [${f.form || f.layoutId}] ${f.kernaussage}`).join('\n'),
       nr: index + 1, anzahl: outline.folien.length, form: plan.form ? `${plan.form} – ${FORMEN[plan.form] || ''}${plan.betont ? ' – BETONT' : ''}` : '(frei)', kernaussage: plan.kernaussage, hinweis: plan.inhalt || '(keine weiteren Hinweise)',
       layoutId: layout.id, layoutBeschreibung: layout.beschreibung,
-      felder: felderBeschreibung(layout, system, maxPunkte),
-      bilder: hatBild ? bildAssets(system).map(a => `- ${a.id}: ${a.beschreibung || a.role}${(a.tags || []).length ? ' (' + a.tags.join(', ') + ')' : ''}`).join('\n') || '(keine)' : '(dieses Layout hat kein Bild)',
+      felder: felderBeschreibung(layout, system, maxPunkte, ohne),
+      bilder: bildPh ? '(das Bild der Person setzt die App ein, siehe MATERIAL)' : hatBild ? freieBilder(system).map(a => `- ${a.id}: ${a.beschreibung || a.role}${(a.tags || []).length ? ' (' + a.tags.join(', ') + ')' : ''}`).join('\n') || '(keine)' : '(dieses Layout hat kein Bild)',
+      material: mat ? `\n${materialVoll(mat, teil)}\n` : '',
       wunsch
     })
   }, a => {
@@ -536,7 +624,9 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
 
   /* Nach drei Versuchen noch Fehler: selbst kürzen, statt abzubrechen */
   let folie = einzel(r.antwort).folien[0], aenderungen = [];
-  if (r.fehler.length) { const k = kuerzeSpec(einzel(r.antwort), system); folie = k.spec.folien[0]; aenderungen = k.aenderungen.map(a => a.replace(/^Folie 1/, `Folie ${index + 1}`)); }
+  if (r.fehler.length) { const k = kuerzeSpec(einzel(r.antwort), system); folie = fest({ ...k.spec.folien[0], inhalt: { ...k.spec.folien[0].inhalt } }); aenderungen = k.aenderungen.map(a => a.replace(/^Folie 1/, `Folie ${index + 1}`)); }
+  if (mat && mat.art === 'tabelle' && !tabFl) aenderungen.push(`Folie ${index + 1}: Das Layout „${layout.id}“ hat keinen Platz für die Tabelle „${mat.name}“.`);
+  if (mat && mat.art === 'bild' && !bildPh) aenderungen.push(`Folie ${index + 1}: Das Layout „${layout.id}“ hat keine Bildfläche für „${mat.name}“.`);
   /* Optionale Felder: Platzhalter samt Präposition aus dem Satz nehmen („bis [Datum]“); bleibt kaum etwas übrig
      oder steht ein Name ohne Grundlage im Briefing darin, fällt das Feld weg */
   inhaltsPlatzhalter(layout).filter(ph => !ph.pflicht && ph.typ === 'text' && typeof folie.inhalt[ph.id] === 'string').forEach(ph => {
@@ -657,17 +747,19 @@ export async function gestalteFolie(ki, prompts, { folie, system, wunsch }) {
 
 /* Alles in einem Lauf: Outline, dann jede Folie.
    opts.fortschritt({ schritt, nr, anzahl }) wird vor jedem KI-Aufruf gerufen.
-   opts.gestalten: die KI darf danach Positionen und Größen anpassen (und Bildlayouts spiegeln). */
+   opts.gestalten: die KI darf danach Positionen und Größen anpassen (und Bildlayouts spiegeln).
+   opts.materialien: Material der Person; jedes Stück steht danach auf einer Folie (siehe protokoll). */
 export async function erstellePraesentation(ki, prompts, briefing, system, opts = {}) {
-  const melde = opts.fortschritt || (() => {});
+  const melde = opts.fortschritt || (() => {}), materialien = (opts.materialien || []).filter(m => m && m.status !== 'fehler');
   melde({ schritt: 'outline', nr: 0, anzahl: 0 });
-  const o = await erstelleOutline(ki, prompts, briefing, system, { spiegeln: !!opts.gestalten });
+  const o = await erstelleOutline(ki, prompts, briefing, system, { spiegeln: !!opts.gestalten, materialien });
   const folien = [], protokoll = [...o.aenderungen], pruefen = [];
   for (let i = 0; i < o.outline.folien.length; i++) {
     melde({ schritt: 'folie', nr: i + 1, anzahl: o.outline.folien.length });
     const plan = o.outline.folien[i];
-    const f = await erstelleFolie(ki, prompts, { briefing, outline: o.outline, index: i, system });
+    const f = await erstelleFolie(ki, prompts, { briefing, outline: o.outline, index: i, system, materialien });
     f.folie.form = plan.form; f.folie.betont = !!plan.betont; f.folie.kernaussage = plan.kernaussage;
+    if (plan.teile > 1) { f.folie.teil = plan.teil; f.folie.teile = plan.teile; }
     if (plan.spiegeln) f.folie.anpassung = { spiegeln: true };
     folien.push(f.folie); protokoll.push(...f.aenderungen); pruefen.push(...f.pruefen);
   }
@@ -679,6 +771,10 @@ export async function erstellePraesentation(ki, prompts, briefing, system, opts 
     } catch (e) { protokoll.push(`Folie ${i + 1}: Layout konnte nicht angepasst werden (${e.message}).`); }
   }
   const spec = { schemaVersion: SPEC_VERSION, titel: o.outline.titel, folien };
+  materialien.forEach(m => {
+    const nr = folien.map((f, i) => f.material === m.id ? i + 1 : 0).filter(Boolean);
+    protokoll.push(nr.length ? `${ART_NAME[m.art]} „${m.name}“ steht auf Folie ${nr.join(', ')}.` : `${ART_NAME[m.art]} „${m.name}“ hat keine Folie bekommen.`);
+  });
   const v = validateSpec(spec, system);
   return { spec, outline: o.outline, protokoll, pruefen, ok: v.ok, errors: v.errors };
 }

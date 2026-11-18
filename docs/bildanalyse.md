@@ -18,13 +18,25 @@ Einstieg: **Bild-Design** in der Kopfzeile oder „Bild-Design öffnen“ auf de
 
 ## Modelle
 
-Unter „Modelle“ wählst du getrennt, welches Modell das Bild sieht und welches den Vorschlag zusammenführt. „Automatisch“ nimmt `qwen2.5vl` für das Sehen und Gemma 4 für das Design, wenn sie installiert sind, sonst das Modell von der Startseite.
+Unter „Modelle“ wählst du getrennt, welches Modell das Bild sieht und welches Texte zusammenführt.
+
+- **Sehen** (Gesamtbild, Kacheln, freie Entwürfe, Urteile): Zur Wahl stehen nur Modelle, die Bilder verstehen. Bei Ollama fragt die App das je Modell ab. „Automatisch“ nimmt `qwen2.5vl`, wenn es installiert ist, sonst das Modell von der Startseite, wenn es Bilder versteht, sonst das kleinste Bildmodell.
+- **Design** (Wahl der Variante, Farbwelt): jedes Modell. „Automatisch“ nimmt Gemma 4, sonst das Modell von der Startseite.
 
 ```
 ollama pull qwen2.5vl:7b
 ```
 
-Das Vision-Modell muss Bilder verstehen. `gemma4:12b-mlx` kann beides und braucht für ein Bild mit 28 Kacheln (2 × 2, 4 × 2, 4 × 4) rund 40 Sekunden, für den Vorschlag rund 10 Sekunden.
+Erfahrungen mit lokalen Modellen (Stand November 2026, auf einem Mac mit 12-Milliarden-Modellen als Obergrenze für flüssiges Arbeiten):
+
+| Modell | Bilder | Ergebnis |
+|---|---|---|
+| `gemma4:12b-mlx` | ja | funktioniert für alles; 28 Kacheln in rund 40 Sekunden, ein Skizzenblatt in rund anderthalb Minuten |
+| `devstral-small-2` (24 Mrd.) | ja | funktioniert für alles, aber langsam: der freie Entwurf braucht mehrere Minuten |
+| `qwen3-vl:8b` | ja | kaum brauchbar: denkt bei jedem Aufruf sehr lange nach, auch wenn die Denkphase abgeschaltet ist, und läuft in die Schutzgrenze |
+| `qwen2.5:14b`, `mistral`, `gpt-oss:20b`, `deepseek-coder` | nein | nur für „Design“; Bild-Aufrufe lehnt Ollama ab |
+
+Modelle, die immer nachdenken, kennzeichnet die Auswahl und stellt sie ans Ende. Scheitert ein Aufruf am Modell, sagt die Meldung, woran es liegt (versteht keine Bilder, denkt zu lange).
 
 ## Was je Kachel gemessen wird
 

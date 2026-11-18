@@ -22,7 +22,7 @@ const STORE = 'designsysteme';
 let K = null; /* { reg, ladePrompts, ki } aus ui.js */
 const zustand = () => (ui.prSys = ui.prSys || { id: '', bericht: [], fehler: [] });
 const kopie = o => JSON.parse(JSON.stringify(o));
-const zip = async () => { if (!window.JSZip) await new Promise((ok, f) => { const s = document.createElement('script'); s.src = 'vendor/pptxgen.bundle.js'; s.onload = ok; s.onerror = () => f(new Error('vendor/pptxgen.bundle.js konnte nicht geladen werden.')); document.head.appendChild(s); }); return window.JSZip; };
+export const zip = async () => { if (!window.JSZip) await new Promise((ok, f) => { const s = document.createElement('script'); s.src = 'vendor/pptxgen.bundle.js'; s.onload = ok; s.onerror = () => f(new Error('vendor/pptxgen.bundle.js konnte nicht geladen werden.')); document.head.appendChild(s); }); return window.JSZip; };
 const bearbeitbar = s => !!(s && s.paket);
 
 export function initSysteme(kontext) { K = kontext; }

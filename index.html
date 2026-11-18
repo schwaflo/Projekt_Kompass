@@ -1396,11 +1396,14 @@ const KIND = {
   praes_folie:    { name: 'Folie schreiben', expect: 900 },
   praes_bild:     { name: 'Bild beschreiben', expect: 200 },
   praes_layout:   { name: 'Layout einer Folie anpassen', expect: 400 },
-  praes_richtlinien: { name: 'Formulierungsrichtlinien auswerten', expect: 900 }
+  praes_richtlinien: { name: 'Formulierungsrichtlinien auswerten', expect: 900 },
+  praes_material: { name: 'Material ins Briefing einsortieren', expect: 500 },
+  praes_material_bild: { name: 'Bild aus dem Material ansehen', expect: 220 },
+  praes_material_text: { name: 'Text aus dem Material zusammenfassen', expect: 600 }
 };
 const now = () => performance.now();
 /* Obergrenze für die Antwortlänge (Tokens), damit Ollama in jedem Fall stoppt */
-const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400, praes_layout: 700, praes_richtlinien: 1800 };
+const TOK = { plan: 2500, turn: 1200, expand: 1000, result: 3600, design: 3200, praes_briefing: 1200, praes_system: 400, praes_outline: 3000, praes_folie: 1400, praes_bild: 400, praes_layout: 700, praes_richtlinien: 1800, praes_material: 1200, praes_material_bild: 500, praes_material_text: 1400 };
 const tokLimit = (kind, think) => (TOK[kind] || 3000) + (think === false ? 0 : 3000);
 /* JSON auch dann finden, wenn das Modell Text oder Codeblöcke drumherum schreibt */
 function parseJSONLoose(t) {
@@ -1447,10 +1450,13 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
   const msgs = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: rf === 'json_schema' || !oa ? userPrompt : userPrompt + '\n\nAntworte ausschließlich mit einem JSON-Objekt nach diesem Schema:\n' + JSON.stringify(schema) }];
   /* Bilder für Modelle mit Bildverständnis (Data-URLs) */
   if (opts.images && opts.images.length) { const u = msgs[1]; if (oa) u.content = [{ type: 'text', text: u.content }, ...opts.images.map(i => ({ type: 'image_url', image_url: { url: i } }))]; else u.images = opts.images.map(i => i.replace(/^data:[^,]+,/, '')); }
+  /* Manche Modelle denken auch dann nach, wenn die Denkphase abgeschaltet ist (z. B. qwen3-vl).
+     Sie bekommen das größere Antwortlimit, sonst geht das ganze Limit fürs Nachdenken drauf. */
+  const limit = tokLimit(kind, (ui.denktImmer || {})[model] ? undefined : think);
   const body = oa
-    ? { model, stream: true, temperature: temp, max_tokens: tokLimit(kind, think), messages: msgs,
+    ? { model, stream: true, temperature: temp, max_tokens: limit, messages: msgs,
         ...(rf === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'antwort', schema, strict: false } } } : rf === 'json_object' ? { response_format: { type: 'json_object' } } : {}) }
-    : { model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: tokLimit(kind, think) }, messages: msgs };
+    : { model, stream: true, format: schema, options: { temperature: temp, num_ctx: 8192, num_predict: limit }, messages: msgs };
   if (think === false && !oa) body.think = false;
   const ctrl = new AbortController();
   let abortWhy = null;
@@ -1512,7 +1518,7 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
         if (c.done) L.doneReason = c.done_reason;
       if (c.done) L.stats = { load: c.load_duration, promptTokens: c.prompt_eval_count, promptDur: c.prompt_eval_duration, outTokens: c.eval_count, outDur: c.eval_duration, total: c.total_duration };
       }
-      if (think === false && L.thinkTokens > 150) ui.thinkIgnored = true;
+      if (think === false && L.thinkTokens > 150) { ui.thinkIgnored = true; (ui.denktImmer = ui.denktImmer || {})[model] = true; }
       if (!abortWhy && L.phase === 'denken') {
         if (looksLikeLoop(L.thinking.slice(-1200)) || (L.thinkTokens % 50 === 0 && looksLikeLoop(L.thinking))) abortWhy = 'loop';
         else if (L.thinkTokens > THINK_MAX_TOKENS || L.thinking.length > 12000 || now() - L.tThink > 90000) abortWhy = 'long';
@@ -1569,6 +1575,38 @@ async function llm(userPrompt, schema, kind = 'turn', opts = {}) {
 /* Schnittstelle für den Präsentationsgenerator (praesentation/pipeline.js): derselbe Ablauf läuft
    über jeden hier eingestellten KI-Server, lokal oder in der Cloud. */
 window.KompassKI = { frage: ({ system, prompt, schema, art, bilder, modell, denken }) => llm(prompt, schema, art || 'praes_folie', { system, images: bilder, ...(modell ? { model: modell } : {}), ...(denken !== undefined ? { think: denken } : {}) }) };
+
+/* Was können die Modelle? Ollama nennt es je Modell (/api/show): Bildverständnis und Größe. Andere Server
+   sagen es nicht; dort gilt jedes Modell als möglich (faehig: null). Das Ergebnis gilt für die Sitzung.
+   Liefert true, wenn neue Angaben dazugekommen sind. */
+ui.modellInfo = ui.modellInfo || {};
+let modellInfoLauf = null;
+function ladeModellInfo() {
+  if (isOpenAI()) return Promise.resolve(false);
+  if (modellInfoLauf) return modellInfoLauf;
+  const offen = (ui.models || []).filter(m => !(m in ui.modellInfo));
+  if (!offen.length) return Promise.resolve(false);
+  modellInfoLauf = (async () => {
+    for (const m of offen) {
+      try {
+        const r = await fetch(apiBase() + '/api/show', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ model: m }) });
+        const d = r.ok ? await r.json() : {};
+        ui.modellInfo[m] = { faehig: Array.isArray(d.capabilities) ? d.capabilities : null, groesse: parseFloat((d.details || {}).parameter_size) || 0 };
+      } catch { ui.modellInfo[m] = { faehig: null, groesse: 0 }; }
+    }
+    modellInfoLauf = null;
+    return true;
+  })();
+  return modellInfoLauf;
+}
+const kiSiehtBilder = m => { const c = (ui.modellInfo[m] || {}).faehig; return !Array.isArray(c) || c.includes('vision'); };
+/* Modelle, die auch bei abgeschalteter Denkphase lange nachdenken (llm() merkt es sich; von qwen3-vl ist es bekannt) */
+const kiDenktImmer = m => !!(ui.denktImmer || {})[m] || /qwen3-?vl/i.test(m);
+/* Modelle mit Bildverständnis: Dauerdenker zuletzt, sonst das kleinere (schnellere) zuerst */
+const kiBildModelle = () => (ui.models || []).filter(kiSiehtBilder).sort((a, b) => kiDenktImmer(a) - kiDenktImmer(b) || ((ui.modellInfo[a] || {}).groesse || 99) - ((ui.modellInfo[b] || {}).groesse || 99));
+/* Ein Modell für Bilder: der Wunsch, sonst qwen2.5vl, sonst das Modell der Startseite (wenn es Bilder versteht), sonst das schnellste */
+const kiBildModell = wunsch => { const b = kiBildModelle(); return wunsch && b.includes(wunsch) ? wunsch : b.find(m => /qwen2\.5-?vl/i.test(m)) || (S.model && b.includes(S.model) && !kiDenktImmer(S.model) ? S.model : b[0] || ''); };
+Object.assign(window.KompassKI, { ladeModellInfo, siehtBilder: kiSiehtBilder, denktImmer: kiDenktImmer, bildModelle: kiBildModelle, bildModell: kiBildModell });
 
 async function run(text, fn) {
   ui.busy = true; ui.busyText = text; ui.error = null; ui.live = null; render();
@@ -3953,6 +3991,8 @@ const hasProject = () => !!(S.titel || S.beschreibung || S.phasen.length);
 function projektSnapshot() {
   const assets = {};
   ((S.design && S.design.assets) || []).forEach(a => { if (ui.assetURL[a.id]) assets[a.id] = ui.assetURL[a.id]; });
+  /* Bilder aus dem Material der Präsentation (Schlüssel wie im Bildspeicher) */
+  ((S.praes && S.praes.material) || []).forEach(m => { if (m.art === 'bild' && ui.matURL && ui.matURL[m.key]) assets['material-' + m.key] = ui.matURL[m.key]; });
   return { format: 'projekt-kompass', version: 1, id: S.projektId, titel: S.titel || 'Ohne Titel', typ: S.typ || '', gespeichert: new Date().toISOString(), fortschritt: progress(), state: JSON.parse(JSON.stringify(S)), assets };
 }
 async function saveProject(silent) {
