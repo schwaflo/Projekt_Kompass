@@ -42,10 +42,18 @@ export async function ladePrompts(readText, ordner = 'prompts/') {
   return out;
 }
 /* {{name}} ersetzen. Fehlt ein Wert, ist das ein Programmierfehler und fällt sofort auf. */
+/* Fehlt ein Wert, bricht nur der Test ab. In der App steht dann „(keine Angabe)“: Nach einem
+   Update lädt der Browser die Prompts frisch, den Code aber eine Weile noch aus dem Cache,
+   und ein neuer Platzhalter darf dann keine Präsentation verhindern. */
+let streng = false;
+export const strengePrompts = (an = true) => { streng = an; };
 export function fuelle(prompt, werte = {}) {
   return prompt.text.replace(/\{\{(\w+)\}\}/g, (_, k) => {
-    if (werte[k] === undefined) throw new Error(`Prompt „${prompt.meta.name}“: Der Wert für {{${k}}} fehlt.`);
-    return String(werte[k]);
+    if (werte[k] !== undefined) return String(werte[k]);
+    const meldung = `Prompt „${prompt.meta.name}“: Der Wert für {{${k}}} fehlt.`;
+    if (streng) throw new Error(meldung);
+    console.warn(meldung + ' Vermutlich ist die Seite nach einem Update noch nicht neu geladen.');
+    return '(keine Angabe)';
   });
 }
 
