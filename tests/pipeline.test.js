@@ -6,6 +6,8 @@ import * as P from '../praesentation/pipeline.js';
 import { waehleLayouts, profil, rangliste } from '../praesentation/analyse.js';
 import { ordneInhaltZu } from '../praesentation/spec.js';
 
+P.strengePrompts(); /* in allen Tests: jeder fehlende Prompt-Wert ist ein Fehler */
+
 const system = async id => (await loadPackage(fnSource({ readText: p => env.readText(`design-systems/${id}/${p}`) }), id)).system;
 const prompts = () => P.ladePrompts(env.readText);
 
@@ -38,12 +40,16 @@ test('Prompts: alle Dateien vorhanden, mit Name und Version', async () => {
   P.PROMPT_NAMEN.forEach(n => assert(liste.includes(`${n}.md`), `${n}.md fehlt in der Prompt-Übersicht`));
 });
 
-test('Prompts: fehlender Wert fällt sofort auf', async () => {
+test('Prompts: fehlender Wert fällt in den Tests sofort auf, in der App nicht', async () => {
   const p = await prompts();
   let fehler = '';
   try { P.fuelle(p.outline, { briefing: '{}' }); } catch (e) { fehler = e.message; }
   assert(fehler.includes('{{art}}'), fehler);
   gleich(P.fuelle({ meta: {}, text: 'A {{x}} B {{x}}' }, { x: 1 }), 'A 1 B 1');
+  P.strengePrompts(false);
+  const warn = console.warn; console.warn = () => {};
+  try { gleich(P.fuelle({ meta: { name: 't' }, text: 'A {{x}} B' }, {}), 'A (keine Angabe) B'); }
+  finally { console.warn = warn; P.strengePrompts(true); }
 });
 
 /* ---------- Präsentationsarten ---------- */
