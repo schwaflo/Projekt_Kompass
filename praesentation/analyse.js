@@ -31,6 +31,23 @@ export const FORMEN = {
   tabelle: 'Tabelle: eine Tabelle der Person mit einer Überschrift, die sagt, was sie zeigt (nur für Tabellen aus dem Material)'
 };
 export const FORM_IDS = Object.keys(FORMEN);
+/* Für die Oberfläche: kurzer Name und ein Satz, was die Wirkung mit der Folie macht */
+export const FORM_KURZ = { titel: 'Titel', kapitel: 'Kapitel', kernsatz: 'Kernsatz', zahl: 'Große Zahl', kennzahlen: 'Kennzahlen', liste: 'Liste', bausteine: 'Bausteine', vergleich: 'Vergleich', ablauf: 'Ablauf', bild: 'Bild', zitat: 'Zitat', abschluss: 'Abschluss', tabelle: 'Tabelle' };
+export const FORM_HILFE = {
+  titel: 'Erste Folie: Thema und Untertitel.',
+  kapitel: 'Trennt zwei Teile der Präsentation, mit Kapitelnummer, wenn das Layout eine hat.',
+  kernsatz: 'Eine einzige Aussage, groß und kräftig. Für die Sätze, die hängen bleiben sollen.',
+  zahl: 'Eine Zahl steht im Mittelpunkt, darunter, was sie bedeutet.',
+  kennzahlen: 'Zwei bis vier Zahlen nebeneinander, jede mit kurzer Erklärung.',
+  liste: 'Mehrere Punkte zu einem Thema, als Stichpunkte.',
+  bausteine: 'Drei gleichwertige Teile, Säulen oder Vorteile in Kacheln.',
+  vergleich: 'Zwei Seiten gegenüber: vorher und nachher, Problem und Lösung, Option A und B.',
+  ablauf: 'Schritte, Phasen oder Termine in ihrer Reihenfolge.',
+  bild: 'Ein Bild trägt die Folie, dazu eine kurze Aussage.',
+  zitat: 'Ein Zitat oder eine Stimme aus der Zielgruppe.',
+  abschluss: 'Letzte Folie: Bitte, nächster Schritt oder Kontakt.',
+  tabelle: 'Eine Tabelle aus deinem Material auf der größten freien Fläche.'
+};
 
 /* Welche Layouttypen eine Form tragen können, mit Grundeignung */
 const FORM_TYPEN = {
@@ -46,10 +63,10 @@ const FORM_TYPEN = {
   bild: { 'image-left': 1, 'image-right': 1, 'image-full': 0.9 },
   zitat: { quote: 1, statement: 0.6 },
   abschluss: { closing: 1, statement: 0.3 },
-  tabelle: { 'content-bullets': 1, 'two-column': 0.45, comparison: 0.45, 'kpi-grid': 0.4, cards: 0.35, timeline: 0.3 }
+  tabelle: { table: 1.3, 'content-bullets': 1, 'two-column': 0.45, comparison: 0.45, 'kpi-grid': 0.4, cards: 0.35, timeline: 0.3 }
 };
 /* Umgekehrt: welche Form ein Layouttyp am besten trägt (für alte Gliederungen mit layoutId) */
-export const FORM_VON_TYP = { title: 'titel', section: 'kapitel', statement: 'kernsatz', 'content-bullets': 'liste', cards: 'bausteine', 'two-column': 'vergleich', comparison: 'vergleich', 'image-left': 'bild', 'image-right': 'bild', 'image-full': 'bild', 'big-number': 'zahl', 'kpi-grid': 'kennzahlen', timeline: 'ablauf', quote: 'zitat', closing: 'abschluss' };
+export const FORM_VON_TYP = { title: 'titel', section: 'kapitel', statement: 'kernsatz', 'content-bullets': 'liste', cards: 'bausteine', 'two-column': 'vergleich', comparison: 'vergleich', 'image-left': 'bild', 'image-right': 'bild', 'image-full': 'bild', 'big-number': 'zahl', 'kpi-grid': 'kennzahlen', timeline: 'ablauf', quote: 'zitat', closing: 'abschluss', table: 'tabelle' };
 
 const TEXT_TYPEN = ['content-bullets', 'cards', 'two-column', 'comparison'];
 const groesse = (system, s) => typeof s === 'number' ? s : (system.tokens.typography.sizes[s || 'body'] || system.tokens.typography.sizes.body);
@@ -76,6 +93,14 @@ export function profil(layout, system) {
 /* Eignung eines Layouts für eine Form (0 = gar nicht) */
 export function eignung(layout, system, form, p = profil(layout, system)) {
   let w = (FORM_TYPEN[form] || {})[layout.typ] || 0;
+  /* Einordnung durch die KI beim Import (layout-ki.js): genannte Wirkungen zählen, die erste am meisten.
+     Was das Layout dafür an Flächen braucht, prüfen die Regeln darunter trotzdem. */
+  const ki = layout.ki;
+  if (ki && Array.isArray(ki.formen) && ki.formen.length) {
+    const rang = ki.formen.indexOf(form);
+    if (rang >= 0) w = Math.max(w, 1 - 0.12 * rang); else w *= 0.6;
+  }
+  if (ki && ki.meiden) w *= 0.25;
   /* Was die Form unbedingt braucht */
   if (form === 'liste' && !p.listen && !p.kacheln) return 0;
   if (form === 'vergleich' && p.listen + p.kacheln < 2 && !(p.kacheln && p.kachelZahl >= 2)) w *= 0.5;
@@ -107,7 +132,8 @@ export function waehleLayouts(folien, system, opts = {}) {
     if (n >= 3 && i === 0 && system.layouts.some(l => l.typ === 'title')) form = 'titel';
     if (n >= 3 && i === n - 1 && system.layouts.some(l => l.typ === 'closing')) form = 'abschluss';
     if (form === 'titel' && i > 0) form = 'kernsatz';
-    if (form === 'kapitel' && n <= 8) form = 'kernsatz';
+    /* Kapiteltrenner erst ab sechs Folien; vorher kosten sie zu viel Platz */
+    if (form === 'kapitel' && n <= 5) form = 'kernsatz';
     if (form === 'abschluss' && i < n - 1) form = 'kernsatz';
     const vor = out[i - 1], vorTyp = vor ? (system.layout(vor.layoutId) || {}).typ : '';
 
@@ -163,7 +189,7 @@ export function rangliste(form, betont, system, nachbarn = []) {
 }
 
 /* ---------- Beschreibung in Worten (für Editor, Import-Bericht und KI) ---------- */
-const TYP_NAMEN = { title: 'Titelfolie', section: 'Kapiteltrenner', statement: 'Große Aussage', 'content-bullets': 'Inhalt mit Stichpunkten', cards: 'Karten', 'two-column': 'Zwei Spalten', comparison: 'Vergleich', 'image-left': 'Bild links, Text rechts', 'image-right': 'Text links, Bild rechts', 'image-full': 'Vollbild mit Aussage', 'big-number': 'Große Zahl', 'kpi-grid': 'Kennzahlen', timeline: 'Zeitstrahl', quote: 'Zitat', closing: 'Abschluss' };
+const TYP_NAMEN = { title: 'Titelfolie', section: 'Kapiteltrenner', statement: 'Große Aussage', 'content-bullets': 'Inhalt mit Stichpunkten', cards: 'Karten', 'two-column': 'Zwei Spalten', comparison: 'Vergleich', 'image-left': 'Bild links, Text rechts', 'image-right': 'Text links, Bild rechts', 'image-full': 'Vollbild mit Aussage', 'big-number': 'Große Zahl', 'kpi-grid': 'Kennzahlen', timeline: 'Zeitstrahl', quote: 'Zitat', closing: 'Abschluss', table: 'Tabelle' };
 export const typName = t => TYP_NAMEN[t] || t;
 
 export function beschreibe(layout, system, p = profil(layout, system)) {

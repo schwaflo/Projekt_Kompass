@@ -44,6 +44,8 @@ Alle Dateien liegen in [`praesentation/`](../praesentation/) und sind ES-Module 
 | `analyse.js` | Profil jedes Layouts (Schriftgrößen, Bildanteil, Kacheln, Wucht), Formen, Layoutwahl | Browser, Node |
 | `richtlinien.js` | Formulierungsrichtlinien aus PowerPoint, Word oder Text lesen, von der KI auswerten lassen, in voice.md schreiben; prüfbare Sprachregeln | Browser (Lesen), überall (Rest) |
 | `pipeline.js` | Briefing, Outline, Folien, Layout-Anpassung; Wiederholung bei Fehlern; Faktenprüfung | Browser, Node |
+| `layout-ki.js` | Layouts einer Vorlage von der KI einordnen lassen: Zweck, passende Wirkungen, „nicht verwenden“ (`layout.ki`) | Browser, Node |
+| `icons.js` | Liniensymbole für die Oberfläche und Symbole für Karten auf Folien | Browser, Node |
 | `material.js` | Material der Person: Tabellen lesen (Text, HTML, Excel), Texte für die KI, Bilder als Assets, jedem Stück eine Folie sichern | Browser, Node |
 | `ui-material.js` | Feld „Material, das hinein muss“: Dateien, Einfügen, Text; Bilder beschreiben lassen und im Browser ablegen | nur Browser |
 | `bilder.js` | Bilder für den Export zuschneiden und als PNG oder JPG einbetten | nur Browser |
@@ -130,6 +132,10 @@ Jedes Layout bekommt ein Profil, rein aus seinen Platzhaltern: größte Schrift 
 - Höchstens etwa ein Drittel reine Textfolien, höchstens ein Zitat.
 - Ohne Fotos im Designsystem keine Bildfolien.
 
+Bei importierten Vorlagen ordnet die KI jedes Layout zusätzlich ein (`layout-ki.js`, `prompts/layouts-bewerten.md`): Sie sieht Namen, Flächen, Schriftgrößen und den Text der Beispielfolie und nennt Zweck, passende Wirkungen (beste zuerst) und ob das Layout gemieden werden soll (Agenda, Hinweise). `eignung()` nimmt die genannten Wirkungen als Mindestwert, senkt nicht genannte und drückt gemiedene Layouts stark nach unten. Was ein Layout an Flächen braucht, prüft die Rechnung trotzdem. Die Outline erfährt, für welche Wirkungen die Vorlage eigene Layouts hat, und der Folien-Prompt bekommt je Feld den Beispieltext der Vorlage als Vorbild für Länge und Ton.
+
+Kapiteltrenner gibt es ab sechs Folien. Karten und Bausteine können je Eintrag ein Symbol tragen (`icon`, feste Auswahl aus `icons.js`); es wird in der Akzentfarbe gezeichnet und im Export als PNG eingebettet. Kennzahlen, Zeitstrahl und feste Zellen aus Vorlagen bekommen keine Symbole.
+
 Weil die Wahl nur von Form und Betonung abhängt, wählt der Kompass beim Wechsel des Designsystems für jede Folie neu das passende Layout. Inhalte wandern dabei in verwandte Felder (eine Überschrift wird zur großen Aussage, Kacheln werden zur Liste). Passt ein Text nicht mehr, bietet der Editor an, die betroffenen Folien von der KI anpassen zu lassen.
 
 ## KI darf Layouts anpassen
@@ -168,7 +174,7 @@ Jedes Paket wird beim Laden geprüft. Ungültige Pakete erscheinen mit ihren Feh
 ## Bekannte Grenzen
 
 - **PowerPoint-Master.** Der Export zeichnet jede Folie vollständig (Hintergrund, Formen, Bilder, Texte). Die Folienmaster der Vorlage stecken nicht als Master in der exportierten Datei.
-- **Import.** Tabellen, Diagramme, SmartArt und Videos werden nicht übernommen, Bilder im Format EMF oder WMF ebenfalls nicht. Seltene PowerPoint-Grundformen zeigt die Vorschau angenähert; im Export sind sie exakt.
+- **Import.** Tabellen werden als Tabellenfläche (Layout „Tabelle“) und Tabellenstil (`tokens.tabelle`: Kopfzeile, Streifen, Linien) übernommen, ihr Inhalt nicht. Diagramme, SmartArt und Videos werden nicht übernommen, Bilder im Format EMF oder WMF ebenfalls nicht. Seltene PowerPoint-Grundformen zeigt die Vorschau angenähert; im Export sind sie exakt.
 - **Schriften.** Eine `.pptx` kennt keine Ersatzschriften. Standard ist deshalb die erste Ersatzschrift des Designsystems (zum Beispiel Arial). Die Wunschschrift lässt sich wählen, muss dann aber auf dem Rechner installiert sein.
 - **Diagramme.** Der Platzhaltertyp `chart` ist im Schema vorgesehen, wird aber noch nicht gezeichnet. Die Prüfung meldet das. Tabellen der Person werden gezeichnet, auch ohne eigenen `table`-Platzhalter im Layout.
 - **Material.** Aus PDF wird kein Text gelesen. Tabellen in Word- oder PowerPoint-Dateien kommen als Text an, nicht als Tabelle.

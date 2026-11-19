@@ -58,7 +58,13 @@ export async function exportPptx(folien, opts) {
       } else if (e.art === 'tabelle') {
         /* Echte PowerPoint-Tabelle: Linie unter dem Kopf, feine Linien zwischen den Zeilen, keine senkrechten Linien */
         const ohne = { type: 'none' }, linie = (pt, farbe) => [ohne, ohne, { type: 'solid', pt, color: hex(farbe) }, ohne];
-        const zeilen = e.zellen.map((z, i) => z.map((t, j) => ({ text: t, options: { align: e.spalten[j].align, bold: e.kopf && i === 0, border: e.kopf && i === 0 ? linie(1.5, e.kopfLinie) : linie(0.75, e.linie) } })));
+        const istKopf = i => e.kopf && i === 0, nr = i => e.kopf ? i - 1 : i;
+        const flaeche = i => istKopf(i) ? e.kopfFlaeche : (e.streifen && nr(i) % 2 === 0 ? e.streifen : e.flaeche);
+        const zeilen = e.zellen.map((z, i) => z.map((t, j) => ({ text: t, options: {
+          align: e.spalten[j].align, bold: istKopf(i) && e.kopfFett !== false,
+          border: istKopf(i) ? linie(1.5, e.kopfFlaeche || e.kopfLinie) : linie(0.75, e.linie),
+          ...(flaeche(i) ? { fill: { color: hex(flaeche(i)) } } : {}), ...(istKopf(i) && e.kopfText ? { color: hex(e.kopfText) } : {})
+        } })));
         s.addTable(zeilen, {
           x: X(e.x), y: Y(e.y), w: X(e.w), colW: e.spalten.map(sp => X(sp.w)), rowH: e.zeilenH.map(h => Y(h)),
           fontFace: e.schrift, fontSize: e.pt, color: hex(e.farbe), valign: 'top', margin: [e.py, e.px, e.py, e.px].map(v => Math.max(1, +v.toFixed(1))), autoPage: false

@@ -1,6 +1,6 @@
 ---
 name: outline
-version: 4
+version: 5
 zweck: Erstellt aus dem Briefing die Gliederung: Storyline, Folienreihenfolge und je Folie die Form, in der die Aussage wirken soll. Das passende Layout wählt danach die App.
 variablen: art, briefing, material, dramaturgie, stil, formen, folienzahl
 ---
@@ -35,5 +35,6 @@ AUFGABE: Erstelle die Gliederung für eine Präsentation mit etwa {{folienzahl}}
 Regeln:
 - Die erste Folie hat die Form titel, die letzte die Form abschluss mit der Bitte oder Handlungsaufforderung aus dem Briefing.
 - Abwechslung: Keine zwei gleichen Formen hintereinander. Nach zwei textlastigen Folien (liste, vergleich, bausteine) kommt kernsatz, zahl oder bild.
-- kapitel nur bei mehr als acht Folien.
+- kapitel ab sechs Folien, wenn die Präsentation erkennbare Teile hat: dann vor jedem Teil eines, sonst keines.
+- Steht hinter einer form in Klammern ein Layout der Vorlage, ist die Vorlage dafür gemacht: nutze diese form, wo sie passt.
 - Fehlt in Briefing und Material eine Zahl, plane keine Folie mit der Form zahl oder kennzahlen.

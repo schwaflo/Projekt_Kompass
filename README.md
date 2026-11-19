@@ -97,6 +97,14 @@ Für einen Server in der Cloud reicht jeder Dienst, der statische Dateien oder d
 
 Die KI liefert nur Inhalt und Struktur. Farben, Schriften, Layouts und Logos kommen aus dem Designsystem. Zwei Demo-Systeme sind dabei; **Beispiel ansehen, ohne KI** zeigt sie sofort.
 
+### Eigene PowerPoint-Vorlage
+
+Unter **Designsysteme** lässt sich eine `.pptx` oder `.potx` importieren. Übernommen werden Layouts und Beispielfolien mit Hintergründen, Formen, Bildern und Textstilen, dazu Tabellenflächen und der Tabellenstil (Kopfzeile, Streifen). Gleich danach ordnet die KI jedes Layout ein: wofür die Vorlage es gedacht hat (Kapitel, Hervorhebung, Kennzahlen …) und ob es für neue Präsentationen taugt. Das lässt sich unter „Layouts“ prüfen, ändern und erneut anstoßen. Beispieltexte der Vorlage dienen beim Schreiben als Vorbild für Länge und Ton.
+
+### Folien bearbeiten
+
+Rechts neben der Folie: **Wirkung** (wie die Aussage wirken soll, mit Symbol und Erklärung), **Layout** (Vorschau der Folie in jedem passenden Layout), **Inhalt**, **Sprechernotizen** und **Mit KI neu schreiben**. Karten können je Punkt ein Symbol tragen.
+
 ### Material, das hinein muss
 
 Fotos, Grafiken, Tabellen und Texte, die auf jeden Fall in die Präsentation gehören, ziehst du in das Feld **Material, das hinein muss**, fügst sie mit ⌘V ein oder schreibst sie hinein. Das geht vor dem Briefing, mitten im Gespräch, beim Designsystem und noch bei fertigen Folien.

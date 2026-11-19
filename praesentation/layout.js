@@ -8,9 +8,10 @@
    Folie:   { nr, layoutId, typ, background, elemente[], notizen }
    Element: { art: 'form' | 'bild' | 'text' | 'tabelle', x, y, w, h (Prozent), … }
    ============================================================ */
-import { inhaltsPlatzhalter, tabellenFlaeche, istTabelle } from './spec.js';
+import { inhaltsPlatzhalter, tabellenFlaeche, istTabelle, hatSymbole, SYMBOL_FELD } from './spec.js';
+import { symbolBild } from './icons.js';
 import { einpassen, blockHoehe, textBreite, zeilen as zeilenZahl } from './text.js';
-import { farbeVon } from './validate.js';
+import { farbeVon, kontrast } from './validate.js';
 
 export const FOLIE_PT = { w: 960, h: 540 };
 
@@ -35,6 +36,11 @@ export function passeAn(layout, a) {
    vorhanden ist. 'marke' nimmt die Wunschschrift; sie muss dann installiert sein. */
 export function buildSlides(spec, system, opts = {}) {
   const T = system.tokens, C = T.colors, ty = T.typography, marke = opts.schrift === 'marke';
+  /* Tabellenstil des Designsystems (aus einer PowerPoint-Vorlage), Farben als Namen oder Hex */
+  const ts = T.tabelle || {}, tf = n => n ? farbeVon(C, n) : null;
+  const kontrastreich = bg => kontrast('#FFFFFF', bg) >= kontrast(C.text, bg) ? '#FFFFFF' : C.text;
+  /* Symbolfarbe: Akzent, Primär- oder Textfarbe, je nachdem, was sich vom Grund (Kachel oder Folie) abhebt */
+  const symbolFarbe = grund => { const g = grund || C.background; return [C.accent, C.primary, C.secondary, C.text].find(c => c && kontrast(c, g) >= 3) || kontrastreich(g); };
   const schrift = art => {
     const h = art === 'heading', name = h ? ty.headingFont : ty.bodyFont, fb = h ? ty.headingFallback : ty.bodyFallback;
     const generisch = fb.filter(f => /^(serif|sans-serif|monospace)$/.test(f)), echte = fb.filter(f => !generisch.includes(f));
@@ -64,7 +70,7 @@ export function buildSlides(spec, system, opts = {}) {
   const box = (x, y, w, h) => ({ x: r(x), y: r(y), w: r(w), h: r(h) });
 
   /* Reihe gleich aufgebauter Kacheln (Kennzahlen, Zeitstrahl) */
-  function itemsEl(ph, liste) {
+  function itemsEl(ph, liste, grund) {
     if (ph.variante === 'frei' && ph.zellen) return zellenEl(ph, liste);
     const out = [], n = liste.length, gap = T.spacing.gap, iw = (ph.w - gap * (n - 1)) / n;
     const variante = ph.variante || 'schlicht', anteile = ph.felder.reduce((s, f) => s + (f.anteil || 1), 0);
@@ -85,6 +91,13 @@ export function buildSlides(spec, system, opts = {}) {
       } else {
         out.push({ art: 'form', form: 'rect', ...box(x, ph.y, iw, 0.3), farbe: linie });
         iy += 3; h -= 3; w = iw * 0.94;
+      }
+      /* Symbol über dem Text: in der Akzentfarbe, sofern sie sich von der Kachel abhebt */
+      const sym = hatSymbole(ph) && it[SYMBOL_FELD] ? symbolBild(it[SYMBOL_FELD], symbolFarbe(variante === 'karten' ? (farbeVon(C, ph.on || 'surface') || C.surface) : grund)) : null;
+      if (sym) {
+        const sw = Math.min(4.6, w * 0.3), sh = sw * 16 / 9;
+        out.push({ art: 'bild', ...box(ix, iy, sw, sh), src: sym, alt: '', fit: 'contain', deko: true, symbol: it[SYMBOL_FELD], ph: ph.id, index: i });
+        iy += sh + 1.6; h -= sh + 1.6;
       }
       let fy = iy;
       ph.felder.forEach(fd => {
@@ -166,7 +179,11 @@ export function buildSlides(spec, system, opts = {}) {
       art: 'tabelle', ...box(fl.x, fl.y, w / FOLIE_PT.w * 100, h / FOLIE_PT.h * 100), kopf: !!kopf.length, zellen,
       spalten: g.breiten.map((b, j) => ({ w: r(b / FOLIE_PT.w * 100), align: align[j] })), zeilenH: g.hoehen.map(x => r(x / FOLIE_PT.h * 100)),
       pt: g.pt, px: r(g.px), py: r(g.py), schrift: f.face, schriftCss: f.css, zeilenhoehe: lh,
-      farbe: C.text, kopfLinie: C.primary || C.text, linie: C.border || C.textMuted || C.text, ph: 'tabelle', ...(gekuerzt ? { gekuerzt: true } : {})
+      farbe: tf(ts.text) || C.text, kopfLinie: C.primary || C.text, linie: tf(ts.linie) || C.border || C.textMuted || C.text, ph: 'tabelle', ...(gekuerzt ? { gekuerzt: true } : {}),
+      /* Stil aus der Vorlage: farbige Kopfzeile, Zeilen im Wechsel hinterlegt */
+      ...(tf(ts.kopfFlaeche) ? { kopfFlaeche: tf(ts.kopfFlaeche), kopfText: tf(ts.kopfText) || (kontrastreich(tf(ts.kopfFlaeche))) } : ts.kopfText ? { kopfText: tf(ts.kopfText) } : {}),
+      ...(ts.kopfFett === false ? { kopfFett: false } : {}),
+      ...(tf(ts.streifen) ? { streifen: tf(ts.streifen) } : {}), ...(tf(ts.flaeche) ? { flaeche: tf(ts.flaeche) } : {})
     };
   }
 
@@ -207,7 +224,7 @@ export function buildSlides(spec, system, opts = {}) {
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return;
       if (ph.typ === 'text') el.push(textEl(b, [{ text: String(v) }], ph.style, { ph: ph.id }));
       else if (ph.typ === 'bullets') el.push(textEl(b, [].concat(v).map(t => ({ text: String(t), bullet: (ph.style || {}).bullet || 'dot' })), ph.style, { ph: ph.id }));
-      else if (ph.typ === 'items') el.push(...itemsEl(ph, [].concat(v).filter(x => x && typeof x === 'object').slice(0, ph.maxItems)));
+      else if (ph.typ === 'items') el.push(...itemsEl(ph, [].concat(v).filter(x => x && typeof x === 'object').slice(0, ph.maxItems), farbeVon(C, ph.on || layout.background) || C.background));
     });
 
     /* Reihenfolge von hinten nach vorn: Deko „hinten“, Bilder, übrige Deko, feste Texte, Inhalte und Logos */

@@ -177,7 +177,7 @@ test('Tabelle: Folie ist gültig, die Tabelle füllt die Inhaltsfläche, Zahlen 
   assert(t.pt <= 18 && t.pt >= 9 && !t.gekuerzt, `Schrift ${t.pt}`);
   assert(Math.abs(t.spalten.reduce((s, x) => s + x.w, 0) - t.w) < 0.1, 'Spaltenbreiten ergeben die Tabellenbreite');
   const html = slideHTML(buildSlides(spec, sys)[0]);
-  assert(html.includes('<table>') && html.includes('<th style="text-align:left">Jahr</th>') && html.includes('<td style="text-align:right">25.300</td>'), 'HTML-Tabelle');
+  assert(html.includes('<table>') && html.includes('<th style="text-align:left;">Jahr</th>') && html.includes('<td style="text-align:right;">25.300</td>'), 'HTML-Tabelle');
   const fremd = validateSpec({ titel: 'x', folien: [{ layoutId: 'quote', inhalt: { quote: 'Zitat' }, tabelle: TABELLE }] }, sys).errors;
   assert(fremd.some(e => e.includes('keinen Platz für die Tabelle')), fremd.join(' | '));
   const k = kuerzeSpec({ titel: 'x', folien: [{ layoutId: 'content-bullets', inhalt: { title: 'T' }, tabelle: TABELLE, material: 'M2' }] }, sys);

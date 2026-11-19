@@ -11,7 +11,8 @@
    Alle Prompts kommen aus prompts/*.md, hier steht kein Prompttext.
    ============================================================ */
 import { checkSchema } from './validate.js';
-import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, kuerze, tabellenFlaeche, SPEC_VERSION } from './spec.js';
+import { validateSpec, kuerzeSpec, inhaltsPlatzhalter, kuerze, tabellenFlaeche, hatSymbole, SYMBOL_FELD, SPEC_VERSION } from './spec.js';
+import { SYMBOL_IDS } from './icons.js';
 import { FORMEN, FORM_IDS, FORM_VON_TYP, waehleLayouts, eignung, profil } from './analyse.js';
 import { buildSlides, passeAn, FOLIE_PT } from './layout.js';
 import { blockHoehe } from './text.js';
@@ -19,7 +20,7 @@ import { leseSprachregeln, pruefeSprache } from './richtlinien.js';
 import { materialListe, materialVoll, materialQuelle, sichereMaterial, assetId, tabellenTeil, begrenzeTabelle, ART_NAME } from './material.js';
 
 export const MAX_VERSUCHE = 3;
-export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'briefing-material', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten', 'richtlinien', 'material-bild', 'material-text'];
+export const PROMPT_NAMEN = ['system', 'system-briefing', 'briefing-art', 'briefing-start', 'briefing-runde', 'briefing-annahme', 'briefing-material', 'designsystem', 'outline', 'folie', 'korrektur', 'asset-beschreiben', 'gestalten', 'richtlinien', 'material-bild', 'material-text', 'layouts-bewerten'];
 
 /* ---------- Prompts ---------- */
 /* Datei mit Kopf (--- name/version/… ---) lesen */
@@ -485,7 +486,7 @@ export async function erstelleOutline(ki, prompts, briefing, system, opts = {}) 
     prompt: fuelle(prompts.outline, {
       art: a.name, briefing: JSON.stringify(briefing), folienzahl: briefing.folienzahl,
       dramaturgie: a.dramaturgie.map((d, i) => `${i + 1}. ${d}`).join('\n'), stil: a.stil,
-      formen: formen.map(f => `- ${f} – ${FORMEN[f]}`).join('\n'),
+      formen: formen.map(f => { const vl = system.layouts.filter(l => l.ki && !l.ki.meiden && l.ki.formen[0] === f).slice(0, 3).map(l => `„${l.name || l.id}“`); return `- ${f} – ${FORMEN[f]}${vl.length ? ` (Vorlage: ${vl.join(', ')})` : ''}`; }).join('\n'),
       material: materialien.length ? materialListe(materialien) : '(keins)'
     })
   }, a => checkSchema(a, schema, 'Gliederung'));
@@ -525,7 +526,7 @@ export function folienSchema(layout, system, maxPunkte = Infinity, opts = {}) {
        sonst mitten im Wort ab. Die Limits stehen im Prompt und werden danach geprüft. */
     if (ph.typ === 'text') props[ph.id] = { type: 'string' };
     else if (ph.typ === 'bullets') props[ph.id] = { type: 'array', minItems: ph.pflicht ? 1 : 0, maxItems: Math.min(ph.maxItems, system.rules.maxBullets || ph.maxItems, maxPunkte), items: { type: 'string' } };
-    else if (ph.typ === 'items') props[ph.id] = { type: 'array', minItems: ph.minItems || 1, maxItems: ph.maxItems, items: { type: 'object', properties: Object.fromEntries(ph.felder.map(f => [f.id, { type: 'string' }])), required: [ph.felder[0].id] } };
+    else if (ph.typ === 'items') props[ph.id] = { type: 'array', minItems: ph.minItems || 1, maxItems: ph.maxItems, items: { type: 'object', properties: { ...Object.fromEntries(ph.felder.map(f => [f.id, { type: 'string' }])), ...(hatSymbole(ph) ? { [SYMBOL_FELD]: { type: 'string', enum: SYMBOL_IDS } } : {}) }, required: [ph.felder[0].id] } };
     else if (ph.typ === 'image') { const ids = freieBilder(system).map(a => a.id); if (!ids.length) return; props[ph.id] = { type: 'string', enum: ids }; }
     else return;
     if (ph.pflicht) pflicht.push(ph.id);
@@ -535,10 +536,10 @@ export function folienSchema(layout, system, maxPunkte = Infinity, opts = {}) {
 
 function felderBeschreibung(layout, system, maxPunkte = Infinity, ohne = new Set()) {
   return inhaltsPlatzhalter(layout).filter(ph => !ohne.has(ph.id)).map(ph => {
-    const p = ph.pflicht ? 'Pflicht' : 'optional', b = ph.beschreibung ? ` ${ph.beschreibung}.` : '';
+    const p = ph.pflicht ? 'Pflicht' : 'optional', b = (ph.beschreibung ? ` ${ph.beschreibung}.` : '') + (ph.beispiel ? ` So füllt die Vorlage dieses Feld (nur Länge und Ton als Vorbild, Inhalt nicht übernehmen): „${ph.beispiel}“` : '');
     if (ph.typ === 'text') return `- ${ph.id} (Text, ${p}, höchstens ${ph.maxChars} Zeichen):${b}`;
     if (ph.typ === 'bullets') return `- ${ph.id} (Liste, ${p}, höchstens ${Math.min(ph.maxItems, system.rules.maxBullets || ph.maxItems, maxPunkte)} Punkte mit je höchstens ${ph.maxCharsPerItem} Zeichen):${b}`;
-    if (ph.typ === 'items') return `- ${ph.id} (Liste, ${p}, ${ph.minItems || 1} bis ${ph.maxItems} Einträge):${b} Jeder Eintrag hat die Felder: ${ph.felder.map(f => `${f.id} (höchstens ${f.maxChars} Zeichen${f.beschreibung ? ', ' + f.beschreibung : ''})`).join('; ')}`;
+    if (ph.typ === 'items') return `- ${ph.id} (Liste, ${p}, ${ph.minItems || 1} bis ${ph.maxItems} Einträge):${b} Jeder Eintrag hat die Felder: ${ph.felder.map(f => `${f.id} (höchstens ${f.maxChars} Zeichen${f.beschreibung ? ', ' + f.beschreibung : ''})`).join('; ')}${hatSymbole(ph) ? `; ${SYMBOL_FELD} (ein Symbol, das den Eintrag auf einen Blick zeigt: ${SYMBOL_IDS.join(', ')}. Jeder Eintrag ein anderes; passt keines, lass das Feld weg)` : ''}`;
     if (ph.typ === 'image') return `- ${ph.id} (Bild, optional): eine Bild-ID aus der Liste unten.${b}`;
     return '';
   }).filter(Boolean).join('\n');
@@ -619,7 +620,7 @@ export async function erstelleFolie(ki, prompts, { briefing, outline, index, sys
       briefing: JSON.stringify(briefing),
       gliederung: outline.folien.map((f, i) => `${i === index ? '►' : ' '} ${i + 1}. [${f.form || f.layoutId}] ${f.kernaussage}`).join('\n'),
       nr: index + 1, anzahl: outline.folien.length, form: plan.form ? `${plan.form} – ${FORMEN[plan.form] || ''}${plan.betont ? ' – BETONT' : ''}` : '(frei)', kernaussage: plan.kernaussage, hinweis: plan.inhalt || '(keine weiteren Hinweise)',
-      layoutId: layout.id, layoutBeschreibung: layout.beschreibung,
+      layoutId: layout.id, layoutBeschreibung: (layout.ki && layout.ki.zweck ? `${layout.ki.zweck} ` : '') + layout.beschreibung,
       felder: felderBeschreibung(layout, system, maxPunkte, ohne),
       bilder: bildPh ? '(das Bild der Person setzt die App ein, siehe MATERIAL)' : hatBild ? freieBilder(system).map(a => `- ${a.id}: ${a.beschreibung || a.role}${(a.tags || []).length ? ' (' + a.tags.join(', ') + ')' : ''}`).join('\n') || '(keine)' : '(dieses Layout hat kein Bild)',
       material: mat ? `\n${materialVoll(mat, teil)}\n` : '',

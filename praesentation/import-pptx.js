@@ -13,7 +13,7 @@
    Verläufe, Bildfüllungen und zugeschnittene Bilder werden einmal in
    ein Bild umgerechnet, damit Vorschau und Export gleich aussehen.
    ============================================================ */
-import { leseTheme, leseFlaeche, leseRels, leseClrMap, xml } from './pptx-lesen.js';
+import { leseTheme, leseFlaeche, leseRels, leseClrMap, leseTabellenstile, xml } from './pptx-lesen.js';
 import { kontrast } from './validate.js';
 import { blobAlsDataUrl, freieId } from './pakete.js';
 import { schlageAssetVor, analysiereBild } from './assets.js';
@@ -71,7 +71,8 @@ export async function lesePptx(datei, JSZip) {
     const L = layouts[lp], M = masters[L ? L.master : ''] || ersterMaster;
     folien.push({ ...leseFlaeche(await lies(sp), M.ctx, rels), master: M.pfad, layout: lp || null, pfad: sp, nr: i + 1, quelle: 'folie' });
   }
-  return { zip, W, H, masters, layouts: Object.values(layouts), folien, theme: ersterMaster.theme };
+  const tabellenstile = leseTabellenstile(await lies('ppt/tableStyles.xml'), ersterMaster.ctx);
+  return { zip, W, H, masters, layouts: Object.values(layouts), folien, theme: ersterMaster.theme, tabellenstile };
 }
 
 /* ============================================================
@@ -203,13 +204,14 @@ async function bildAsset(env, e, box, art) {
 const ANKER = { t: 'top', ctr: 'middle', b: 'bottom' }, AUSRICHTUNG = { l: 'left', ctr: 'center', r: 'right', just: 'left', dist: 'left' };
 const NAMEN_TYP = [
   [/titel ?folie|title ?slide|deckblatt|cover|titelseite|^titel$/i, 'title'],
-  [/kapitel|abschnitt|section|trenner|divider|zwischentitel|chapter|agenda/i, 'section'],
+  [/tabelle|table|tabellarisch/i, 'table'],
+  [/kapitel|abschnitt|section|trenner|divider|zwischentitel|chapter/i, 'section'],
   [/danke|thank|kontakt|contact|abschluss|closing|schluss|ende\b|\bend\b|outro/i, 'closing'],
   [/zitat|quote|testimonial|stimme/i, 'quote'],
   [/kennzahl|kpi|zahlen|fakten|facts|numbers|statistik/i, 'kpi-grid'],
   [/zeitstrahl|timeline|roadmap|ablauf|prozess|process|meilenstein|milestone|phasen/i, 'timeline'],
   [/vergleich|comparison|gegenüber|vorher|before/i, 'two-column'],
-  [/aussage|statement|claim|botschaft|highlight|big ?text|kernsatz/i, 'statement'],
+  [/aussage|statement|claim|botschaft|highlight|hervorhebung|hervorgehoben|kernaussage|merksatz|fazit|takeaway|key ?message|big ?text|kernsatz/i, 'statement'],
   [/\bzahl\b|big ?number/i, 'big-number'],
   [/karten|cards|kacheln|tiles|säulen|pillars/i, 'cards']
 ];
@@ -281,7 +283,14 @@ async function baueLayout(fl, env) {
   };
 
   for (const e of fl.elemente) {
-    if (!e.box || e.art === 'rahmen') { if (e.art === 'rahmen' && fl.quelle === 'folie') env.hinweise.add('Tabellen und Diagramme aus Beispielfolien werden noch nicht übernommen.'); continue; }
+    if (!e.box) continue;
+    if (e.art === 'rahmen') {
+      /* Tabelle (Platzhalter im Layout oder echte Tabelle auf einer Beispielfolie): ihre Fläche wird zur Tabellenfläche */
+      const b = pct(e.box);
+      if ((e.tabelle || (e.ph && e.ph.typ === 'tbl')) && sichtbar(b)) slots.push({ art: 'tabelle', box: b, flaeche: b.w * b.h / 10000, e });
+      else if (fl.quelle === 'folie') env.hinweise.add('Diagramme aus Beispielfolien werden noch nicht übernommen.');
+      continue;
+    }
     const box = pct(e.box);
     if (!sichtbar(box)) continue;
     const flaeche = box.w * box.h / 10000;
@@ -294,7 +303,8 @@ async function baueLayout(fl, env) {
         else if (t !== 'hdr' && (fl.quelle === 'layout' || st.text)) autos.push({ auto: t === 'sldNum' ? 'pageNumber' : t === 'dt' ? 'date' : 'presentationTitle', box: innen, stil: st });
         continue;
       }
-      if (['chart', 'tbl', 'dgm', 'media', 'clipArt'].includes(t)) continue;
+      if (t === 'tbl') { slots.push({ art: 'tabelle', box, flaeche, e }); continue; }
+      if (['chart', 'dgm', 'media', 'clipArt'].includes(t)) continue;
       /* Auf Beispielfolien zeigt PowerPoint leere Platzhalter nicht an: sie sind keine Inhaltsflächen */
       if (fl.quelle === 'folie' && ((e.art === 'bild' && !e.bild) || (e.art === 'form' && t !== 'pic' && !(e.text && e.text.absaetze.some(a => a.text.trim()))))) { if (e.art === 'form' && (e.fuellung || e.linie)) await dekoForm(e, box); continue; }
       if (e.art === 'form') await dekoForm(e, box);
@@ -325,7 +335,16 @@ async function baueLayout(fl, env) {
     if (slot.art === 'bild') {
       const a = slot.standard || env.standardFoto(slot.box);
       placeholders.push({ id, typ: 'image', beschreibung: 'Bild', x: slot.box.x, y: slot.box.y, w: slot.box.w, h: slot.box.h, fit: 'cover', ...(a ? { asset: a } : {}) });
-    } else placeholders.push(textPh(id, slot, env, z.typ));
+    } else if (id === 'table') {
+      /* Der Rahmen einer Tabelle ist nur so hoch wie ihre Zeilen: die Fläche reicht bis zum nächsten Element darunter oder bis zum Fußbereich */
+      const b = slot.innen || slot.box, unten = Math.min(88, ...slots.filter(s => s !== slot && s.box.y >= b.y + b.h - 0.5 && s.box.x < b.x + b.w && b.x < s.box.x + s.box.w).map(s => s.box.y - 2));
+      placeholders.push({ id, typ: 'table', beschreibung: 'Tabelle', x: b.x, y: b.y, w: b.w, h: r2(Math.max(b.h, unten - b.y)) });
+    } else {
+      const ph = textPh(id, slot, env, z.typ);
+      /* Text der Beispielfolie: zeigt der KI, wie lang und in welchem Ton die Vorlage dieses Feld füllt */
+      if (fl.quelle === 'folie' && slot.stil && slot.stil.text && !/^(click|klicken|text|titel|title)\b/i.test(slot.stil.text)) ph.beispiel = slot.stil.text.replace(/\s+/g, ' ').trim().slice(0, 160);
+      placeholders.push(ph);
+    }
   }
   if (z.items) placeholders.push(z.items);
   const AUTO_ID = { pageNumber: 'page', date: 'datum', presentationTitle: 'footer' };
@@ -410,6 +429,14 @@ function ordneZu(fl, slots, env) {
   if (!titel && fl.quelle === 'folie') titel = T.filter(s => s.box.y < 40 && s.stil.sz >= body * 1.2 && !zahlig(s)).sort((a, b) => b.stil.sz - a.stil.sz || a.box.y - b.box.y)[0];
   const rest = () => T.filter(s => !genutzt.has(s));
   const fertig = typ => ({ typ, felder, genutzt, items: null });
+
+  /* Tabellenfolie: Tabelle (oder bei einem Layout namens „Tabelle“ die größte Textfläche) unter der Überschrift */
+  const tab = nachFlaeche(slots.filter(s => s.art === 'tabelle'))[0] || (hint === 'table' ? nachFlaeche(T.filter(s => s !== titel))[0] : null);
+  if (tab && tab.box.w >= 35 && tab.box.y + tab.box.h < 95 && hint !== 'title') {
+    gib(tab, 'table');
+    gib(titel || nachY(rest()).find(s => s.box.y < tab.box.y), 'title');
+    return fertig('table');
+  }
 
   /* Titelfolie */
   if (hint === 'title' || T.some(s => s.phTyp === 'ctrTitle')) {
@@ -628,6 +655,10 @@ export async function importPptx(datei, JSZip, opts = {}) {
   if (kartenFarbe) { colors.surface = kartenFarbe[0]; bericht.push(`Flächenfarbe für Karten aus der Vorlage: ${kartenFarbe[0]}.`); }
   const zuWenig = !eigene.some(l => ['content-bullets', 'image-left', 'image-right', 'two-column', 'cards', 'kpi-grid', 'timeline'].includes(l.typ)) && !eigene.some(l => ['title', 'section', 'statement'].includes(l.typ));
 
+  /* Tabellenstil der Vorlage: zuerst eine echte Tabelle auf einer Beispielfolie, sonst der Standardstil für neue Tabellen */
+  const tabelle = tabellenStil(roh, farbName);
+  if (tabelle) bericht.push(`Tabellenstil übernommen${tabelle.quelle ? ` (${tabelle.quelle})` : ''}: ${tabelle.kopfFlaeche ? 'farbige Kopfzeile' : 'Kopfzeile mit Linie'}${tabelle.streifen ? ', Zeilen im Wechsel hinterlegt' : ''}.`);
+
   /* Größenstufen aus der Vorlage */
   const pt = (typ, id) => { const l = eigene.find(x => x.typ === typ), p = l && l.placeholders.find(x => x.id === id); return p && p.style ? p.style.size : null; };
   const sizes = { title: pt('title', 'title') || 40, h1: pt('content-bullets', 'title') || pt('two-column', 'title') || 28, h2: pt('title', 'subtitle') || Math.round(bodyPt * 1.2), body: pt('content-bullets', 'bullets') || bodyPt };
@@ -661,7 +692,7 @@ export async function importPptx(datei, JSZip, opts = {}) {
   const manifest = {
     schemaVersion: '1.0',
     meta: { id, name, beschreibung: 'Importiert aus einer PowerPoint-Vorlage: Layouts, Formen, Bilder, Farben und Schriften stammen aus der Datei.', version: '0.1.0', autor: '', tags: ['importiert', 'marke'] },
-    tokens: { colors, typography, spacing: { marginX: 6, marginY: 8, gap: 3, grid: { columns: 12, gutter: 2 } }, shapes: { radius: 4, lineWidth: 1, shadow: 'none' } },
+    tokens: { colors, typography, spacing: { marginX: 6, marginY: 8, gap: 3, grid: { columns: 12, gutter: 2 } }, shapes: { radius: 4, lineWidth: 1, shadow: 'none' }, ...(tabelle ? { tabelle: (({ quelle, ...t }) => t)(tabelle) } : {}) },
     masters, layouts: layouts.map(({ herkunft, ...l }) => l), assets: env.assets, rules: { logoAuf: [], maxBullets: 6, bildstil: '', hinweise: [] }
   };
 
@@ -687,6 +718,34 @@ export async function importPptx(datei, JSZip, opts = {}) {
   const paket = { id, manifest, voice: VOICE, readme: '', dateien: env.dateien, herkunft: 'hochgeladen' };
   paket.readme = `# ${manifest.meta.name}\n\nImportiert aus „${datei.name || 'einer PowerPoint-Datei'}“.\n\n## Was übernommen wurde\n\n${bericht.map(b => '- ' + b).join('\n')}\n\n## Was du prüfen solltest\n\n- den Zweck jedes Layouts (im Editor umstellbar)\n- Zeichenlimits der Platzhalter (\`maxChars\`), sie sind aus der Größe der Flächen geschätzt\n- Rollen der Bilder unter \`assets\`\n- \`voice.md\` mit euren Formulierungsrichtlinien\n`;
   return { paket, bericht, vorschlaege: [] };
+}
+
+/* Tabellenstil → tokens.tabelle { kopfFlaeche, kopfText, kopfFett, streifen, flaeche, linie } (Farbnamen oder Hex) */
+export function tabellenStil(roh, farbName = h => h) {
+  const ts = roh.tabellenstile || { def: '', stile: {} };
+  const hex = f => f && f !== 'keine' && f.hex && f.alpha > 0.15 ? f.hex : null;
+  const beispiel = roh.folien.flatMap(f => f.elemente.filter(e => e.tabelle && e.tabelle.zeilen.length)).map(e => e.tabelle)[0];
+  const stil = ts.stile[(beispiel && beispiel.stil) || ts.def] || null;
+  const z = beispiel ? beispiel.zeilen : [], k = z[0] && z[0][0], r1 = z[1] && z[1][0], r2 = z[2] && z[2][0];
+  const kopfAn = beispiel ? beispiel.kopf : true, streifenAn = beispiel ? beispiel.streifen : true;
+  const t = {};
+  const kopfFlaeche = hex(k && k.fill) || (kopfAn && stil && stil.kopf ? hex(stil.kopf.fill) : null);
+  if (kopfFlaeche) t.kopfFlaeche = farbName(kopfFlaeche);
+  const kopfText = hex(k && k.farbe) || (kopfAn && stil && stil.kopf ? hex(stil.kopf.farbe) : null);
+  if (kopfText) t.kopfText = farbName(kopfText, 'text');
+  if (k && k.b !== undefined) t.kopfFett = !!k.b; else if (stil && stil.kopf && stil.kopf.b) t.kopfFett = true;
+  /* Streifen: zwei Datenzeilen mit verschiedener Füllung, sonst der Streifen des Stils */
+  const f1 = hex(r1 && r1.fill), f2 = hex(r2 && r2.fill);
+  if (f1 && f2 && f1 !== f2) { t.streifen = farbName(f1); t.flaeche = farbName(f2); }
+  else if (f1) t.flaeche = farbName(f1);
+  else if (streifenAn && stil) { if (hex(stil.streifen)) t.streifen = farbName(hex(stil.streifen)); if (hex(stil.ganz)) t.flaeche = farbName(hex(stil.ganz)); }
+  const linie = hex(r1 && r1.linie) || hex(k && k.linie) || (stil ? hex(stil.linie) : null);
+  if (linie) t.linie = farbName(linie);
+  const textFarbe = hex(r1 && r1.farbe) || (stil && stil.text ? hex(stil.text.farbe) : null);
+  if (textFarbe) t.text = farbName(textFarbe, 'text');
+  if (!Object.keys(t).length) return null;
+  t.quelle = beispiel ? 'aus einer Beispielfolie' : stil ? `Standardstil „${stil.name || 'ohne Namen'}“` : '';
+  return t;
 }
 
 /* Logo-Platzhalter entfernen, für die es kein Asset gibt, und die Logo-Regel passend setzen */
