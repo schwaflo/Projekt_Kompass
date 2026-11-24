@@ -227,10 +227,17 @@ export async function briefingStart(ki, prompts, B, projekt = '', opts = {}) {
 }
 
 /* Was soll die KI in dieser Runde als nächste Frage tun? Wird vor dem Aufruf festgelegt. */
-export function auftragFuer(B, antwortAnnahme) {
+/* Ist eine Antwort schon konkret (Zahl, Szene in mehreren Sätzen)? Dann braucht es keine Vertiefung:
+   eine zweite Frage zum selben Punkt wirkt sonst wie ein Verhör. */
+const ZAHLWOERTER = /\b(zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn|elf|zwölf|zwanzig|dreißig|hundert|tausend|halb|doppelt)\b/i;
+export const konkret = antwort => { const t = String(antwort || ''); return /\d/.test(t) || ZAHLWOERTER.test(t) || (t.length >= 110 && (t.match(/[.!?](\s|$)/g) || []).length >= 2); };
+export function auftragFuer(B, antwortAnnahme, antwort = '') {
   const cur = B.aktuell, f = B.felder.find(x => x.id === cur.feld);
   B.gefragt++;
-  if (!antwortAnnahme && cur.art === 'neu' && vertiefen(B, f)) return { art: 'vertiefung', ids: [f.id] };
+  if (!antwortAnnahme && cur.art === 'neu' && vertiefen(B, f)) {
+    if (!konkret(antwort)) return { art: 'vertiefung', ids: [f.id] };
+    f.vertieft = true;
+  }
   const ids = kandidaten(B).filter(id => id !== cur.feld);
   return ids.length ? { art: 'neu', ids } : { art: 'fertig', ids: [] };
 }
@@ -268,7 +275,7 @@ function belegt(wert, material) {
 export async function briefingAntwort(ki, prompts, B, antwort, opts = {}) {
   const cur = B.aktuell, f = B.felder.find(x => x.id === cur.feld), a = art(prompts.arten, B.art);
   B.verlauf.push({ feld: cur.feld, frage: cur.frage, antwort });
-  const auftrag = auftragFuer(B, opts.annahme);
+  const auftrag = auftragFuer(B, opts.annahme, antwort);
   const darfNachfragen = !opts.annahme && f && !f.nachgefragt && cur.art !== 'vertiefung' && f.prio !== 'mittel';
   const res = await ki.frage({
     art: 'praes_briefing', system: fuelle(prompts['system-briefing']), schema: rundeSchema(B, auftrag.ids, cur.feld),

@@ -203,3 +203,26 @@ test('Export: PowerPoint-Datei mit zehn Folien und bearbeitbarem Text' + (imBrow
   assert(new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagName('parsererror').length === 0, 'XML ist wohlgeformt');
   assert((await zip.file('ppt/notesSlides/notesSlide1.xml').async('string')).includes('Begrüßung'), 'Sprechernotizen fehlen');
 });
+
+/* ---------- Schrift wächst mit, wenn wenig Text da ist ---------- */
+test('Folienmodell: knappe Folien bekommen größere Schrift, gleich groß über alle Folien, Fußnoten bleiben klein', async () => {
+  const sys = await system('demo-corporate');
+  const knapp = { titel: 'T', folien: [
+    { layoutId: 'content-bullets', inhalt: { title: 'Das Portal hilft', bullets: ['Rechnungen einsehen', 'Adresse ändern'] } },
+    { layoutId: 'content-bullets', inhalt: { title: 'Und noch mehr', bullets: ['Status verfolgen', 'Termine buchen', 'Belege laden'] } },
+    { layoutId: 'kpi-grid', inhalt: { title: 'Zahlen', kpis: [{ value: '72 %', label: 'nutzen es' }, { value: '−31 %', label: 'weniger Anrufe' }], note: 'Quelle: Pilot' } }
+  ] };
+  const m = buildSlides(knapp, sys), el = (n, ph, feld) => m[n].elemente.find(e => e.ph === ph && (!feld || e.feld === feld));
+  const body = sys.tokens.typography.sizes.body;
+  assert(el(0, 'bullets').pt > body * 1.2, `Stichpunkte ${el(0, 'bullets').pt} pt`);
+  gleich(el(0, 'bullets').pt, el(1, 'bullets').pt, 'gleiche Rolle, gleiche Größe auf allen Folien');
+  gleich(el(0, 'title').pt, el(0, 'title').sollPt, 'Überschriften behalten ihre Größe');
+  assert(el(2, 'kpis', 'value').pt > sys.tokens.typography.sizes.kpi * 1.2, 'Kennzahlen werden größer');
+  gleich(el(2, 'note').pt, sys.tokens.typography.sizes.small, 'Quellenangaben bleiben klein');
+  assert(m.every(f => f.elemente.every(e => !e.gekuerzt)));
+  /* voll beschriebene Folien bleiben bei der Sollgröße; abschalten geht auch */
+  const voll = buildSlides(await demoSpec(), sys);
+  const ohne = buildSlides(knapp, sys, { wachsen: false });
+  gleich(ohne[0].elemente.find(e => e.ph === 'bullets').pt, body);
+  assert(voll.every(f => f.elemente.every(e => !e.gekuerzt)));
+});

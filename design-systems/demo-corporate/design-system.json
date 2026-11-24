@@ -1138,7 +1138,7 @@
     {
       "id": "closing",
       "name": "Abschlussfolie",
-      "beschreibung": "Letzte Folie: Dank oder Schlussgedanke, die Handlungsaufforderung und eine Kontaktzeile.",
+      "beschreibung": "Letzte Folie: die Bitte oder der Schlussgedanke als Aussage, darunter was das Publikum jetzt tun soll und eine Kontaktzeile.",
       "background": "primary",
       "deko": [
         {
@@ -1173,7 +1173,7 @@
         {
           "id": "title",
           "typ": "text",
-          "beschreibung": "Schlussgedanke oder Dank",
+          "beschreibung": "Die Bitte oder der Schlussgedanke als kurze Aussage, kein bloßes „Vielen Dank“",
           "pflicht": true,
           "x": 10,
           "y": 26,

@@ -584,7 +584,7 @@ function leiteAb(vorhandene, env) {
   }
   if (titelL && !hat('closing')) {
     const t = ph(titelL, 'title'), u = ph(titelL, 'subtitle') || ph(titelL, 'subline'), m = ph(titelL, 'meta');
-    mit(titelL, 'closing', '', [t && { ...kopie(t), beschreibung: 'Schlussgedanke oder Dank', pflicht: true }, u && { ...kopie(u), id: 'body', beschreibung: 'Die Bitte oder Handlungsaufforderung', pflicht: false }, m && { ...kopie(m), id: 'contact', beschreibung: BESCHR.contact, pflicht: false }].filter(Boolean));
+    mit(titelL, 'closing', '', [t && { ...kopie(t), beschreibung: 'Die Bitte oder der Schlussgedanke als kurze Aussage, kein bloßes „Vielen Dank“', pflicht: true }, u && { ...kopie(u), id: 'body', beschreibung: 'Die Bitte oder Handlungsaufforderung', pflicht: false }, m && { ...kopie(m), id: 'contact', beschreibung: BESCHR.contact, pflicht: false }].filter(Boolean));
   }
   if (titelL && !hat('image-full')) {
     const t = ph(titelL, 'title');
