@@ -250,9 +250,14 @@ export function komponiere(analyse, texte = {}, opts = {}) {
 
   /* Automatisch: Block in die größten ruhigen Flächen, am Motiv ausgerichtet */
   const inFlaeche = (r, anker, notfall) => {
+    /* Abstand zum Motiv: eine ganze Zelle, wenn daneben etwas Unruhiges steht. Ränder eines Motivs
+       (blasse Fingerspitzen, Haare im Gegenlicht) messen oft noch als frei; der Block soll ihnen
+       nicht auf die Pelle rücken. Sonst reicht gut eine halbe Zelle. */
+    const unruhigNeben = x => x >= 0 && x < C && Array.from({ length: r.y1 - r.y0 }, (_, i) => r.y0 + i).some(y => !frei(x, y));
+    const gapL = unruhigNeben(r.x0 - 1) ? zb : zb * 0.6, gapR = unruhigNeben(r.x1) ? zb : zb * 0.6;
     const innen = {
-      x: r.x0 * zb + (r.x0 === 0 ? randX : zb * 0.6), y: r.y0 * zh + (r.y0 === 0 ? randY : zh * 0.5),
-      x1: r.x1 * zb - (r.x1 === C ? randX : zb * 0.6), y1: r.y1 * zh - (r.y1 === R ? randY : zh * 0.5)
+      x: r.x0 * zb + (r.x0 === 0 ? randX : gapL), y: r.y0 * zh + (r.y0 === 0 ? randY : zh * 0.5),
+      x1: r.x1 * zb - (r.x1 === C ? randX : gapR), y1: r.y1 * zh - (r.y1 === R ? randY : zh * 0.5)
     };
     const ib = innen.x1 - innen.x, ih = innen.y1 - innen.y;
     if (ib <= 0 || ih <= 0) return null;

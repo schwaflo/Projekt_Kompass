@@ -193,7 +193,7 @@ test('Design: jede Variante ist ein Block auf ruhiger Fläche mit Rand und Kontr
   assert(k.varianten.every((v, i) => !i || v.score <= k.varianten[i - 1].score), 'beste zuerst');
   const m = k.varianten.find(v => v.anchor === 'motiv');
   assert(m && m.beside_subject, 'eine Variante richtet sich am Motiv aus');
-  assert(m.block.x + m.block.width > m.region.x + m.region.width - 5, 'der Block steht an der Kante zum Motiv, nicht am Bildrand');
+  assert(m.block.x + m.block.width > m.region.x + m.region.width - 8, 'der Block steht an der Kante zum Motiv (mit einer Zelle Abstand), nicht am Bildrand');
 });
 test('Design: mittlerer Bildton bekommt einen weichen Schleier statt eines Kastens', () => {
   const A = K.analysiereBild(bild(480, 320, () => [165, 110, 88]), { raster: ['2x2'] });
