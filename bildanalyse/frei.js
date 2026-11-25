@@ -153,7 +153,7 @@ export function freiHTML(analyse, layout, bildURL = '', { bearbeiten = false, ge
     const mass = f.art === 'kreis' ? `width:${f.breite}cqw;height:${f.breite}cqw;border-radius:50%` : `width:${f.breite}%;height:${f.hoehe}%`;
     flaechen.push(`<i class="bf-form"${k('formen', i)} style="left:${f.x}%;top:${f.y}%;${mass};${f.gefuellt ? `background:${rgba(f.farbe, f.deckkraft)}` : `border:${runde(f.staerke / 10)}cqw solid ${rgba(f.farbe, f.deckkraft)}`}${f.drehung ? `;transform:rotate(${f.drehung}deg)` : ''}${f.weich ? ';filter:blur(3.5cqw);pointer-events:none' : ''}"></i>`);
   });
-  const texte = layout.texte.map((t, i) => `<p class="bf-text${t.versal ? ' versal' : ''}"${k('texte', i)} style="left:${t.x}%;top:${t.y}%;font-size:${t.groesse}cqw;font-weight:${GEWICHT[t.gewicht]};color:${t.farbe};text-align:${{ links: 'left', mitte: 'center', rechts: 'right' }[t.ausrichtung]};${t.breite ? `width:${t.breite}cqw;` : 'white-space:pre;'}transform-origin:${URSPRUNG[t.ausrichtung]};transform:${SCHUB[t.ausrichtung]}rotate(${t.drehung}deg)">${esc(t.text)}</p>`);
+  const texte = layout.texte.map((t, i) => `<p class="bf-text${t.versal ? ' versal' : ''}"${k('texte', i)} style="left:${t.x}%;top:${t.y}%;font-size:${t.groesse}cqw;font-weight:${GEWICHT[t.gewicht]};color:${t.farbe};text-align:${{ links: 'left', mitte: 'center', rechts: 'right' }[t.ausrichtung]};${t.breite ? `width:${t.breite}cqw;text-wrap:balance;` : 'white-space:pre;'}transform-origin:${URSPRUNG[t.ausrichtung]};transform:${SCHUB[t.ausrichtung]}rotate(${t.drehung}deg)">${esc(t.text)}</p>`);
   return `<div class="bd-ansicht bd-frei" style="aspect-ratio:${W}/${H};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${flaechen.join('')}${linien.length ? `<svg class="bf-linien" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${linien.join('')}</svg>` : ''}${texte.join('')}</div>`;
 }
 
@@ -161,11 +161,14 @@ export function freiHTML(analyse, layout, bildURL = '', { bearbeiten = false, ge
 /* Zeilen eines Textbausteins, wie sie etwa umbrechen */
 export function zeilen(t, messe = breiteEm) {
   const out = [], text = t.versal ? t.text.toLocaleUpperCase('de') : t.text, fett = t.gewicht !== 'normal';
+  const brich = (absatz, breite) => { const z = []; let akt = ''; for (const w of absatz.split(' ')) { const probe = akt ? akt + ' ' + w : w; if (akt && messe(probe, fett) * t.groesse > breite) { z.push(akt); akt = w; } else akt = probe; } z.push(akt); return z; };
   for (const absatz of text.split('\n')) {
     if (!t.breite) { out.push(absatz); continue; }
-    let z = '';
-    for (const w of absatz.split(' ')) { const probe = z ? z + ' ' + w : w; if (z && messe(probe, fett) * t.groesse > t.breite) { out.push(z); z = w; } else z = probe; }
-    out.push(z);
+    /* Ausgewogen umbrechen: so schmal wie möglich bei gleicher Zeilenzahl, damit keine Zeile
+       verwaist (ein einzelnes Wort unter einer langen Zeile) */
+    let z = brich(absatz, t.breite);
+    if (z.length > 1) for (let b = t.breite * 0.98; b >= t.breite * 0.5; b -= t.breite * 0.02) { const v = brich(absatz, b); if (v.length !== z.length) break; z = v; }
+    out.push(...z);
   }
   return out;
 }
@@ -282,11 +285,29 @@ export function reinzeichnen(analyse, layout, messe = breiteEm) {
         if (f >= 0.72 && f < 1) skaliere(blk, f * 0.99);
       }
     }
+    /* Läuft ein Baustein mit mehreren Wörtern ins Motiv, bricht er zuerst auf die Breite seines Blocks um,
+       statt dort mit Schleier lesbar gemacht oder weggeschoben zu werden */
+    if (blk.length > 1) {
+      const breitester = Math.max(...blk.map(i => umriss(L.texte[i], verh, messe).b));
+      for (const i of blk) {
+        const t = L.texte[i], u = umriss(t, verh, messe);
+        /* stört: liegt auf dem Motiv oder auf einer Stelle, auf der die Schrift nicht lesbar ist (etwa ein unscharfer dunkler Ärmel) */
+        const stoert = x => { const z = zellen(x); return motiv(x) > 0.12 || (z.length && Math.min(...z.map(c => kontrast(t.farbe, grund[c]))) < (t.groesse >= 5 ? 3 : cfg.kontrast_min)); };
+        if (t.drehung || !/\s/.test(t.text.trim()) || !stoert(u)) continue;
+        const andere = Math.max(10, ...blk.filter(j => j !== i).map(j => umriss(L.texte[j], verh, messe).b));
+        const ziel = Math.min(u.b * 0.95, Math.max(andere, breitester * 0.6));
+        if (ziel >= u.b - 0.5) continue;
+        t.breite = runde(ziel, 1);
+        for (let n = 0; n < 6 && stoert(umriss(t, verh, messe)) && zeilen(t, messe).length < 3; n++) t.breite = runde(t.breite * 0.85, 1);
+        if (stoert(umriss(t, verh, messe))) { t.breite = vorher[i].breite; continue; }   /* hilft nicht: lieber verschieben oder Schleier */
+        was[i].push('umbrochen, damit es nicht ins Motiv läuft');
+      }
+    }
     /* Luft im Block: zwischen zwei Bausteinen mindestens eine halbe Zeile der kleineren Schrift,
        sonst kleben Unterzeile und Aufruf aneinander (passiert leicht, wenn eine Zeile umbricht) */
     for (let n = 1; n < blk.length; n++) {
       /* gleich große Teile (eine aufgeteilte Headline) stehen eng wie Zeilen, Stufen der Hierarchie bekommen Luft */
-      const a = L.texte[blk[n - 1]], b = L.texte[blk[n]], v = umriss(a, verh, messe), gleich = Math.abs(a.groesse - b.groesse) <= 0.15 * Math.max(a.groesse, b.groesse);
+      const a = L.texte[blk[n - 1]], b = L.texte[blk[n]], v = umriss(a, verh, messe), gleich = Math.min(a.groesse, b.groesse) >= 4 && a.gewicht === b.gewicht && Math.abs(a.groesse - b.groesse) <= 0.15 * Math.max(a.groesse, b.groesse);
       const soll = v.y + v.h + (gleich ? 0.05 * a.groesse : 0.55 * Math.min(a.groesse, b.groesse)) / verh;
       if (b.y < soll - 0.05) { b.y = runde(soll, 1); was[blk[n]].push('mit Luft zum Baustein darüber gesetzt'); }
     }
