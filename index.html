@@ -553,9 +553,9 @@ mark.ph{background:var(--assume-bg);color:var(--assume);border-radius:4px;paddin
 .fl-bild_oben:not(:has(.fz-hero>.el-bild:first-child)) .fz-kopf{position:relative;inset:auto}
 .fl-vollbild{justify-content:flex-end}
 .fl-vollbild .fz-hero>.el-bild{position:absolute;inset:0;height:auto;width:auto;border-radius:0;z-index:0}
-.fl-vollbild .fz-hero{position:static}
+.fl-vollbild .fz-hero{position:static;z-index:auto}   /* als Flex-Element bildete der Bereich sonst mit z-index eine eigene Ebene über dem Verlauf */
 .fl-vollbild .fz-hero>:not(.el-bild){position:relative;z-index:2}
-.fl-vollbild:has(.fz-hero>.el-bild)::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,transparent 15%,color-mix(in srgb,var(--fbg) 92%,transparent) 62%)}
+.fl-vollbild:has(.fz-hero>.el-bild)::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,transparent 22%,color-mix(in srgb,var(--fbg) 62%,transparent) 42%,color-mix(in srgb,var(--fbg) 90%,transparent) 60%)}
 .fl-vollbild .fz-kopf{position:absolute;top:6cqw;left:7cqw;right:7cqw}
 .fl-vollbild .fz-mitte{flex:0 1 auto}
 .fl-geteilt{padding-top:0}
@@ -3176,6 +3176,16 @@ function flyerBg(plan) {
   return `background:${p.hintergrund}`;
 }
 
+/* Ausschnitt eines Fotos: Hat das Bild-Design das Foto vermessen, bleibt beim Beschneiden das Motiv
+   (die unruhigen Zellen der Freiraum-Karte) im Bild, statt dass die Mitte gezeigt wird */
+function bildFokus(id) {
+  const A = S.design && S.design.bild && S.design.bild.analysen && S.design.bild.analysen[id], m = A && A.free_map;
+  if (!m || !Array.isArray(m.free)) return '';
+  let n = 0, sx = 0, sy = 0;
+  m.free.forEach((f, i) => { if (!f) { n++; sx += (i % m.cols + 0.5) / m.cols; sy += (Math.floor(i / m.cols) + 0.5) / m.rows; } });
+  if (!n || n === m.free.length) return '';
+  return ` style="object-position:${Math.round(sx / n * 100)}% ${Math.round(sy / n * 100)}%"`;
+}
 function renderEl2(e, ed) {
   const ce = path => ed && path ? ` contenteditable="true" data-path="${path}" spellcheck="false"` : '';
   const url = e.asset && ui.assetURL[e.asset];
@@ -3184,7 +3194,7 @@ function renderEl2(e, ed) {
   const lab = e.label ? `<b${ce(e.lpath)}>${ph(e.label)}</b>` : '';
   switch (e.typ) {
     case 'logo': return url ? `<img class="el el-logo${al}" src="${url}" alt="Logo">` : `<div class="el el-logo phbox${al}">Logo</div>`;
-    case 'bild': return url ? `<div class="el el-bild${sz}${e.rahmen ? ' rahmen' : ''}"><img src="${url}" alt="${esc(e.text || '')}"></div>` : `<div class="el el-bild phbox${sz}"><span>${esc(e.text || 'Bild')}</span></div>`;
+    case 'bild': return url ? `<div class="el el-bild${sz}${e.rahmen ? ' rahmen' : ''}"><img src="${url}" alt="${esc(e.text || '')}"${bildFokus(e.asset)}></div>` : `<div class="el el-bild phbox${sz}"><span>${esc(e.text || 'Bild')}</span></div>`;
     case 'headline': { const m = e.akzent && String(e.text).match(/^(\S+)(\s[\s\S]*)?$/); return `<div class="el el-headline${sz}"${ce(e.path)}>${m ? `<span class="hl-akzent">${ph(m[1])}</span>${ph(m[2] || '')}` : ph(e.text)}</div>`; }
     case 'subline': return `<div class="el el-subline${sz}"${ce(e.path)}>${ph(e.text)}</div>`;
     case 'badge': return `<div class="el el-badge">${lab}<span${ce(e.path)}>${ph(e.text)}</span></div>`;
