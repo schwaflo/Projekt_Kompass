@@ -193,7 +193,7 @@ test('Design: jede Variante ist ein Block auf ruhiger Fläche mit Rand und Kontr
   assert(k.varianten.every((v, i) => !i || v.score <= k.varianten[i - 1].score), 'beste zuerst');
   const m = k.varianten.find(v => v.anchor === 'motiv');
   assert(m && m.beside_subject, 'eine Variante richtet sich am Motiv aus');
-  assert(m.block.x + m.block.width > m.region.x + m.region.width - 5, 'der Block steht an der Kante zum Motiv, nicht am Bildrand');
+  assert(m.block.x + m.block.width > m.region.x + m.region.width - 8, 'der Block steht an der Kante zum Motiv (mit einer Zelle Abstand), nicht am Bildrand');
 });
 test('Design: mittlerer Bildton bekommt einen weichen Schleier statt eines Kastens', () => {
   const A = K.analysiereBild(bild(480, 320, () => [165, 110, 88]), { raster: ['2x2'] });
@@ -503,4 +503,22 @@ test('Design: Debug-Vorschau zeichnet Raster, Freiraum grün und Unschärfe rot'
 test('Design: Beschreibung auf zwei Sätze kürzen', () => {
   gleich(G.kuerzeBeschreibung('Ein Hügel.  Darüber Himmel! Und noch mehr. Viel mehr.'), 'Ein Hügel. Darüber Himmel!');
   gleich(G.kuerzeBeschreibung('Nur ein Halbsatz'), 'Nur ein Halbsatz');
+});
+
+test('Frei: Reinzeichnung hält Blöcke auf ihrer Kante, schiebt nicht quer übers Bild und bricht ausgewogen um', () => {
+  const t = (text, x, y, groesse, o = {}) => ({ text, x, y, groesse, breite: 0, farbe: '#FFFFFF', gewicht: 'fett', versal: false, ausrichtung: 'links', drehung: 0, ...o });
+  const verh = 400 / 640;
+  /* Headline zu breit für ihre Kante: der ganze Block wird kleiner und bleibt bei x 45, mit Luft zwischen den Stufen */
+  const blk = F.reinzeichnen(MOTIV, F.leseLayout({ formen: [], texte: [t('Großes Sommerfest', 45, 20, 7), t('Kommt alle vorbei', 45, 42, 2.4, { gewicht: 'normal' }), t('Mehr erfahren', 45, 47, 2.2)] })).layout.texte;
+  gleich(blk.map(x => x.x), [45, 45, 45], 'gemeinsame Kante bleibt');
+  assert(blk[0].groesse < 7 && blk[0].groesse >= 7 * 0.7, `Headline etwas kleiner: ${blk[0].groesse}`);
+  const u = blk.map(x => F.umriss(x, verh));
+  assert(u.every(b => b.x + b.b <= 97), 'alles im Bild');
+  assert(u[2].y - (u[1].y + u[1].h) >= 0.5 * blk[2].groesse / verh - 0.1, 'Luft zwischen Unterzeile und Aufruf');
+  /* Ein Wort knapp am Rand rückt nur ein wenig, statt auf die andere Bildseite zu springen */
+  const rand = F.reinzeichnen(MOTIV, F.leseLayout({ formen: [], texte: [t('Sommer', 70, 60, 12), t('FEST', 96, 95, 3, { drehung: -90, versal: true })] })).layout.texte[1];
+  assert(rand.x > 80, `bleibt am rechten Rand: ${rand.x}`);
+  /* Ausgewogener Umbruch: kein einzelnes Wort unter einer langen Zeile */
+  const z = F.zeilen(t('Straßenfest Glaube und Leben', 50, 10, 5, { breite: 60, ausrichtung: 'mitte' }));
+  assert(z.length === 2 && Math.abs(z[0].length - z[1].length) <= 8, JSON.stringify(z));
 });

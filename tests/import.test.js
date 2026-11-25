@@ -244,6 +244,39 @@ test(nurBrowser('PowerPoint-Import: Markenvorlage mit Beispielfolien → Kennzah
   assert((await pptx.write({ outputType: 'blob' })).size > 10000);
 });
 
+test(nurBrowser('PowerPoint-Import: Tabelle der Vorlage wird Tabellenlayout mit Stil, Kapitel- und Hervorhebungsfolien werden erkannt'), async () => {
+  if (!imBrowser) return;
+  const P = new window.PptxGenJS(); P.layout = 'LAYOUT_WIDE';
+  const titelPh = (fontSize, color, y = 0.5, h = 1.0) => ({ placeholder: { options: { name: 'titel', type: 'title', x: 0.8, y, w: 11, h, fontSize, bold: true, color }, text: '' } });
+  P.defineSlideMaster({ title: 'MARKE_TABELLE', background: { color: 'FFFFFF' }, objects: [titelPh(30, '0B3D2E')] });
+  P.defineSlideMaster({ title: 'Abschnitt', background: { color: '0B3D2E' }, objects: [titelPh(48, 'FFFFFF', 2.6, 2.0)] });
+  P.defineSlideMaster({ title: 'Hervorhebung', background: { color: 'F3F1EC' }, objects: [titelPh(40, '0B3D2E', 2.2, 2.4)] });
+  const s = P.addSlide({ masterName: 'MARKE_TABELLE' });
+  s.addText('Unsere Standorte im Vergleich', { placeholder: 'titel' });
+  const kopf = ['Standort', 'Gäste', 'Umsatz'].map(t => ({ text: t, options: { fill: { color: '0B3D2E' }, color: 'FFFFFF', bold: true } }));
+  const zeile = (z, i) => z.map(t => ({ text: t, options: { fill: { color: i % 2 ? 'FFFFFF' : 'EAF2EE' }, color: '222222' } }));
+  s.addTable([kopf, ...[['Markt', '12.400', '1,2 Mio.'], ['Bahnhof', '8.100', '0,8 Mio.'], ['Hafen', '5.300', '0,5 Mio.']].map(zeile)], { x: 0.8, y: 1.9, w: 11.5, fontSize: 16 });
+  P.addSlide({ masterName: 'Abschnitt' }).addText('Teil 2: Wohin wir wachsen', { placeholder: 'titel' });
+  P.addSlide({ masterName: 'Hervorhebung' }).addText('Der Markt bleibt unser Herz', { placeholder: 'titel' });
+  const r = await importPptx(new File([await P.write({ outputType: 'blob' })], 'Marke.pptx'), window.JSZip, {});
+  const m = r.paket.manifest, farbe = n => m.tokens.colors[n] || n;
+  const tab = m.layouts.find(l => l.typ === 'table');
+  assert(tab, 'Tabellenlayout: ' + m.layouts.map(l => `${l.typ}:${l.name}`).join(', '));
+  const tp = tab.placeholders.find(p => p.typ === 'table'), titel = tab.placeholders.find(p => p.id === 'title');
+  assert(tp && tp.y > titel.y && tp.w > 80, 'Tabellenfläche unter der Überschrift, so breit wie in der Vorlage');
+  gleich(titel.beispiel, 'Unsere Standorte im Vergleich', 'Text der Beispielfolie');
+  const t = m.tokens.tabelle;
+  gleich([farbe(t.kopfFlaeche), farbe(t.kopfText), farbe(t.streifen), farbe(t.flaeche)], ['#0B3D2E', '#FFFFFF', '#EAF2EE', '#FFFFFF']);
+  assert(r.bericht.some(b => b.startsWith('Tabellenstil übernommen')), r.bericht.join(' | '));
+  assert(m.layouts.some(l => l.typ === 'section' && /Abschnitt/.test(l.name)), 'Abschnitt als Kapiteltrenner');
+  assert(m.layouts.some(l => l.typ === 'statement' && /Hervorhebung/.test(l.name)), 'Hervorhebung als große Aussage');
+  const geladen = await ladePaket(r.paket);
+  gleich(geladen.errors, []);
+  const folie = buildSlides({ titel: 'T', folien: [{ layoutId: tab.id, inhalt: { title: 'Der Markt trägt' }, tabelle: { kopf: ['A', 'B'], zeilen: [['1', '2'], ['3', '4']] } }] }, geladen.system)[0];
+  const el = folie.elemente.find(e => e.art === 'tabelle');
+  gleich([el.x, el.kopfFlaeche, el.streifen], [tp.x, '#0B3D2E', '#EAF2EE']);
+});
+
 test(nurBrowser('PowerPoint-Import: verständliche Fehler'), async () => {
   if (!imBrowser) return;
   const versuch = async blob => { try { await importPptx(new File([blob], 'x.pptx'), window.JSZip, {}); return ''; } catch (e) { return e.message; } };

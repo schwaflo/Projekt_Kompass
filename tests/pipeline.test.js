@@ -556,3 +556,13 @@ test('Richtlinien: Teile zusammenführen und als voice.md einsetzen', async () =
   gleich(R.leseSprachregeln(v2).verboten, ['zeitnah'], 'ein neuer Import ersetzt den alten');
   assert((v2.match(/aus-richtlinien:/g) || []).length === 1 && v2.includes('Keine Ausrufezeichen'));
 });
+
+test('Briefing: keine Vertiefung, wenn die Antwort schon konkret ist', async () => {
+  assert(P.konkret('Im Schnitt suchen sie fünf Minuten.') && P.konkret('1.240 Gäste im Oktober'));
+  assert(P.konkret('Gäste laufen erst nach rechts zu den Aufzügen und fragen im Flur. Termine fangen deshalb oft zu spät an, das ärgert alle.'));
+  assert(!P.konkret('Gäste finden den Empfang nicht'));
+  const { B } = await pitchBriefing();
+  feld(B, 'problem').schwerpunkt = true; B.aktuell = { feld: 'problem', frage: 'Was ist das Problem?', vorschlaege: [], art: 'neu' };
+  gleich(P.auftragFuer(B, false, 'Im Schnitt suchen Gäste fünf Minuten nach dem Empfang.').art, 'neu');
+  assert(feld(B, 'problem').vertieft, 'der Schwerpunkt gilt als vertieft');
+});

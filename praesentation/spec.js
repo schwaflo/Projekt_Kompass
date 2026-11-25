@@ -10,7 +10,7 @@
    Inhalte je Platzhaltertyp:
      text    → "Text"
      bullets → ["Punkt", "Punkt"]
-     items   → [{ <feldId>: "Text", … }]
+     items   → [{ <feldId>: "Text", …, icon?: "symbol" }]  (icon nur bei Kacheln mit hatSymbole)
      image   → "asset-id" oder "tag" aus dem Designsystem
 
    Eine Folie kann zusätzlich eine Tabelle der Person tragen:
@@ -19,6 +19,7 @@
    die Platzhalter darin bleiben dann leer.
    ============================================================ */
 import { checkSchema } from './validate.js';
+import { SYMBOL_IDS } from './icons.js';
 
 export const SPEC_VERSION = '1.0';
 
@@ -40,13 +41,22 @@ export const SPEC_SCHEMA = {
 };
 
 /* Platzhalter, die Inhalt aus der Slide-Spec bekommen (also nicht Seitenzahl, Fußzeile, Logo) */
-export const inhaltsPlatzhalter = layout => layout.placeholders.filter(p => !p.auto && p.typ !== 'logo');
+/* Kacheln, die je Eintrag ein Symbol tragen können: Karten und Bausteine mit eigener Fläche je Kachel.
+   Nicht bei festen Zellen aus einer Vorlage, nicht im Zeitstrahl, nicht bei Kennzahlen (dort spricht die Zahl). */
+export const hatSymbole = ph => ph.typ === 'items' && ph.variante !== 'frei' && ph.variante !== 'zeitstrahl' && ph.symbole !== false && !ph.felder.some(f => /^(value|zahl|number|wert)$/i.test(f.id)) && ph.h >= 24;
+export const SYMBOL_FELD = 'icon';
+
+/* Flächen, die die KI füllt. Tabellen- und Diagrammflächen füllt die App selbst (Tabellen aus dem Material). */
+export const inhaltsPlatzhalter = layout => layout.placeholders.filter(p => !p.auto && p.typ !== 'logo' && p.typ !== 'table' && p.typ !== 'chart');
 
 /* Fläche für eine Tabelle: alle Inhaltsflächen außer Überschrift und Bild, zusammen als ein Rechteck.
    Bei „Inhalt mit Aufzählung“ ist das die Fläche der Stichpunkte, bei zwei Spalten beide Spalten.
    Kleine Textfelder wie eine Seitenzahl zählen nicht mit. Liefert { x, y, w, h, ids } oder null. */
 export function tabellenFlaeche(layout) {
   if (!layout) return null;
+  /* Die Vorlage hat eine eigene Tabellenfläche: genau dort */
+  const tp = layout.placeholders.find(p => p.typ === 'table');
+  if (tp) return { x: tp.x, y: tp.y, w: tp.w, h: tp.h, ids: [tp.id] };
   const phs = inhaltsPlatzhalter(layout);
   const titel = phs.find(p => p.id === 'title') || phs.filter(p => p.typ === 'text' && (p.style || {}).font === 'heading').sort((a, b) => a.y - b.y)[0];
   const teile = phs.filter(p => p !== titel && p.typ !== 'image' && (p.typ !== 'text' || p.w * p.h >= 150));
@@ -100,9 +110,12 @@ export function validateSpec(spec, system) {
           if (!Array.isArray(v) || v.some(x => !x || typeof x !== 'object' || Array.isArray(x))) { errors.push(`${p}: erwartet eine Liste von Einträgen mit den Feldern ${ph.felder.map(x => x.id).join(', ')}.`); break; }
           if (v.length > ph.maxItems) errors.push(`${p}: ${v.length} Einträge, erlaubt sind höchstens ${ph.maxItems}.`);
           if (ph.minItems && v.length < ph.minItems) errors.push(`${p}: ${v.length} Einträge, nötig sind mindestens ${ph.minItems}.`);
-          const fids = ph.felder.map(x => x.id);
+          const fids = ph.felder.map(x => x.id), symbole = hatSymbole(ph);
           v.forEach((it, j) => {
-            Object.keys(it).forEach(k => { if (!fids.includes(k)) errors.push(`${p}, Eintrag ${j + 1}: Das Feld „${k}“ gibt es nicht. Erlaubt: ${fids.join(', ')}.`); });
+            Object.keys(it).forEach(k => {
+              if (k === SYMBOL_FELD && symbole) { if (!leer(it[k]) && !SYMBOL_IDS.includes(it[k])) errors.push(`${p}, Eintrag ${j + 1}: Das Symbol „${it[k]}“ gibt es nicht. Erlaubt: ${SYMBOL_IDS.join(', ')}.`); return; }
+              if (!fids.includes(k)) errors.push(`${p}, Eintrag ${j + 1}: Das Feld „${k}“ gibt es nicht. Erlaubt: ${fids.join(', ')}.`);
+            });
             if (leer(it[fids[0]])) errors.push(`${p}, Eintrag ${j + 1}: Das Feld „${fids[0]}“ fehlt.`);
             ph.felder.forEach(fd => {
               const w = it[fd.id];
@@ -191,7 +204,7 @@ export function kuerzeSpec(spec, system) {
           let w = String(it[fd.id]);
           if (laenge(w) > fd.maxChars) { w = kuerze(w, fd.maxChars); aenderungen.push(`${p}, Eintrag ${j + 1}, ${fd.id}: gekürzt.`); }
           return [fd.id, w];
-        }))).filter(it => Object.keys(it).length);
+        }).concat(hatSymbole(ph) && SYMBOL_IDS.includes(it[SYMBOL_FELD]) ? [[SYMBOL_FELD, it[SYMBOL_FELD]]] : []))).filter(it => ph.felder.some(fd => !leer(it[fd.id])));
         if (l.length) inhalt[ph.id] = l;
       } else if (ph.typ === 'image') {
         if (typeof v === 'string' && system.asset(v)) inhalt[ph.id] = v;

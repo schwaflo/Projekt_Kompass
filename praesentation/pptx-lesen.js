@@ -262,14 +262,47 @@ function sammle(baum, ctx, rels, gruppen = [], out = []) {
       const gf = fuellung(gp, null, ctx, rels);
       sammle(c, { ...ctx, gruppenFuellung: gf || ctx.gruppenFuellung }, rels, t && t.ch ? [...gruppen, t] : gruppen, out);
     } else if (c.tagName === 'p:graphicFrame') {
-      const t = transform(c), nv = kind(c, 'p:nvGraphicFramePr');
-      if (t) out.push({ art: 'rahmen', name: (pfad(nv, 'p:cNvPr') || { getAttribute: () => '' }).getAttribute('name') || '', ph: platzhalter(nv), box: abbilden(t.box, gruppen), rot: 0 });
+      const t = transform(c), nv = kind(c, 'p:nvGraphicFramePr'), tbl = c.getElementsByTagName('a:tbl')[0];
+      if (t) out.push({ art: 'rahmen', name: (pfad(nv, 'p:cNvPr') || { getAttribute: () => '' }).getAttribute('name') || '', ph: platzhalter(nv), box: abbilden(t.box, gruppen), rot: 0, ...(tbl ? { tabelle: tabelleLesen(tbl, ctx) } : {}) });
     } else if (c.tagName === 'mc:AlternateContent') {
       const wahl = kind(c, 'mc:Fallback') || kind(c, 'mc:Choice');
       if (wahl) sammle(wahl, ctx, rels, gruppen, out);
     }
   }
   return out;
+}
+
+/* ---------- Tabellen ----------
+   Eine Tabelle auf einer Folie: Stil-ID, Schalter für Kopfzeile und Streifen und je Zelle die
+   ausdrücklich gesetzte Füllung, Schrift und untere Linie (was der Stil vorgibt, steht in tableStyles.xml). */
+function tabelleLesen(tbl, ctx) {
+  const pr = kind(tbl, 'a:tblPr'), id = kind(pr, 'a:tableStyleId');
+  const fuell = tcPr => { if (!tcPr) return null; if (kind(tcPr, 'a:noFill')) return 'keine'; const f = kind(tcPr, 'a:solidFill'); return f ? farbe(f, ctx) : null; };
+  const zeilen = kinder(tbl, 'a:tr').slice(0, 4).map(tr => kinder(tr, 'a:tc').slice(0, 4).map(tc => {
+    const tcPr = kind(tc, 'a:tcPr'), body = kind(tc, 'a:txBody'), p = body && kind(body, 'a:p'), r = p && kind(p, 'a:r');
+    const st = runStil(r && kind(r, 'a:rPr'), ctx), ln = tcPr && kind(tcPr, 'a:lnB'), lf = ln && kind(ln, 'a:solidFill');
+    return { fill: fuell(tcPr), text: body ? [...body.getElementsByTagName('a:t')].map(t => t.textContent).join('') : '', farbe: st.farbe || null, b: st.b, sz: st.sz, linie: lf ? farbe(lf, ctx) : null };
+  }));
+  return { stil: id ? id.textContent.trim() : '', kopf: an(pr, 'firstRow') === true, streifen: an(pr, 'bandRow') === true, zeilen };
+}
+/* ppt/tableStyles.xml → { def: Stil-ID für neue Tabellen, stile: { id: { kopf, streifen, ganz, linie } } } */
+export function leseTabellenstile(text, ctx) {
+  if (!text) return { def: '', stile: {} };
+  const d = xml(text), lst = d.documentElement, stile = {};
+  const teil = (st, n) => kind(st, 'a:' + n);
+  const flaeche = t => {
+    const f = pfad(t, 'a:tcStyle', 'a:fill');
+    if (f && kind(f, 'a:noFill')) return 'keine';
+    const s = (f && kind(f, 'a:solidFill')) || pfad(t, 'a:tcStyle', 'a:fillRef');
+    return s ? farbe(s, ctx) : null;
+  };
+  const schrift = t => { const x = kind(t, 'a:tcTxStyle'); return x ? { farbe: farbe(x, ctx), b: x.getAttribute('b') === 'on' } : null; };
+  const linie = t => { const b = pfad(t, 'a:tcStyle', 'a:tcBdr'); if (!b) return null; for (const k of ['a:insideH', 'a:bottom', 'a:top']) { const l = pfad(b, k, 'a:ln'), s = l && kind(l, 'a:solidFill'); if (s) return farbe(s, ctx); const ref = pfad(b, k, 'a:lnRef'); if (ref) return farbe(ref, ctx); } return null; };
+  for (const st of kinder(lst, 'a:tblStyle')) {
+    const ganz = teil(st, 'wholeTbl'), kopf = teil(st, 'firstRow'), band = teil(st, 'band1H');
+    stile[st.getAttribute('styleId')] = { name: st.getAttribute('styleName') || '', ganz: ganz ? flaeche(ganz) : null, text: ganz ? schrift(ganz) : null, linie: ganz ? linie(ganz) : null, kopf: kopf ? { fill: flaeche(kopf), ...(schrift(kopf) || {}) } : null, streifen: band ? flaeche(band) : null };
+  }
+  return { def: lst.getAttribute('def') || '', stile };
 }
 
 /* ---------- Eine Fläche (Master, Layout oder Folie) ---------- */

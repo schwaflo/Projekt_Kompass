@@ -17,6 +17,9 @@ import { fuelle } from './pipeline.js';
 import { beschreibe, typName } from './analyse.js';
 import { textAusDatei, destilliere, voiceAbschnitt, setzeEin, leseSprachregeln } from './richtlinien.js';
 import { LAYOUT_TYPEN } from './schema.js';
+import { bewerteLayouts, wendeBewertungAn } from './layout-ki.js';
+import { ic } from './icons.js';
+import { FORM_KURZ } from './analyse.js';
 
 const STORE = 'designsysteme';
 let K = null; /* { reg, ladePrompts, ki } aus ui.js */
@@ -73,6 +76,8 @@ async function ladePptx(datei) {
     z.id = r.paket.id; z.bericht = ['Entwurf angelegt. Das wurde aus der Datei gelesen:', ...r.bericht];
   } catch (e) { z.fehler = [e.message]; }
   render(); window.scrollTo({ top: 0 });
+  /* Gleich danach: die KI liest Namen und Beispieltexte und ordnet jedes Layout ein */
+  if (!z.fehler.length && K.reg.get(z.id)) ordneLayoutsEin(K.reg.get(z.id), true);
 }
 
 async function kopiere(system) {
@@ -134,6 +139,26 @@ function ladeRichtlinien(original, datei) {
 }
 
 const neueDateien = (system, files, rolle) => aendere(system, async p => { for (const f of files) await fuegeDateiHinzu(p, f, rolle); });
+
+/* Layouts von der KI einordnen lassen: Zweck, passende Wirkungen, „nicht verwenden“.
+   nachImport: direkt nach dem Import; klappt es nicht, bleibt der Import trotzdem gültig. */
+function ordneLayoutsEin(system, nachImport = false) {
+  const z = zustand();
+  run('Die KI ordnet die Layouts der Vorlage ein …', async () => {
+    try {
+      const prompts = await K.ladePrompts();
+      const b = await bewerteLayouts(K.ki(), prompts, system, { vorlage: system.meta.name });
+      const aktuell = K.reg.get(system.id), p = { ...aktuell.paket, manifest: kopie(aktuell.paket.manifest) };
+      const n = wendeBewertungAn(p.manifest, b);
+      const fehler = await speichere(p); if (fehler.length) throw new Error(fehler[0]);
+      const gemieden = p.manifest.layouts.filter(l => l.ki && l.ki.meiden).length;
+      z.bericht = [...(nachImport ? z.bericht : []), `Die KI hat ${n} von ${p.manifest.layouts.length} Layouts eingeordnet: wofür sie gedacht sind und welche Wirkung sie tragen. Der Kompass nutzt das bei der Layoutwahl.${gemieden ? ` ${gemieden} ${gemieden === 1 ? 'Layout wird' : 'Layouts werden'} nicht verwendet (zum Beispiel Agenda oder Hinweise); unter „Layouts“ lässt sich das ändern.` : ''}`];
+    } catch (e) {
+      if (!nachImport) throw e;
+      z.bericht = [...z.bericht, `Die KI konnte die Layouts nicht einordnen (${e.message}). Der Kompass wählt Layouts dann nur nach seiner eigenen Rechnung; unter „Layouts“ kannst du es später erneut versuchen.`];
+    }
+  });
+}
 
 function beschreibeMitKI(system, assetId) {
   run('Bild wird beschrieben …', async () => {
@@ -230,7 +255,10 @@ function viewDetail(s) {
 
   <section class="ps-block"><h3>Layouts</h3>
     <p class="small muted" style="margin:0 0 12px">Jedes Layout mit Beispieltext nahe an den Zeichenlimits. Der Zweck sagt dem Kompass, für welche Inhalte er das Layout nimmt.${e ? ' Stimmt er nicht, stell ihn um.' : ''}</p>
-    <div class="ps-layouts">${layoutVorschau(s).map((f, i) => { const l = s.layouts[i], b = beschreibe(l, s); return `<figure>${slideHTML(f)}<figcaption><b>${esc(l.name || l.id)}</b> <code>${esc(l.id)}</code>
+    ${e ? `<div class="ps-kiein"><span>${ic('ki')}<span><b>Von der KI einordnen lassen.</b> Die KI liest Namen und Beispieltexte der Vorlage und sagt je Layout, wofür es gedacht ist, welche Wirkung es trägt und ob es für neue Präsentationen taugt. ${s.layouts.some(l => l.ki) ? `${s.layouts.filter(l => l.ki).length} von ${s.layouts.length} sind eingeordnet.` : 'Noch nicht eingeordnet.'}</span></span><button class="btn tiny" data-ps="kilayouts" data-id="${s.id}" ${ui.busy ? 'disabled' : ''}>${s.layouts.some(l => l.ki) ? 'Erneut einordnen' : 'Jetzt einordnen'}</button></div>` : ''}
+    <div class="ps-layouts">${layoutVorschau(s).map((f, i) => { const l = s.layouts[i], b = beschreibe(l, s); return `<figure class="${l.ki && l.ki.meiden ? 'ps-gemieden' : ''}">${slideHTML(f)}<figcaption><b>${esc(l.name || l.id)}</b> <code>${esc(l.id)}</code>
+      ${l.ki && (l.ki.zweck || l.ki.formen.length) ? `<span class="ps-ki">${ic('ki')}<span>${esc(l.ki.zweck || '')}${l.ki.formen.length ? ` <i>Wirkung: ${l.ki.formen.map(f => FORM_KURZ[f] || f).join(', ')}</i>` : ''}</span></span>` : ''}
+      ${e ? `<label class="ps-meiden"><input type="checkbox" data-plm="${esc(l.id)}" ${l.ki && l.ki.meiden ? 'checked' : ''}> Für neue Präsentationen nicht verwenden</label>` : ''}
       <span class="ps-zweck">${e ? `<select class="input" data-pl="${esc(l.id)}" aria-label="Zweck von ${esc(l.name || l.id)}">${[...new Set([...LAYOUT_TYPEN, l.typ])].map(t => `<option value="${t}" ${t === l.typ ? 'selected' : ''}>${esc(typName(t))}</option>`).join('')}</select>` : `<i>${esc(typName(l.typ))}</i>`}<span class="small muted">${esc(b.merkmale.join(' · '))}</span></span>
       <span class="small muted">${inhaltsPlatzhalter(l).map(p => `${p.id}${p.maxChars ? ' ≤ ' + p.maxChars : p.maxItems ? ' ≤ ' + p.maxItems + (p.maxCharsPerItem ? ' × ' + p.maxCharsPerItem : '') : ''}`).join(' · ')}</span></figcaption></figure>`; }).join('')}</div>
   </section>
@@ -260,6 +288,7 @@ export function klickSysteme(e) {
     case 'kopie': kopiere(s); break;
     case 'weg': loesche(s); break;
     case 'kibild': beschreibeMitKI(s, d.asset); break;
+    case 'kilayouts': ordneLayoutsEin(s); break;
     case 'assetweg': aendere(s, p => { const a = p.manifest.assets.find(x => x.id === d.asset); p.manifest.assets = p.manifest.assets.filter(x => x !== a); if (!p.manifest.assets.some(x => x.file === a.file)) delete p.dateien[a.file]; }); break;
   }
   return true;
@@ -278,7 +307,9 @@ export function wechselSysteme(e) {
   if (d.pt) { aendere(s, p => { p.manifest.tokens.typography[d.pt] = t.value.trim() || p.manifest.tokens.typography[d.pt]; }); return true; }
   if (d.pa) { aendere(s, p => { const a = p.manifest.assets.find(x => x.id === d.id); a[d.pa] = d.pa === 'tags' ? liste(t.value) : t.value.trim(); }); return true; }
   if (d.pv) { aendere(s, p => { p.voice = t.value; }); return true; }
-  if (d.pl) { aendere(s, p => { const l = p.manifest.layouts.find(x => x.id === d.pl); l.typ = t.value; l.beschreibung = beschreibe({ ...l, placeholders: l.placeholders }, { tokens: p.manifest.tokens }).text; }); return true; }
+  /* Zweck von Hand: gilt vor der Einordnung der KI */
+  if (d.pl) { aendere(s, p => { const l = p.manifest.layouts.find(x => x.id === d.pl); l.typ = t.value; l.beschreibung = beschreibe({ ...l, placeholders: l.placeholders }, { tokens: p.manifest.tokens }).text; if (l.ki) l.ki.formen = []; }); return true; }
+  if (d.plm) { aendere(s, p => { const l = p.manifest.layouts.find(x => x.id === d.plm); l.ki = { zweck: '', formen: [], ...(l.ki || {}), meiden: t.checked }; }); return true; }
   return false;
 }
 
@@ -333,6 +364,11 @@ export const SYSTEME_CSS = `
 .ps-assets code,.ps-layouts code{font-size:.8rem;background:var(--surface-2);padding:1px 5px;border-radius:4px}
 .ps-layouts{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
 .ps-layouts figure{margin:0}.ps-layouts .pf{border:1px solid var(--line);border-radius:4px}.ps-layouts figcaption{font-size:.86rem;margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.ps-kiein{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;background:var(--accent-soft);border:1px solid var(--line);border-radius:var(--radius-m);padding:10px 14px;margin:0 0 14px;font-size:.88rem}
+.ps-kiein>span{display:flex;gap:10px;align-items:flex-start;max-width:70ch}.ps-kiein .ic{color:var(--accent);margin-top:2px}
+.ps-ki{display:flex;gap:6px;align-items:flex-start;font-size:.82rem;margin:4px 0}.ps-ki .ic{color:var(--accent);margin-top:1px}.ps-ki i{display:block;font-style:normal;color:var(--muted)}
+.ps-meiden{display:flex;gap:6px;align-items:center;font-size:.8rem;color:var(--muted);margin:4px 0}
+.ps-gemieden>.pf{opacity:.45}
 .ps-zweck{display:flex;flex-direction:column;gap:3px}.ps-zweck .input{padding:4px 8px;font-size:.84rem;width:auto;max-width:100%}.ps-zweck i{font-style:normal;font-weight:600}
 .ps-voice{white-space:pre-wrap;font:inherit;font-size:.88rem;background:var(--surface-2);border-radius:var(--radius-m);padding:14px;margin:0;max-height:320px;overflow:auto}
 @media (max-width:760px){.ps-form,.ps-schriften{grid-template-columns:1fr}.ps-assets thead{display:none}.ps-assets td{display:block;border:0;padding:3px 0}.ps-assets tr{display:block;border-top:1px solid var(--line);padding:8px 0}}

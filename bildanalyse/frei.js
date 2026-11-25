@@ -80,7 +80,10 @@ ${FORMAT}
 DEINE FREIHEIT
 - Es gibt keine Vorgaben zu Raster, Größe oder Zahl der Elemente. Du entscheidest.
 - Du darfst die Headline auf mehrere Bausteine verteilen, Wörter unterschiedlich groß setzen, stapeln oder um 90 Grad drehen.
-- Handwerk, das immer gilt: Jeder Text steht vollständig im Bild, kein Text überdeckt einen anderen, und Text liegt auf ruhigen Stellen (in der Karte mit . markiert) oder auf einer Fläche, die du dafür setzt, nicht auf Händen, Gesichtern oder anderen Details des Motivs. Die App rückt Bausteine zurecht, die das nicht einhalten.
+- Handwerk, das immer gilt: Jeder Text steht vollständig im Bild, kein Text überdeckt einen anderen, und Text liegt auf ruhigen Stellen (in der Karte mit . markiert) oder auf einer Fläche, die du dafür setzt, nicht auf Händen, Gesichtern oder anderen Details des Motivs. Halte zum Motiv sichtbar Abstand. Die App rückt Bausteine zurecht, die das nicht einhalten.
+- Hierarchie: Die Headline (oder ihr wichtigstes Wort) ist das größte Element, mindestens doppelt so groß wie die Unterzeile. Unterzeile und Aufruf sind klein und ruhig.
+- Ein Block: Headline, Unterzeile und Aufruf stehen zusammen, auf einer gemeinsamen Kante (gleiches x und gleiche ausrichtung), untereinander mit etwas Luft. Verteile sie nur dann auf verschiedene Stellen, wenn genau das die Idee des Entwurfs ist, und nicht in jedem Entwurf.
+- Schätze die Breite: Ein Zeichen ist etwa 0,55 × groesse breit. „Straßenfest“ bei groesse 8 braucht also rund 48 % der Bildbreite. Plane so, dass nichts über den Rand läuft.
 - Flächen und Linien nur, wenn sie dem Entwurf etwas geben. Farben frei, aus dem Foto oder bewusst dagegen.
 - Verwende den Inhalt oben wörtlich (Aufteilen und Umbrechen ist erlaubt), erfinde keine neuen Aussagen. Unterzeile, Aufruf und Datum dürfen in einem Entwurf fehlen, wenn er dadurch stärker wird.
 - Die ${anzahl} Entwürfe sollen sich deutlich unterscheiden: nicht viermal dieselbe Idee.
@@ -150,7 +153,7 @@ export function freiHTML(analyse, layout, bildURL = '', { bearbeiten = false, ge
     const mass = f.art === 'kreis' ? `width:${f.breite}cqw;height:${f.breite}cqw;border-radius:50%` : `width:${f.breite}%;height:${f.hoehe}%`;
     flaechen.push(`<i class="bf-form"${k('formen', i)} style="left:${f.x}%;top:${f.y}%;${mass};${f.gefuellt ? `background:${rgba(f.farbe, f.deckkraft)}` : `border:${runde(f.staerke / 10)}cqw solid ${rgba(f.farbe, f.deckkraft)}`}${f.drehung ? `;transform:rotate(${f.drehung}deg)` : ''}${f.weich ? ';filter:blur(3.5cqw);pointer-events:none' : ''}"></i>`);
   });
-  const texte = layout.texte.map((t, i) => `<p class="bf-text${t.versal ? ' versal' : ''}"${k('texte', i)} style="left:${t.x}%;top:${t.y}%;font-size:${t.groesse}cqw;font-weight:${GEWICHT[t.gewicht]};color:${t.farbe};text-align:${{ links: 'left', mitte: 'center', rechts: 'right' }[t.ausrichtung]};${t.breite ? `width:${t.breite}cqw;` : 'white-space:pre;'}transform-origin:${URSPRUNG[t.ausrichtung]};transform:${SCHUB[t.ausrichtung]}rotate(${t.drehung}deg)">${esc(t.text)}</p>`);
+  const texte = layout.texte.map((t, i) => `<p class="bf-text${t.versal ? ' versal' : ''}"${k('texte', i)} style="left:${t.x}%;top:${t.y}%;font-size:${t.groesse}cqw;font-weight:${GEWICHT[t.gewicht]};color:${t.farbe};text-align:${{ links: 'left', mitte: 'center', rechts: 'right' }[t.ausrichtung]};${t.breite ? `width:${t.breite}cqw;text-wrap:balance;` : 'white-space:pre;'}transform-origin:${URSPRUNG[t.ausrichtung]};transform:${SCHUB[t.ausrichtung]}rotate(${t.drehung}deg)">${esc(t.text)}</p>`);
   return `<div class="bd-ansicht bd-frei" style="aspect-ratio:${W}/${H};${bildURL ? `background-image:url('${bildURL}')` : 'background-color:#888'}">${flaechen.join('')}${linien.length ? `<svg class="bf-linien" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${linien.join('')}</svg>` : ''}${texte.join('')}</div>`;
 }
 
@@ -158,11 +161,14 @@ export function freiHTML(analyse, layout, bildURL = '', { bearbeiten = false, ge
 /* Zeilen eines Textbausteins, wie sie etwa umbrechen */
 export function zeilen(t, messe = breiteEm) {
   const out = [], text = t.versal ? t.text.toLocaleUpperCase('de') : t.text, fett = t.gewicht !== 'normal';
+  const brich = (absatz, breite) => { const z = []; let akt = ''; for (const w of absatz.split(' ')) { const probe = akt ? akt + ' ' + w : w; if (akt && messe(probe, fett) * t.groesse > breite) { z.push(akt); akt = w; } else akt = probe; } z.push(akt); return z; };
   for (const absatz of text.split('\n')) {
     if (!t.breite) { out.push(absatz); continue; }
-    let z = '';
-    for (const w of absatz.split(' ')) { const probe = z ? z + ' ' + w : w; if (z && messe(probe, fett) * t.groesse > t.breite) { out.push(z); z = w; } else z = probe; }
-    out.push(z);
+    /* Ausgewogen umbrechen: so schmal wie möglich bei gleicher Zeilenzahl, damit keine Zeile
+       verwaist (ein einzelnes Wort unter einer langen Zeile) */
+    let z = brich(absatz, t.breite);
+    if (z.length > 1) for (let b = t.breite * 0.98; b >= t.breite * 0.5; b -= t.breite * 0.02) { const v = brich(absatz, b); if (v.length !== z.length) break; z = v; }
+    out.push(...z);
   }
   return out;
 }
@@ -215,6 +221,7 @@ function untergrund(analyse, formen) {
 /* Die Idee der KI sauber setzen. Nichts wird neu erfunden: Jeder Textbaustein behält Wortlaut und
    Charakter und rückt nur so weit, wie es das Handwerk verlangt.
    - ganz im Bild, mit Rand (5 % der kurzen Seite); zu Großes wird umbrochen oder kleiner,
+   - Bausteine mit gemeinsamer Kante bleiben ein Block: lieber etwas kleiner als versetzt,
    - kein Text überdeckt einen anderen; der größere hat Vorrang und bleibt, wo er ist,
    - Text weicht dem Motiv aus, außer es liegt eine Fläche darunter,
    - Drehung nur 0 oder 90 Grad, Mindestgröße für Kleines,
@@ -230,51 +237,122 @@ export function reinzeichnen(analyse, layout, messe = breiteEm) {
   const schritte = [];
   for (let dy = -100; dy <= 100; dy += zh / 2) for (let dx = -100; dx <= 100; dx += zb / 2) schritte.push([dx, dy, Math.hypot(dx, dy * verh)]);
   schritte.sort((a, b) => a[2] - b[2]);
-  const reihenfolge = L.texte.map((_, i) => i).sort((a, b) => L.texte[b].groesse - L.texte[a].groesse);
-  for (const i of reihenfolge) {
-    const t = L.texte[i], vor = { ...t }, was = [];
-    /* Drehung und Größe */
+  const vorher = L.texte.map(t => ({ ...t })), was = L.texte.map(() => []);
+  /* 1. Jeder Baustein für sich: Drehung, Mindestgröße, nicht breiter oder höher als das Bild */
+  const maxB = 100 - 2 * rx, maxH = 100 - 2 * ry;
+  for (const t of L.texte) {
     t.drehung = Math.abs(t.drehung) < 30 || Math.abs(t.drehung) > 150 ? 0 : t.drehung > 0 ? 90 : -90;
     /* Gedrehter Text läuft als eine Zeile vom Ankerpunkt weg: so ist seine Lage eindeutig */
     if (t.drehung) { t.breite = 0; t.ausrichtung = 'links'; }
     if (t.groesse < klein) t.groesse = runde(klein);
-    const maxB = 100 - 2 * rx, maxH = 100 - 2 * ry;
     for (let n = 0; n < 14; n++) {
       const u = umriss(t, verh, messe);
       if (u.b > maxB + 0.01) { if (!t.drehung && (!t.breite || t.breite > maxB) && /\s/.test(t.text.trim())) { t.breite = runde(maxB, 1); continue; } t.groesse = runde(t.groesse * Math.max(0.5, maxB / u.b) * 0.98); if (t.breite > maxB) t.breite = runde(maxB, 1); continue; }
       if (u.h > maxH + 0.01) { t.groesse = runde(t.groesse * Math.max(0.5, maxH / u.h) * 0.98); continue; }
       break;
     }
-    if (t.groesse !== vor.groesse) was.push(t.groesse > vor.groesse ? 'größer gesetzt' : 'verkleinert, damit es ins Bild passt');
-    if (t.drehung !== vor.drehung) was.push('gerade gestellt');
-    /* Lage: im Bild, frei von anderen Texten, möglichst nicht auf dem Motiv */
-    const { grund, bedeckt } = untergrund(analyse, L.formen), u0 = umriss(t, verh, messe);
-    const motiv = u => { const z = zellen(u); return z.length ? z.filter(c => !m.free[c] && !bedeckt[c]).length / z.length : 0; };
-    const passt = (dx, dy, streng) => {
-      const u = { x: u0.x + dx, y: u0.y + dy, b: u0.b, h: u0.h };
+  }
+  /* 2. Blöcke erkennen: Bausteine mit gemeinsamer Kante (gleiche Ausrichtung, gleiches x), die
+     untereinander stehen, gehören zusammen. Ein Block wird als Ganzes verkleinert und verschoben,
+     damit die Kante hält; einzeln verschoben wären Headline und Unterzeile plötzlich versetzt. */
+  const gruppe = L.texte.map((_, i) => i), wurzel = i => gruppe[i] === i ? i : (gruppe[i] = wurzel(gruppe[i]));
+  const nachY = L.texte.map((_, i) => i).filter(i => !L.texte[i].drehung).sort((a, b) => L.texte[a].y - L.texte[b].y);
+  for (let a = 0; a < nachY.length; a++) for (let b = a + 1; b < nachY.length; b++) {
+    const A = L.texte[nachY[a]], Bt = L.texte[nachY[b]];
+    if (A.ausrichtung !== Bt.ausrichtung || Math.abs(A.x - Bt.x) > 1.5) continue;
+    const ua = umriss(A, verh, messe), ub = umriss(Bt, verh, messe), luecke = ub.y - (ua.y + ua.h);
+    if (luecke >= -0.3 && luecke <= 14) gruppe[wurzel(nachY[b])] = wurzel(nachY[a]);
+  }
+  const bloecke = [...new Set(L.texte.map((_, i) => wurzel(i)))].map(w => L.texte.map((_, i) => i).filter(i => wurzel(i) === w).sort((a, b) => L.texte[a].y - L.texte[b].y));
+  const vereint = idx => { const us = idx.map(i => umriss(L.texte[i], verh, messe)), x = Math.min(...us.map(u => u.x)), y = Math.min(...us.map(u => u.y)); return { x, y, b: Math.max(...us.map(u => u.x + u.b)) - x, h: Math.max(...us.map(u => u.y + u.h)) - y }; };
+  bloecke.sort((a, b) => Math.max(...b.map(i => L.texte[i].groesse)) - Math.max(...a.map(i => L.texte[i].groesse)));
+  const { grund, bedeckt } = untergrund(analyse, L.formen);
+  const motiv = u => { const z = zellen(u); return z.length ? z.filter(c => !m.free[c] && !bedeckt[c]).length / z.length : 0; };
+  /* Block verkleinern: Schrift und Umbruchbreite schrumpfen, die Abstände zwischen den Bausteinen bleiben */
+  const skaliere = (blk, f) => {
+    const alt = blk.map(i => umriss(L.texte[i], verh, messe)), luecken = alt.slice(1).map((u, n) => Math.max(0, u.y - (alt[n].y + alt[n].h)));
+    for (const i of blk) { const t = L.texte[i]; t.groesse = runde(Math.max(klein, t.groesse * f)); if (t.breite) t.breite = runde(t.breite * f, 1); }
+    for (let n = 1; n < blk.length; n++) { const v = umriss(L.texte[blk[n - 1]], verh, messe); L.texte[blk[n]].y = runde(v.y + v.h + luecken[n - 1], 1); }
+  };
+  for (const blk of bloecke) {
+    const kopf = L.texte[blk[0]];
+    /* Ragt ein Block mit fester Kante seitlich aus dem Bild, wird er lieber etwas kleiner, als von seiner Kante zu rücken */
+    if (blk.length > 1 || !kopf.drehung) {
+      const U = vereint(blk), rechts = U.x + U.b - (100 - rx), links = rx - U.x;
+      if (rechts > 0.01 || links > 0.01) {
+        const ax = kopf.x, platz = kopf.ausrichtung === 'links' ? 100 - rx - ax : kopf.ausrichtung === 'rechts' ? ax - rx : 2 * Math.min(ax - rx, 100 - rx - ax);
+        const f = platz / U.b;
+        if (f >= 0.72 && f < 1) skaliere(blk, f * 0.99);
+      }
+    }
+    /* Läuft ein Baustein mit mehreren Wörtern ins Motiv, bricht er zuerst auf die Breite seines Blocks um,
+       statt dort mit Schleier lesbar gemacht oder weggeschoben zu werden */
+    if (blk.length > 1) {
+      const breitester = Math.max(...blk.map(i => umriss(L.texte[i], verh, messe).b));
+      for (const i of blk) {
+        const t = L.texte[i], u = umriss(t, verh, messe);
+        /* stört: liegt auf dem Motiv oder auf einer Stelle, auf der die Schrift nicht lesbar ist (etwa ein unscharfer dunkler Ärmel) */
+        const stoert = x => { const z = zellen(x); return motiv(x) > 0.12 || (z.length && Math.min(...z.map(c => kontrast(t.farbe, grund[c]))) < (t.groesse >= 5 ? 3 : cfg.kontrast_min)); };
+        if (t.drehung || !/\s/.test(t.text.trim()) || !stoert(u)) continue;
+        const andere = Math.max(10, ...blk.filter(j => j !== i).map(j => umriss(L.texte[j], verh, messe).b));
+        const ziel = Math.min(u.b * 0.95, Math.max(andere, breitester * 0.6));
+        if (ziel >= u.b - 0.5) continue;
+        t.breite = runde(ziel, 1);
+        for (let n = 0; n < 6 && stoert(umriss(t, verh, messe)) && zeilen(t, messe).length < 3; n++) t.breite = runde(t.breite * 0.85, 1);
+        if (stoert(umriss(t, verh, messe))) { t.breite = vorher[i].breite; continue; }   /* hilft nicht: lieber verschieben oder Schleier */
+        was[i].push('umbrochen, damit es nicht ins Motiv läuft');
+      }
+    }
+    /* Luft im Block: zwischen zwei Bausteinen mindestens eine halbe Zeile der kleineren Schrift,
+       sonst kleben Unterzeile und Aufruf aneinander (passiert leicht, wenn eine Zeile umbricht) */
+    for (let n = 1; n < blk.length; n++) {
+      /* gleich große Teile (eine aufgeteilte Headline) stehen eng wie Zeilen, Stufen der Hierarchie bekommen Luft */
+      const a = L.texte[blk[n - 1]], b = L.texte[blk[n]], v = umriss(a, verh, messe), gleich = Math.min(a.groesse, b.groesse) >= 4 && a.gewicht === b.gewicht && Math.abs(a.groesse - b.groesse) <= 0.15 * Math.max(a.groesse, b.groesse);
+      const soll = v.y + v.h + (gleich ? 0.05 * a.groesse : 0.55 * Math.min(a.groesse, b.groesse)) / verh;
+      if (b.y < soll - 0.05) { b.y = runde(soll, 1); was[blk[n]].push('mit Luft zum Baustein darüber gesetzt'); }
+    }
+    /* Lage: im Bild, frei von anderen Texten, möglichst nicht auf dem Motiv; der Block rückt als Ganzes.
+       Erst nur in der Nähe (ein Baustein, der quer übers Bild wandert, zerstört die Idee), dann
+       stufenweise etwas kleiner an derselben Stelle, erst danach auch weiter weg. */
+    let u0 = blk.map(i => umriss(L.texte[i], verh, messe));
+    const passt = (dx, dy, streng) => u0.every(o => {
+      const u = { x: o.x + dx, y: o.y + dy, b: o.b, h: o.h };
       if (u.x < rx - 0.01 || u.y < ry - 0.01 || u.x + u.b > 100 - rx + 0.01 || u.y + u.h > 100 - ry + 0.01) return false;
       if (gesetzt.some(g => u.x < g.x + g.b + 1.2 && g.x < u.x + u.b + 1.2 && u.y < g.y + g.h + 1.2 / verh && g.y < u.y + u.h + 1.2 / verh)) return false;
       return !streng || motiv(u) <= 0.12;
-    };
-    const wahl = schritte.find(([dx, dy]) => passt(dx, dy, true)) || schritte.find(([dx, dy]) => passt(dx, dy, false));
-    if (wahl) { t.x = runde(t.x + wahl[0], 1); t.y = runde(t.y + wahl[1], 1); if (wahl[2] > 1.5) was.push('verschoben'); }
-    const u = umriss(t, verh, messe); gesetzt.push(u);
-    /* Farbe */
+    });
+    const nahe = Math.max(10, 2.2 * zb), suche = (streng, weit) => schritte.find(([dx, dy, d]) => d <= weit && passt(dx, dy, streng));
+    let wahl = suche(true, nahe);
+    const stand = blk.map(i => ({ ...L.texte[i] }));
+    for (let k = 0; !wahl && k < 4 && blk.some(i => L.texte[i].groesse > klein); k++) { skaliere(blk, 0.92); u0 = blk.map(i => umriss(L.texte[i], verh, messe)); wahl = suche(true, nahe); }
+    if (!wahl) { blk.forEach((i, n) => { L.texte[i] = stand[n]; }); u0 = blk.map(i => umriss(L.texte[i], verh, messe)); wahl = suche(true, 999) || suche(false, 999); }
+    for (const i of blk) {
+      const t = L.texte[i];
+      if (wahl) { t.x = runde(t.x + wahl[0], 1); t.y = runde(t.y + wahl[1], 1); if (wahl[2] > 1.5) was[i].push(blk.length > 1 ? 'mit seinem Block verschoben' : 'verschoben'); }
+      gesetzt.push(umriss(t, verh, messe));
+    }
+  }
+  /* 3. Farbe je Baustein */
+  L.texte.forEach((t, i) => {
+    const vor = vorher[i];
+    if (t.groesse !== vor.groesse) was[i].unshift(t.groesse > vor.groesse ? 'größer gesetzt' : 'verkleinert, damit es ins Bild passt');
+    if (t.drehung !== vor.drehung) was[i].push('gerade gestellt');
+    const u = umriss(t, verh, messe);
     const unter = zellen(u).map(c => grund[c]), k = f => (unter.length ? Math.min(...unter.map(g => kontrast(f, g))) : 21), ziel = t.groesse >= 5 ? 3 : cfg.kontrast_min;
     if (k(t.farbe) < ziel) {
       const ton = k(toene.dunkel) >= k(toene.hell) ? toene.dunkel : toene.hell;
-      if (k(ton) >= ziel) { t.farbe = ton; was.push('Farbe für lesbaren Kontrast geändert'); }
+      if (k(ton) >= ziel) { t.farbe = ton; was[i].push('Farbe für lesbaren Kontrast geändert'); }
       else {
         /* keine Farbe reicht ganz: ein weicher Schleier in der Gegenfarbe hebt den Kontrast, ohne als Kasten aufzufallen */
         const schein = ton === toene.dunkel ? toene.hell : toene.dunkel;
         let a = 0.08; while (a < 0.6 && Math.min(...unter.map(g => kontrast(ton, mische(schein, g, a)))) < ziel) a += 0.04;
         const p = 5;
         L.formen.push({ art: 'rechteck', x: runde(u.x - p, 1), y: runde(u.y - p / verh, 1), breite: runde(u.b + 2 * p, 1), hoehe: runde(u.h + 2 * p / verh, 1), farbe: schein, deckkraft: Math.round(a * 100), gefuellt: true, staerke: 2, drehung: 0, weich: true });
-        t.farbe = ton; was.push(`weicher Schleier untergelegt (${Math.round(a * 100)} %), damit die Schrift lesbar ist`);
+        t.farbe = ton; was[i].push(`weicher Schleier untergelegt (${Math.round(a * 100)} %), damit die Schrift lesbar ist`);
       }
     }
-    if (was.length) aenderungen.push(`${name(t)}: ${was.join(', ')}`);
-  }
+    if (was[i].length) aenderungen.push(`${name(t)}: ${was[i].join(', ')}`);
+  });
   return { layout: L, aenderungen };
 }
 

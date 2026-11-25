@@ -8,12 +8,13 @@
 /* global S, ui, render, run, save, esc, toast, akte, errorBox, liveInner, statLine, hasProject, doPrint, slug, STATUS_TEXT, progress, MODULE_ORDER, MODULE, modDone */
 import { createRegistry } from './registry.js';
 import * as P from './pipeline.js';
-import { validateSpec, kuerzeSpec, remapSpec, inhaltsPlatzhalter, ordneInhaltZu, tabellenFlaeche, SPEC_VERSION } from './spec.js';
+import { validateSpec, kuerzeSpec, remapSpec, inhaltsPlatzhalter, ordneInhaltZu, tabellenFlaeche, hatSymbole, SYMBOL_FELD, SPEC_VERSION } from './spec.js';
 import { buildSlides } from './layout.js';
 import { slideHTML, FOLIEN_CSS, fontUrl } from './render-html.js';
 import { exportPptx } from './render-pptx.js';
 import { ladeBild } from './bilder.js';
-import { waehleLayouts, rangliste, FORMEN, FORM_IDS, typName } from './analyse.js';
+import { waehleLayouts, rangliste, FORMEN, FORM_IDS, FORM_KURZ, FORM_HILFE, typName } from './analyse.js';
+import { ic, ICON_CSS, SYMBOL_IDS, SYMBOL_NAMEN } from './icons.js';
 import { leseSprachregeln } from './richtlinien.js';
 import { ladePaket } from './pakete.js';
 import { initSysteme, ladeGespeicherte, viewSysteme, klickSysteme, wechselSysteme, dragSysteme, SYSTEME_CSS } from './ui-systeme.js';
@@ -564,7 +565,9 @@ function viewSystem() {
 }
 
 /* Schalter: darf die KI Layouts anpassen? */
-const schalter = () => `<label class="pr-schalter"><input type="checkbox" id="pr-kilayout" ${Z().kiLayout ? 'checked' : ''} ${ui.busy ? 'disabled' : ''}><span class="pr-schiene" aria-hidden="true"></span><span><b>KI darf Layouts anpassen</b><br><span class="muted">${Z().kiLayout ? 'An: Die KI verschiebt und vergrößert Flächen, wenn der Inhalt es braucht, und spiegelt Bildfolien für Abwechslung. Der Kompass prüft jeden Vorschlag gegen Ränder, Überlappung und Lesbarkeit.' : 'Aus: Jede Folie sieht genau so aus wie im Designsystem.'}</span></span></label>`;
+const schalter = kompakt => kompakt
+  ? `<label class="pr-schalter pr-schalter-k" title="${Z().kiLayout ? 'An: Die KI verschiebt und vergrößert Flächen, wenn der Inhalt es braucht. Der Kompass prüft jeden Vorschlag gegen Ränder, Überlappung und Lesbarkeit.' : 'Aus: Jede Folie sieht genau so aus wie im Designsystem.'}"><input type="checkbox" id="pr-kilayout" ${Z().kiLayout ? 'checked' : ''} ${ui.busy ? 'disabled' : ''}><span class="pr-schiene" aria-hidden="true"></span><span>${ic('ki')}KI-Layouts <span class="muted">${Z().kiLayout ? 'an' : 'aus'}</span></span></label>`
+  : `<label class="pr-schalter"><input type="checkbox" id="pr-kilayout" ${Z().kiLayout ? 'checked' : ''} ${ui.busy ? 'disabled' : ''}><span class="pr-schiene" aria-hidden="true"></span><span><b>KI darf Layouts anpassen</b><br><span class="muted">${Z().kiLayout ? 'An: Die KI verschiebt und vergrößert Flächen, wenn der Inhalt es braucht, und spiegelt Bildfolien für Abwechslung. Der Kompass prüft jeden Vorschlag gegen Ränder, Überlappung und Lesbarkeit.' : 'Aus: Jede Folie sieht genau so aus wie im Designsystem.'}</span></span></label>`;
 
 /* Große Folie: Texte sind direkt bearbeitbar (außer Seitenzahl und Fußzeile) */
 const buehne = f => slideHTML(f).replace(/<div class="pf-t" (data-ph="[^"]+"(?: data-index="\d+" data-feld="[^"]+")?) style/g, '<div class="pf-t" contenteditable="true" spellcheck="false" $1 style');
@@ -583,7 +586,7 @@ function hinweise(m) {
 function tabellenFeld(f, passt) {
   const t = f.tabelle, n = Math.max(t.kopf.length, ...t.zeilen.map(z => z.length), 1);
   const zeile = (z, i) => `<div class="pm-tz">${Array.from({ length: n }, (_, j) => `<input class="input" data-prt="${i}" data-j="${j}" value="${esc(z[j] || '')}" aria-label="${i === 'k' ? 'Kopf' : `Zeile ${+i + 1}`}, Spalte ${j + 1}"${i === 'k' ? ' style="font-weight:600"' : ''}>`).join('')}</div>`;
-  return `<div class="pr-feld"><span>Tabelle${f.teile > 1 ? ` <i>Teil ${f.teil} von ${f.teile}</i>` : ''}</span>
+  return `<div class="pr-feld"><span><b>${ic('tabelle')}Tabelle</b>${f.teile > 1 ? `<i>Teil ${f.teil} von ${f.teile}</i>` : ''}</span>
     ${passt ? '' : '<p class="small" style="color:var(--review);margin:0">Dieses Layout hat keinen Platz für die Tabelle. Wähle unter „Layout“ eines mit Überschrift und großer Inhaltsfläche, etwa „Inhalt mit Aufzählung“.</p>'}
     <div class="pm-teditor" style="--n:${n}">${t.kopf.length ? zeile(t.kopf, 'k') : ''}${t.zeilen.map((z, i) => zeile(z, i)).join('')}</div>
     <button class="linkbtn" data-pr="tabweg" style="align-self:flex-start">Tabelle von dieser Folie nehmen</button></div>`;
@@ -591,13 +594,15 @@ function tabellenFeld(f, passt) {
 function felder(f, layout) {
   const sys = system(), tab = f.tabelle ? tabellenFlaeche(layout) : null, besetzt = new Set(tab ? tab.ids : []);
   return (f.tabelle ? tabellenFeld(f, !!tab) : '') + inhaltsPlatzhalter(layout).filter(ph => !besetzt.has(ph.id)).map(ph => {
-    const v = f.inhalt[ph.id], name = `${esc(ph.beschreibung || ph.id)}${ph.pflicht ? '' : ' <span class="muted">(optional)</span>'}`;
-    if (ph.typ === 'text') return `<label class="pr-feld"><span>${name}<i data-zaehler="${ph.id}"></i></span><textarea rows="2" data-prf="${ph.id}" data-typ="text" data-max="${ph.maxChars}">${esc(v || '')}</textarea></label>`;
-    if (ph.typ === 'bullets') return `<label class="pr-feld"><span>${name}, ein Punkt pro Zeile<i data-zaehler="${ph.id}"></i></span><textarea rows="${Math.max(3, (v || []).length + 1)}" data-prf="${ph.id}" data-typ="bullets" data-max="${Math.min(ph.maxItems, sys.rules.maxBullets || ph.maxItems)}">${esc((Array.isArray(v) ? v : []).join('\n'))}</textarea></label>`;
-    if (ph.typ === 'image') return `<label class="pr-feld"><span>${name}</span><select class="input" data-prb="${ph.id}"><option value="">Standardbild des Layouts</option>${sys.manifest.assets.filter(a => !/^logo/.test(a.role)).map(a => `<option value="${a.id}" ${v === a.id ? 'selected' : ''}>${esc(a.beschreibung || a.id)}</option>`).join('')}</select></label>`;
+    const v = f.inhalt[ph.id], opt = ph.pflicht ? '' : ' <em>optional</em>';
+    const name = icon => `<b>${ic(icon)}${esc(ph.beschreibung || ph.id)}${opt}</b>`;
+    if (ph.typ === 'text') return `<label class="pr-feld"><span>${name((ph.style || {}).font === 'heading' ? 'kernsatz' : 'inhalt')}<i data-zaehler="${ph.id}"></i></span><textarea rows="2" data-prf="${ph.id}" data-typ="text" data-max="${ph.maxChars}">${esc(v || '')}</textarea></label>`;
+    if (ph.typ === 'bullets') return `<label class="pr-feld"><span>${name('liste')}<i data-zaehler="${ph.id}"></i></span><textarea rows="${Math.max(3, (v || []).length + 1)}" data-prf="${ph.id}" data-typ="bullets" data-max="${Math.min(ph.maxItems, sys.rules.maxBullets || ph.maxItems)}" aria-describedby="pr-zeile-${ph.id}">${esc((Array.isArray(v) ? v : []).join('\n'))}</textarea><small id="pr-zeile-${ph.id}" class="pr-feldhilfe">Ein Punkt pro Zeile</small></label>`;
+    if (ph.typ === 'image') return `<label class="pr-feld"><span>${name('bild')}</span><select class="input" data-prb="${ph.id}"><option value="">Standardbild des Layouts</option>${sys.manifest.assets.filter(a => !/^logo/.test(a.role)).map(a => `<option value="${a.id}" ${v === a.id ? 'selected' : ''}>${esc(a.beschreibung || a.id)}</option>`).join('')}</select></label>`;
     if (ph.typ === 'items') {
       const l = Array.isArray(v) ? v : [], n = Math.min(ph.maxItems, Math.max(l.length + 1, ph.minItems || 1));
-      return `<div class="pr-feld"><span>${name} (${ph.minItems || 1} bis ${ph.maxItems})</span>${Array.from({ length: n }, (_, i) => `<div class="pr-item">${ph.felder.map(fd => `<input class="input" data-pri="${ph.id}" data-index="${i}" data-feld="${fd.id}" maxlength="${fd.maxChars * 2}" placeholder="${esc(fd.beschreibung || fd.id)}" value="${esc((l[i] || {})[fd.id] || '')}">`).join('')}${i < l.length ? `<button class="linkbtn" data-pr="itemweg" data-ph="${ph.id}" data-i="${i}">Entfernen</button>` : ''}</div>`).join('')}</div>`;
+      const sym = hatSymbole(ph), symWahl = i => { const s0 = (l[i] || {})[SYMBOL_FELD] || ''; return `<label class="pr-sym">${s0 ? ic(s0) : ic('plus')}<select class="input" data-pri="${ph.id}" data-index="${i}" data-feld="${SYMBOL_FELD}" aria-label="Symbol für Eintrag ${i + 1}"><option value="">ohne Symbol</option>${SYMBOL_IDS.map(s => `<option value="${s}" ${s === s0 ? 'selected' : ''}>${SYMBOL_NAMEN[s] || s}</option>`).join('')}</select></label>`; };
+      return `<div class="pr-feld"><span>${name('bausteine')}<i>${ph.minItems || 1} bis ${ph.maxItems}</i></span>${Array.from({ length: n }, (_, i) => `<div class="pr-item"><span class="pr-item-nr">${i + 1}</span><div class="pr-item-f">${sym && i < l.length ? symWahl(i) : ''}${ph.felder.map(fd => `<input class="input" data-pri="${ph.id}" data-index="${i}" data-feld="${fd.id}" maxlength="${fd.maxChars * 2}" placeholder="${esc(fd.beschreibung || fd.id)}" aria-label="Eintrag ${i + 1}: ${esc(fd.beschreibung || fd.id)}" value="${esc((l[i] || {})[fd.id] || '')}">`).join('')}</div>${i < l.length ? `<button class="pr-ikon klein gefahr" data-pr="itemweg" data-ph="${ph.id}" data-i="${i}" title="Eintrag ${i + 1} entfernen" aria-label="Eintrag ${i + 1} entfernen">${ic('loeschen')}</button>` : ''}</div>`).join('')}</div>`;
     }
     return '';
   }).join('');
@@ -609,16 +614,21 @@ function viewVorschau() {
   if (z.systemId !== sys.id) z.systemId = sys.id;
   const m = modell(), f = folie(), layout = sys.layout(f.layoutId) || sys.layoutForTyp('content-bullets'), i = z.auswahl;
   if (z.schrift === 'marke' && fontUrl(sys) && !document.querySelector(`link[href="${fontUrl(sys)}"]`)) document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: fontUrl(sys) }));
+  const wahl = (icon, label, inner) => `<label class="pr-wahl"><span class="pr-wahl-l">${ic(icon)}${label}</span>${inner}</label>`;
   return `${kopf('Folien', '')}${pfad()}
   <div class="pr-leiste">
-    <label>Titel <input class="input" id="pr-titel" value="${esc(z.spec.titel)}" maxlength="40"></label>
-    <label>Designsystem <select class="input" id="pr-system">${reg.list().map(s => `<option value="${s.id}" ${s.id === sys.id ? 'selected' : ''}>${esc(s.meta.name)}</option>`).join('')}</select></label>
-    <label>Schrift <select class="input" id="pr-schrift"><option value="system" ${z.schrift !== 'marke' ? 'selected' : ''}>Systemschrift (überall gleich)</option><option value="marke" ${z.schrift === 'marke' ? 'selected' : ''}>${esc(sys.tokens.typography.headingFont)} (muss installiert sein)</option></select></label>
-    <span class="spacer"></span>${schalter()}
-    <button class="btn" data-pr="sichern" ${ui.busy ? 'disabled' : ''}>${ungespeichert() ? 'Speichern' : 'Gespeichert'}</button>
-    <button class="btn ghost" data-pr="neuepraes" ${ui.busy ? 'disabled' : ''}>Neue Präsentation</button>
-    <button class="btn" data-pr="pdf" ${ui.busy ? 'disabled' : ''}>Als PDF drucken</button>
-    <button class="btn primary" data-pr="pptx" ${ui.busy || ui.praesExport ? 'disabled' : ''}>${ui.praesExport ? 'Datei wird erstellt …' : 'Als PowerPoint speichern'}</button>
+    <div class="pr-leiste-g">
+      ${wahl('stift', 'Titel', `<input class="input" id="pr-titel" value="${esc(z.spec.titel)}" maxlength="40">`)}
+      ${wahl('design', 'Designsystem', `<select class="input" id="pr-system">${reg.list().map(s => `<option value="${s.id}" ${s.id === sys.id ? 'selected' : ''}>${esc(s.meta.name)}</option>`).join('')}</select>`)}
+      ${wahl('schrift', 'Schrift', `<select class="input" id="pr-schrift"><option value="system" ${z.schrift !== 'marke' ? 'selected' : ''}>Systemschrift (überall gleich)</option><option value="marke" ${z.schrift === 'marke' ? 'selected' : ''}>${esc(sys.tokens.typography.headingFont)} (muss installiert sein)</option></select>`)}
+      ${schalter(true)}
+    </div>
+    <div class="pr-leiste-g pr-leiste-aktion">
+      <button class="btn ghost" data-pr="neuepraes" ${ui.busy ? 'disabled' : ''}>${ic('neu')}Neue Präsentation</button>
+      <button class="btn" data-pr="sichern" ${ui.busy ? 'disabled' : ''}>${ic('speichern')}${ungespeichert() ? 'Speichern' : 'Gespeichert'}</button>
+      <button class="btn" data-pr="pdf" ${ui.busy ? 'disabled' : ''}>${ic('pdf')}PDF</button>
+      <button class="btn primary" data-pr="pptx" ${ui.busy || ui.praesExport ? 'disabled' : ''}>${ic('pptx')}${ui.praesExport ? 'Datei wird erstellt …' : 'PowerPoint'}</button>
+    </div>
   </div>
   ${errorBox()}${ui.notice ? `<div class="notice" role="status">${esc(ui.notice)}</div>` : ''}
   ${(() => { const v = sprachVerstoesse(), neuR = richtlinienNeu(); if (ui.busy || (!v.length && !neuR)) return ''; const folien = [...new Set(v.map(x => x.i + 1))];
@@ -626,36 +636,56 @@ function viewVorschau() {
   ${(() => { const n = passtNicht(); return n.length && !ui.busy ? `<div class="notice pr-passt"><span>${n.length === 1 ? 'Eine Folie passt' : `${n.length} Folien passen`} nicht ganz in ${n.length === 1 ? 'ihr Layout' : 'ihre Layouts'} (Folie ${n.map(i => i + 1).join(', ')}).</span><button class="btn tiny primary" data-pr="anpassen">Texte von der KI anpassen lassen</button></div>` : ''; })()}
   <div id="pr-hinweise" class="pr-hinweise">${hinweise(m)}</div>
   ${(() => { const l = z.material, orte = M.materialOrte(z.spec, l), offen = l.filter(x => !orte[x.id]).length;
-    return `<details class="pr-material" ${ui.praesMaterial || offen ? 'open' : ''}><summary data-pr="materialauf">Material${l.length ? ` <span class="muted">${l.length}${offen ? `, ${offen} ohne Folie` : ''}</span>` : ' <span class="muted">hinzufügen</span>'}</summary>${materialFeld('vorschau')}</details>`; })()}
+    return `<details class="pr-material" ${ui.praesMaterial || offen ? 'open' : ''}><summary data-pr="materialauf">${ic('material')} Material${l.length ? ` <span class="muted">${l.length}${offen ? `, ${offen} ohne Folie` : ''}</span>` : ' <span class="muted">hinzufügen</span>'}</summary>${materialFeld('vorschau')}</details>`; })()}
   <section class="pr-editor">
     <div class="pr-thumbs" aria-label="Folien">${m.map((x, n) => `<button class="pr-thumb" data-pr="sel" data-i="${n}" aria-pressed="${n === i}" aria-label="Folie ${n + 1}"><span class="pr-nr">${n + 1}</span><span class="pr-thumb-f">${slideHTML(x)}</span></button>`).join('')}</div>
     <div class="pr-mitte">
-      <div id="pr-stage" class="pr-stage">${buehne(m[i])}</div>
-      <div class="actions">
-        <span class="small muted">Folie ${i + 1} von ${m.length} · Texte lassen sich direkt auf der Folie ändern</span><span class="spacer"></span>
-        <button class="btn tiny" data-pr="fa" data-a="hoch" ${i === 0 ? 'disabled' : ''}>Nach vorn</button>
-        <button class="btn tiny" data-pr="fa" data-a="runter" ${i === m.length - 1 ? 'disabled' : ''}>Nach hinten</button>
-        <button class="btn tiny" data-pr="fa" data-a="dazu">Folie danach einfügen</button>
-        <button class="btn tiny" data-pr="fa" data-a="weg" ${m.length < 2 ? 'disabled' : ''}>Löschen</button>
+      <div class="pr-werkzeug" role="toolbar" aria-label="Folie">
+        <span class="pr-zaehl">Folie <b>${i + 1}</b> von ${m.length}</span>
+        <span class="pr-werkzeug-g">
+          <button class="pr-ikon" data-pr="fa" data-a="hoch" ${i === 0 ? 'disabled' : ''} title="Folie nach vorn" aria-label="Folie nach vorn">${ic('hoch')}</button>
+          <button class="pr-ikon" data-pr="fa" data-a="runter" ${i === m.length - 1 ? 'disabled' : ''} title="Folie nach hinten" aria-label="Folie nach hinten">${ic('runter')}</button>
+          <button class="pr-ikon mit-text" data-pr="fa" data-a="dazu" title="Leere Folie nach dieser einfügen">${ic('plus')}<span>Folie einfügen</span></button>
+          <button class="pr-ikon gefahr" data-pr="fa" data-a="weg" ${m.length < 2 ? 'disabled' : ''} title="Folie löschen" aria-label="Folie löschen">${ic('loeschen')}</button>
+        </span>
       </div>
+      <div id="pr-stage" class="pr-stage">${buehne(m[i])}</div>
+      <p class="pr-tipp">${ic('stift')}Klick in einen Text auf der Folie, um ihn direkt zu ändern.</p>
       ${live()}${!ui.busy && ui.error ? statLine() : ''}
     </div>
-    <aside class="panel pr-panel">
-      <div class="pr-wirkung">
-        <label class="pr-feld"><span>Wirkung</span><select class="input" id="pr-form"><option value="">(nicht festgelegt)</option>${FORM_IDS.filter(k => k !== 'tabelle' || f.tabelle).map(k => `<option value="${k}" ${f.form === k ? 'selected' : ''}>${esc(FORMEN[k].split(':')[0].split(',')[0])}</option>`).join('')}</select></label>
-        <label class="pr-betont"><input type="checkbox" id="pr-betont" ${f.betont ? 'checked' : ''}> betont</label>
-      </div>
-      ${(() => { const passend = f.form ? rangliste(f.form, f.betont, sys).map(l => l.id) : []; const gruppen = [...new Set(sys.layouts.map(l => l.typ))];
-        return `<label class="pr-feld"><span>Layout</span><select class="input" id="pr-layout">${passend.length ? `<optgroup label="Passt zur Wirkung">${passend.map(id => sys.layout(id)).map(l => `<option value="${l.id}" ${l.id === layout.id ? 'selected' : ''}>${esc(l.name || l.id)}</option>`).join('')}</optgroup>` : ''}${gruppen.map(t => `<optgroup label="${esc(typName(t))}">${sys.layouts.filter(l => l.typ === t && !passend.includes(l.id)).map(l => `<option value="${l.id}" ${l.id === layout.id ? 'selected' : ''}>${esc(l.name || l.id)}</option>`).join('')}</optgroup>`).join('')}</select></label>`; })()}
-      <p class="small muted" style="margin:-4px 0 12px">${esc(layout.beschreibung)}</p>
-      ${z.kiLayout ? `<div class="pr-neu" style="margin-bottom:12px"><label class="pr-feld"><span>Layout dieser Folie anpassen</span><textarea rows="2" id="pr-lwunsch" placeholder="Optional: zum Beispiel Bild größer, Aussage weiter nach oben."></textarea></label>
-        <div class="actions" style="margin:0"><button class="btn tiny" data-pr="gestalten" ${ui.busy ? 'disabled' : ''}>Von der KI anpassen lassen</button>${f.anpassung ? '<button class="btn tiny ghost" data-pr="original">Original-Layout</button>' : ''}</div></div>` : (f.anpassung ? '<p class="small muted">Diese Folie hat Anpassungen der KI. Sie sind ausgeblendet, solange der Schalter aus ist.</p>' : '')}
-      ${felder(f, layout)}
-      <label class="pr-feld"><span>Sprechernotizen</span><textarea rows="3" id="pr-notizen">${esc(f.notizen || '')}</textarea></label>
-      <div class="pr-neu"><label class="pr-feld"><span>Von der KI neu schreiben lassen</span><textarea rows="2" id="pr-wunsch" placeholder="Optional: Was soll anders werden? Zum Beispiel: kürzer, mit Beispiel, sachlicher."></textarea></label>
-        <button class="btn tiny" data-pr="neu" ${ui.busy ? 'disabled' : ''}>Folie neu schreiben</button></div>
+    <aside class="pr-panel" aria-label="Folie bearbeiten">
+      ${inspektor(f, layout, sys)}
     </aside>
   </section>`;
+}
+
+/* ---------- Rechte Spalte: was die Folie tun soll, wie sie aussieht, was drauf steht ---------- */
+const abschnitt = (icon, titel, inhalt, extra = '') => `<section class="pr-abschnitt"><h3>${ic(icon)}${titel}${extra}</h3>${inhalt}</section>`;
+function layoutKarte(f, l, sys, aktiv) {
+  let bild = '';
+  try { bild = slideHTML(buildSlides({ titel: Z().spec.titel, folien: [{ ...f, layoutId: l.id, inhalt: ordneInhaltZu(f.inhalt, l), anpassung: undefined }] }, sys, { schrift: Z().schrift })[0]); } catch { bild = ''; }
+  return `<button class="pr-lkarte" data-pr="layoutwahl" data-id="${esc(l.id)}" aria-pressed="${aktiv}" title="${esc(l.beschreibung || '')}"><span class="pr-lkarte-f">${bild}</span><span class="pr-lkarte-n">${esc(l.name || l.id)}</span></button>`;
+}
+function inspektor(f, layout, sys) {
+  const z = Z(), formen = FORM_IDS.filter(k => k !== 'tabelle' || f.tabelle);
+  const wirkung = `<div class="pr-formen" role="group" aria-label="Wirkung">${formen.map(k => `<button class="pr-form" data-pr="form" data-form="${k}" aria-pressed="${f.form === k}" title="${esc(FORM_HILFE[k])}">${ic(k)}<span>${FORM_KURZ[k]}</span></button>`).join('')}</div>
+    <div class="pr-formhilfe"><p>${f.form ? esc(FORM_HILFE[f.form]) : 'Noch keine Wirkung gewählt. Wähle, wie die Aussage dieser Folie wirken soll; das passende Layout sucht der Kompass.'}</p>
+      <button class="pr-toggle" data-pr="betont" aria-pressed="${!!f.betont}" title="Betonte Folien bekommen Layouts mit großer, kräftiger Schrift">${ic('betont')}Betont</button></div>`;
+  const passend = f.form ? rangliste(f.form, f.betont, sys) : [];
+  const vorne = [layout, ...passend.filter(l => l.id !== layout.id)].slice(0, 4);
+  const rest = sys.layouts.filter(l => !vorne.includes(l));
+  const layouts = `<div class="pr-lgitter">${vorne.map(l => layoutKarte(f, l, sys, l.id === layout.id)).join('')}</div>
+    <p class="pr-lbeschr">${esc(layout.beschreibung || '')}</p>
+    ${rest.length ? `<details class="pr-alle" ${ui.praesAlleLayouts ? 'open' : ''}><summary data-pr="allelayouts">Alle Layouts <span class="muted">${sys.layouts.length}</span></summary>${ui.praesAlleLayouts ? [...new Set(rest.map(l => l.typ))].map(t => `<h4>${esc(typName(t))}</h4><div class="pr-lgitter">${rest.filter(l => l.typ === t).map(l => layoutKarte(f, l, sys, false)).join('')}</div>`).join('') : ''}</details>` : ''}
+    ${z.kiLayout ? `<div class="pr-unter"><label class="pr-feld"><span>Layout dieser Folie anpassen</span><textarea rows="2" id="pr-lwunsch" placeholder="Optional: zum Beispiel Bild größer, Aussage weiter nach oben."></textarea></label>
+      <div class="pr-knoepfe"><button class="btn tiny" data-pr="gestalten" ${ui.busy ? 'disabled' : ''}>${ic('ki')}Von der KI anpassen lassen</button>${f.anpassung ? '<button class="btn tiny ghost" data-pr="original">Original-Layout</button>' : ''}</div></div>` : (f.anpassung ? '<p class="small muted">Diese Folie hat Anpassungen der KI. Sie sind ausgeblendet, solange „KI-Layouts“ aus ist.</p>' : '')}`;
+  const neu = `<label class="pr-feld"><span>Was soll anders werden?</span><textarea rows="2" id="pr-wunsch" placeholder="Optional, zum Beispiel: kürzer, mit Beispiel, sachlicher."></textarea></label>
+    <button class="btn tiny" data-pr="neu" ${ui.busy ? 'disabled' : ''}>${ic('ki')}Folie neu schreiben</button>`;
+  return abschnitt('betont', 'Wirkung', wirkung)
+    + abschnitt('layout', 'Layout', layouts)
+    + abschnitt('inhalt', 'Inhalt', felder(f, layout))
+    + abschnitt('notiz', 'Sprechernotizen', `<textarea class="pr-notizen" rows="3" id="pr-notizen" aria-label="Sprechernotizen">${esc(f.notizen || '')}</textarea>`)
+    + abschnitt('ki', 'Mit KI neu schreiben', neu);
 }
 
 function view() {
@@ -710,6 +740,10 @@ function klick(e) {
     case 'erstellen': return erstelle();
     case 'sel': z.auswahl = +d.i; ui.notice = null; save(); return render();
     case 'fa': return folienAktion(d.a);
+    case 'form': { const f = folie(); if (f.form === d.form) { delete f.form; save(); return render(); } return setzeForm(d.form, !!f.betont); }
+    case 'betont': { const f = folie(); if (f.form) return setzeForm(f.form, !f.betont); f.betont = !f.betont; save(); return render(); }
+    case 'layoutwahl': { const f = folie(), l = system().layout(d.id); if (!l || l.id === f.layoutId) return; f.layoutId = l.id; delete f.anpassung; f.inhalt = ordneInhaltZu(f.inhalt, l); save(); return render(); }
+    case 'allelayouts': { e.preventDefault(); ui.praesAlleLayouts = !ui.praesAlleLayouts; return render(); }
     case 'neu': return schreibeNeu();
     case 'itemweg': { const l = folie().inhalt[d.ph]; if (Array.isArray(l)) l.splice(+d.i, 1); save(); return render(); }
     case 'pptx': return speicherePptx();
@@ -771,7 +805,7 @@ function taste(e) {
   if (e.key === 'Enter' && e.target.isContentEditable && !Array.isArray(roh(e.target.dataset))) { e.preventDefault(); e.target.blur(); }
 }
 
-const CSS = FOLIEN_CSS + SYSTEME_CSS + MATERIAL_CSS + `
+const CSS = FOLIEN_CSS + SYSTEME_CSS + MATERIAL_CSS + ICON_CSS + `
 .pr-material{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:8px 14px;margin-bottom:14px;font-size:.9rem}
 .pr-material>summary{cursor:pointer;font-weight:600}
 .pr-material .pm{border:0;background:none;padding:6px 0 0;margin:0}
@@ -832,15 +866,66 @@ const CSS = FOLIEN_CSS + SYSTEME_CSS + MATERIAL_CSS + `
 .pr-system-text>span{font-size:.9rem;color:var(--muted)}
 .pr-system-text .pr-grund{color:var(--ink)}
 .pr-tags{display:flex;flex-wrap:wrap;gap:5px}.pr-tags i{font-style:normal;font-size:.75rem;background:var(--surface-2);border-radius:var(--radius-s);padding:1px 7px}
-.pr-leiste{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end;margin-bottom:14px}
-.pr-leiste label{display:flex;flex-direction:column;gap:3px;font-size:.8rem;color:var(--muted)}
-.pr-leiste .input{color:var(--ink);font-size:.92rem;min-width:190px;background:var(--surface)}
-.pr-leiste .spacer{flex:1}
+.pr-leiste{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);padding:12px 16px;margin-bottom:14px}
+.pr-leiste-g{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;min-width:0}
+.praes .btn{display:inline-flex;align-items:center;gap:7px}
+.pr-wahl{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted);min-width:0}
+.pr-wahl-l{display:flex;gap:6px;align-items:center;font-weight:600}
+.pr-wahl .input{color:var(--ink);font-size:.9rem;background:var(--surface-2);min-width:170px;width:auto}
+.pr-wahl #pr-titel{min-width:210px}
+.pr-leiste .pr-schalter-k{align-items:center;margin:0;padding:0 0 9px;font-size:.85rem;max-width:none;cursor:help}
+.pr-schalter-k>span:last-child{display:flex;gap:6px;align-items:center;white-space:nowrap;font-weight:600}
+.pr-schalter-k>span:last-child .muted{font-weight:400}
 .pr-hinweise details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:8px 14px;margin-bottom:14px;font-size:.88rem}
 .pr-hinweise summary{cursor:pointer;font-weight:600}
 .pr-hinweise ul{margin:8px 0 4px;padding-left:18px}.pr-hinweise li{margin:3px 0}
 .pr-hinweise li.zuviel{color:var(--review)}.pr-hinweise li.pruefen{color:var(--assume)}.pr-hinweise li.info{color:var(--muted)}
-.pr-editor{display:grid;grid-template-columns:150px minmax(0,1fr) 340px;gap:18px;align-items:start}
+.pr-editor{display:grid;grid-template-columns:136px minmax(0,1fr) minmax(330px,400px);gap:20px;align-items:start}
+.pr-mitte{position:sticky;top:16px;min-width:0}
+.pr-leiste-aktion{margin-left:auto}
+.pr-werkzeug{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.pr-zaehl{font-size:.85rem;color:var(--muted)}.pr-zaehl b{color:var(--ink)}
+.pr-werkzeug-g{display:flex;gap:6px}
+.pr-ikon{display:inline-flex;gap:6px;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--radius-s);font-size:.85rem;cursor:pointer}
+.pr-ikon:hover:not(:disabled){border-color:var(--muted)}
+.pr-ikon:disabled{opacity:.4;cursor:default}
+.pr-ikon.gefahr:hover:not(:disabled){color:var(--review);border-color:var(--review)}
+.pr-ikon.klein{min-width:30px;height:30px;padding:0 6px}
+.pr-ikon:focus-visible,.pr-form:focus-visible,.pr-lkarte:focus-visible,.pr-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pr-tipp{display:flex;gap:6px;align-items:center;font-size:.8rem;color:var(--muted);margin:10px 0 0}
+.pr-abschnitt{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:14px 16px}
+.pr-abschnitt h3{display:flex;gap:8px;align-items:center;font-family:var(--body);font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 12px;font-weight:700}
+.pr-formen{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:6px}
+.pr-form{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px 8px;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--radius-s);font-size:.76rem;color:var(--ink);cursor:pointer;text-align:center;line-height:1.2}
+.pr-form .ic{width:22px;height:22px}
+.pr-form:hover{border-color:var(--muted)}
+.pr-form[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.pr-formhilfe{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-top:12px}
+.pr-formhilfe p{margin:0;font-size:.82rem;color:var(--muted);line-height:1.45}
+.pr-toggle{display:inline-flex;gap:6px;align-items:center;flex:none;border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:5px 12px;font-size:.8rem;color:var(--ink);cursor:pointer}
+.pr-toggle[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.pr-lgitter{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pr-lkarte{display:flex;flex-direction:column;gap:5px;padding:4px;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface-2);cursor:pointer;text-align:left;min-width:0;color:var(--ink)}
+.pr-lkarte-f{pointer-events:none;display:block}
+.pr-lkarte-f .pf{border-radius:3px}
+.pr-lkarte-n{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px 2px}
+.pr-lkarte:hover{border-color:var(--muted)}
+.pr-lkarte[aria-pressed="true"]{border-color:var(--accent);outline:1px solid var(--accent);background:var(--accent-soft)}
+.pr-lkarte[aria-pressed="true"] .pr-lkarte-n{color:var(--accent);font-weight:600}
+.pr-lbeschr{font-size:.8rem;color:var(--muted);margin:10px 0 0;line-height:1.45}
+.pr-alle{margin-top:12px;font-size:.85rem}
+.pr-alle summary{cursor:pointer;font-weight:600}
+.pr-alle h4{font-family:var(--body);font-size:.74rem;color:var(--muted);margin:14px 0 6px;font-weight:600}
+.pr-unter{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.pr-knoepfe{display:flex;flex-wrap:wrap;gap:8px}
+.pr-feld>span b{display:flex;gap:6px;align-items:center}
+.pr-feld>span b em{font-style:normal;font-weight:400;color:var(--muted);font-size:.74rem}
+.pr-feldhilfe{font-size:.74rem;color:var(--muted)}
+.pr-item-nr{font-size:.75rem;color:var(--muted);padding-top:8px;text-align:center}
+.pr-item-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pr-sym{display:flex;gap:8px;align-items:center}.pr-sym .ic{width:22px;height:22px;color:var(--accent)}.pr-sym .input{flex:1;padding:4px 8px;font-size:.84rem}
+.pr-notizen{width:100%;border:1px solid var(--line);border-radius:var(--radius-s);padding:7px 9px;background:var(--surface-2);font-size:.88rem;resize:vertical;color:var(--ink)}
+.pr-abschnitt .pr-feld:last-child{margin-bottom:0}
 .pr-thumbs{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 40px);overflow:auto;position:sticky;top:16px;padding:2px}
 .pr-thumb{display:flex;gap:6px;align-items:flex-start;border:0;background:none;padding:3px;border-radius:8px;text-align:left}
 .pr-thumb .pr-nr{font-size:.72rem;color:var(--muted);width:14px;flex:none;text-align:right;padding-top:2px}
@@ -850,18 +935,20 @@ const CSS = FOLIEN_CSS + SYSTEME_CSS + MATERIAL_CSS + `
 .pr-stage [contenteditable]{cursor:text;outline:1px dashed transparent;outline-offset:.3cqw}
 .pr-stage [contenteditable]:hover{outline-color:rgba(127,127,127,.6)}
 .pr-stage [contenteditable]:focus{outline:2px solid var(--accent)}
-.pr-panel{padding:16px;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+.pr-panel{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px;overscroll-behavior:contain}
 .pr-feld{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;font-size:.82rem}
 .pr-feld>span{display:flex;justify-content:space-between;gap:8px;font-weight:600}
 .pr-feld>span i{font-style:normal;font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
 .pr-feld>span i.zuviel{color:var(--review);font-weight:600}
 .pr-feld textarea,.pr-feld .input{width:100%;border:1px solid var(--line);border-radius:var(--radius-s);padding:7px 9px;background:var(--surface-2);font-size:.88rem;resize:vertical}
-.pr-item{display:flex;flex-direction:column;gap:4px;padding:6px 0 8px;border-top:1px solid var(--line)}
+.pr-item{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 .pr-neu{border-top:1px solid var(--line);padding-top:12px}
 #printroot.pr-print .pr-seite{width:338.67mm;height:190.5mm;break-after:page;overflow:hidden}
 #printroot.pr-print .pf{border:0}
-@media (max-width:1100px){.pr-editor{grid-template-columns:110px minmax(0,1fr)}.pr-panel{grid-column:1 / -1;position:static;max-height:none}}
-@media (max-width:760px){.pr-start{grid-template-columns:1fr}.pr-editor{grid-template-columns:1fr}.pr-thumbs{flex-direction:row;position:static;max-height:none;overflow:auto}.pr-thumb{flex:0 0 120px}.pr-systeme{grid-template-columns:1fr}.pr-leiste .input{min-width:0}}
+@media (max-width:1280px){.pr-editor{grid-template-columns:112px minmax(0,1fr) 340px;gap:16px}}
+@media (max-width:1080px){.pr-editor{grid-template-columns:minmax(0,1fr) 330px}.pr-thumbs{grid-column:1 / -1;flex-direction:row;position:static;max-height:none;overflow-x:auto;padding-bottom:6px}.pr-thumb{flex:0 0 136px}}
+@media (max-width:820px){.pr-start{grid-template-columns:1fr}.pr-editor{grid-template-columns:1fr}.pr-mitte{position:static}.pr-panel{position:static;max-height:none;overflow:visible}.pr-thumb{flex:0 0 120px}.pr-systeme{grid-template-columns:1fr}
+  .pr-leiste{align-items:stretch}.pr-leiste-g{width:100%}.pr-wahl{flex:1 1 160px}.pr-wahl .input,.pr-wahl #pr-titel{min-width:0;width:100%}.pr-leiste-aktion .btn{flex:1 1 auto;justify-content:center}.pr-werkzeug .mit-text span{display:none}}
 `;
 
 /* ---------- Start ---------- */

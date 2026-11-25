@@ -21,6 +21,7 @@ Wer einen Prompt ändert, erhöht `version`. Die Version steht im Protokoll jede
 | [gestalten.md](gestalten.md) | Nur mit dem Schalter „KI darf Layouts anpassen“: Positionen und Größen der Flächen einer fertigen Folie verbessern | Geänderte Flächen, Spiegeln ja/nein, Begründung. Die App prüft Ränder, Überlappung und Lesbarkeit. |
 | [korrektur.md](korrektur.md) | Anhang bei ungültiger Antwort | – |
 | [asset-beschreiben.md](asset-beschreiben.md) | Designsystem-Editor: Bild beschreiben lassen (optional, braucht ein Modell mit Bildverständnis) | Beschreibung, Tags |
+| [layouts-bewerten.md](layouts-bewerten.md) | Designsystem-Editor: nach dem Import einer PowerPoint-Vorlage jedes Layout einordnen (auch von Hand startbar) | Je Layout Zweck, passende Wirkungen (beste zuerst), „nicht verwenden“. Die App rechnet das bei der Layoutwahl mit ein. |
 | [material-bild.md](material-bild.md) | Material: Bild der Person beschreiben (braucht ein Modell mit Bildverständnis) | Beschreibung, Foto oder Grafik, Aussage, lesbarer Text |
 | [material-text.md](material-text.md) | Material: langen Text der Person zusammenfassen | Kurzfassung, wichtigste Aussagen |
 

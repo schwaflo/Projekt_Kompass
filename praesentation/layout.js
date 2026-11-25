@@ -8,9 +8,10 @@
    Folie:   { nr, layoutId, typ, background, elemente[], notizen }
    Element: { art: 'form' | 'bild' | 'text' | 'tabelle', x, y, w, h (Prozent), … }
    ============================================================ */
-import { inhaltsPlatzhalter, tabellenFlaeche, istTabelle } from './spec.js';
+import { inhaltsPlatzhalter, tabellenFlaeche, istTabelle, hatSymbole, SYMBOL_FELD } from './spec.js';
+import { symbolBild } from './icons.js';
 import { einpassen, blockHoehe, textBreite, zeilen as zeilenZahl } from './text.js';
-import { farbeVon } from './validate.js';
+import { farbeVon, kontrast } from './validate.js';
 
 export const FOLIE_PT = { w: 960, h: 540 };
 
@@ -33,8 +34,23 @@ export function passeAn(layout, a) {
 
 /* opts.schrift: 'system' (Standard) nimmt die erste Ersatzschrift, die auf jedem Rechner
    vorhanden ist. 'marke' nimmt die Wunschschrift; sie muss dann installiert sein. */
+/* opts.wachsen: false schaltet das Mitwachsen der Schrift ab (siehe unten). */
 export function buildSlides(spec, system, opts = {}) {
+  /* Schrift wächst mit, wenn wenig Text da ist: Layouts sind für die größte erlaubte Textmenge bemessen,
+     eine knappe Präsentation wirkt darin sonst klein und leer. Gemessen wird einmal über alle Folien;
+     jede Textrolle (zum Beispiel Stichpunkte in Fließtextgröße, die Zahl einer Kennzahl) bekommt den
+     Faktor, den ihre engste Stelle zulässt. So bleiben gleiche Dinge auf allen Folien gleich groß. */
+  if (!opts.probe && opts.wachstum === undefined && opts.wachsen !== false) {
+    const probe = new Map();
+    buildSlides(spec, system, { ...opts, probe });
+    opts = { ...opts, wachstum: Object.fromEntries([...probe].map(([k, g]) => [k, Math.floor(g * 20) / 20])) };
+  }
   const T = system.tokens, C = T.colors, ty = T.typography, marke = opts.schrift === 'marke';
+  /* Tabellenstil des Designsystems (aus einer PowerPoint-Vorlage), Farben als Namen oder Hex */
+  const ts = T.tabelle || {}, tf = n => n ? farbeVon(C, n) : null;
+  const kontrastreich = bg => kontrast('#FFFFFF', bg) >= kontrast(C.text, bg) ? '#FFFFFF' : C.text;
+  /* Symbolfarbe: Akzent, Primär- oder Textfarbe, je nachdem, was sich vom Grund (Kachel oder Folie) abhebt */
+  const symbolFarbe = grund => { const g = grund || C.background; return [C.accent, C.primary, C.secondary, C.text].find(c => c && kontrast(c, g) >= 3) || kontrastreich(g); };
   const schrift = art => {
     const h = art === 'heading', name = h ? ty.headingFont : ty.bodyFont, fb = h ? ty.headingFallback : ty.bodyFallback;
     const generisch = fb.filter(f => /^(serif|sans-serif|monospace)$/.test(f)), echte = fb.filter(f => !generisch.includes(f));
@@ -43,12 +59,28 @@ export function buildSlides(spec, system, opts = {}) {
   };
   const linie = C.border || C.textMuted;
 
-  function textEl(box, absaetze, st = {}, extra = {}) {
+  function textEl(box, absaetze, st = {}, extra = {}, rolle = '') {
     const art = st.font === 'heading' ? 'heading' : 'body', f = schrift(art);
-    const soll = typeof st.size === 'number' ? st.size : (ty.sizes[st.size || 'body'] || ty.sizes.body);
+    const basis = typeof st.size === 'number' ? st.size : (ty.sizes[st.size || 'body'] || ty.sizes.body);
     const bold = st.bold !== undefined ? !!st.bold : (art === 'heading' && ty.headingBold !== false);
     if (st.uppercase) absaetze = absaetze.map(a => ({ ...a, text: a.text.toLocaleUpperCase('de-DE') }));
-    const fit = einpassen(absaetze, box.w / 100 * FOLIE_PT.w, box.h / 100 * FOLIE_PT.h, { pt: soll, font: f.face, bold, lineHeight: ty.lineHeight });
+    const W = box.w / 100 * FOLIE_PT.w, H = box.h / 100 * FOLIE_PT.h, mass = { font: f.face, bold, lineHeight: ty.lineHeight };
+    /* Quellen, Fußnoten und kleine Zeilen bleiben klein */
+    if (rolle && (/:(caption|small)$/.test(rolle) || (!rolle.startsWith('feld') && basis <= 14))) rolle = '';
+    if (rolle && opts.probe) {
+      /* Wie weit darf diese Stelle wachsen, ohne zu schrumpfen oder mehr als 90 % der Fläche zu füllen? */
+      const feld = rolle.startsWith('feld'), cap = feld ? 1.6 : 1.45, maxPt = feld ? 200 : Math.max(basis, 30);
+      let g = 1;
+      for (let x = cap; x > 1.001; x -= 0.05) {
+        const pt = Math.min(basis * x, maxPt);
+        if (pt <= basis) continue;
+        const fit = einpassen(absaetze, W, H, { ...mass, pt });
+        if (fit.pt >= pt - 0.01 && !fit.gekuerzt && blockHoehe(fit.absaetze, W, fit.pt, mass) <= H * 0.9) { g = pt / basis; break; }
+      }
+      opts.probe.set(rolle, Math.min(opts.probe.has(rolle) ? opts.probe.get(rolle) : Infinity, g));
+    }
+    const soll = rolle && opts.wachstum && opts.wachstum[rolle] > 1 ? Math.round(basis * opts.wachstum[rolle] * 2) / 2 : basis;
+    const fit = einpassen(absaetze, W, H, { ...mass, pt: soll });
     return {
       art: 'text', ...box, absaetze: fit.absaetze, schrift: f.face, schriftCss: f.css,
       pt: fit.pt, sollPt: soll, farbe: farbeVon(C, st.color || 'text') || C.text, align: st.align || 'left', valign: st.valign || 'top',
@@ -64,14 +96,14 @@ export function buildSlides(spec, system, opts = {}) {
   const box = (x, y, w, h) => ({ x: r(x), y: r(y), w: r(w), h: r(h) });
 
   /* Reihe gleich aufgebauter Kacheln (Kennzahlen, Zeitstrahl) */
-  function itemsEl(ph, liste) {
+  function itemsEl(ph, liste, grund) {
     if (ph.variante === 'frei' && ph.zellen) return zellenEl(ph, liste);
     const out = [], n = liste.length, gap = T.spacing.gap, iw = (ph.w - gap * (n - 1)) / n;
     const variante = ph.variante || 'schlicht', anteile = ph.felder.reduce((s, f) => s + (f.anteil || 1), 0);
     const fliessend = variante !== 'karten';
     /* Gleiche Felder bekommen in allen Kacheln dieselbe Schriftgröße: die kleinste, die irgendwo nötig ist */
     const innen = variante === 'karten' ? { w: iw * 0.86, h: ph.h * 0.84 } : { w: iw * 0.94, h: ph.h - (variante === 'zeitstrahl' ? 6 : 3) };
-    const groesse = Object.fromEntries(ph.felder.map(fd => [fd.id, Math.min(...liste.map(it => textEl(box(0, 0, innen.w, innen.h * (fd.anteil || 1) / anteile), [{ text: String(it[fd.id] || '') }], fd.style).pt))]));
+    const groesse = Object.fromEntries(ph.felder.map(fd => [fd.id, Math.min(...liste.map(it => textEl(box(0, 0, innen.w, innen.h * (fd.anteil || 1) / anteile), [{ text: String(it[fd.id] || '') }], fd.style, {}, it[fd.id] ? `feld:${ph.id}:${fd.id}` : '').pt))]));
     if (variante === 'zeitstrahl') out.push({ art: 'form', form: 'rect', ...box(ph.x, ph.y + 1.1, ph.w, 0.3), farbe: linie });
     liste.forEach((it, i) => {
       const x = ph.x + i * (iw + gap);
@@ -85,6 +117,13 @@ export function buildSlides(spec, system, opts = {}) {
       } else {
         out.push({ art: 'form', form: 'rect', ...box(x, ph.y, iw, 0.3), farbe: linie });
         iy += 3; h -= 3; w = iw * 0.94;
+      }
+      /* Symbol über dem Text: in der Akzentfarbe, sofern sie sich von der Kachel abhebt */
+      const sym = hatSymbole(ph) && it[SYMBOL_FELD] ? symbolBild(it[SYMBOL_FELD], symbolFarbe(variante === 'karten' ? (farbeVon(C, ph.on || 'surface') || C.surface) : grund)) : null;
+      if (sym) {
+        const sw = Math.min(4.6, w * 0.3), sh = sw * 16 / 9;
+        out.push({ art: 'bild', ...box(ix, iy, sw, sh), src: sym, alt: '', fit: 'contain', deko: true, symbol: it[SYMBOL_FELD], ph: ph.id, index: i });
+        iy += sh + 1.6; h -= sh + 1.6;
       }
       let fy = iy;
       ph.felder.forEach(fd => {
@@ -109,7 +148,7 @@ export function buildSlides(spec, system, opts = {}) {
   function zellenEl(ph, liste) {
     const out = [], n = Math.min(liste.length, ph.zellen.length);
     const groesse = Object.fromEntries(ph.felder.map(fd => {
-      const pts = liste.slice(0, n).map((it, i) => { const c = ph.zellen[i][fd.id]; return c && it[fd.id] ? textEl(box(c.x, c.y, c.w, c.h), [{ text: String(it[fd.id]) }], fd.style).pt : Infinity; });
+      const pts = liste.slice(0, n).map((it, i) => { const c = ph.zellen[i][fd.id]; return c && it[fd.id] ? textEl(box(c.x, c.y, c.w, c.h), [{ text: String(it[fd.id]) }], fd.style, {}, `feld:${ph.id}:${fd.id}`).pt : Infinity; });
       return [fd.id, Math.min(...pts)];
     }));
     liste.slice(0, n).forEach((it, i) => ph.felder.forEach(fd => {
@@ -166,7 +205,11 @@ export function buildSlides(spec, system, opts = {}) {
       art: 'tabelle', ...box(fl.x, fl.y, w / FOLIE_PT.w * 100, h / FOLIE_PT.h * 100), kopf: !!kopf.length, zellen,
       spalten: g.breiten.map((b, j) => ({ w: r(b / FOLIE_PT.w * 100), align: align[j] })), zeilenH: g.hoehen.map(x => r(x / FOLIE_PT.h * 100)),
       pt: g.pt, px: r(g.px), py: r(g.py), schrift: f.face, schriftCss: f.css, zeilenhoehe: lh,
-      farbe: C.text, kopfLinie: C.primary || C.text, linie: C.border || C.textMuted || C.text, ph: 'tabelle', ...(gekuerzt ? { gekuerzt: true } : {})
+      farbe: tf(ts.text) || C.text, kopfLinie: C.primary || C.text, linie: tf(ts.linie) || C.border || C.textMuted || C.text, ph: 'tabelle', ...(gekuerzt ? { gekuerzt: true } : {}),
+      /* Stil aus der Vorlage: farbige Kopfzeile, Zeilen im Wechsel hinterlegt */
+      ...(tf(ts.kopfFlaeche) ? { kopfFlaeche: tf(ts.kopfFlaeche), kopfText: tf(ts.kopfText) || (kontrastreich(tf(ts.kopfFlaeche))) } : ts.kopfText ? { kopfText: tf(ts.kopfText) } : {}),
+      ...(ts.kopfFett === false ? { kopfFett: false } : {}),
+      ...(tf(ts.streifen) ? { streifen: tf(ts.streifen) } : {}), ...(tf(ts.flaeche) ? { flaeche: tf(ts.flaeche) } : {})
     };
   }
 
@@ -205,9 +248,11 @@ export function buildSlides(spec, system, opts = {}) {
       if (!istInhalt.has(ph.id)) return;
       if (ph.typ === 'image') { bilder.push(bildEl(b, (typeof v === 'string' && system.asset(v)) ? v : ph.asset, ph.fit, { ph: ph.id })); return; }
       if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return;
-      if (ph.typ === 'text') el.push(textEl(b, [{ text: String(v) }], ph.style, { ph: ph.id }));
-      else if (ph.typ === 'bullets') el.push(textEl(b, [].concat(v).map(t => ({ text: String(t), bullet: (ph.style || {}).bullet || 'dot' })), ph.style, { ph: ph.id }));
-      else if (ph.typ === 'items') el.push(...itemsEl(ph, [].concat(v).filter(x => x && typeof x === 'object').slice(0, ph.maxItems)));
+      /* Überschriften behalten ihre Größe; Fließtext und Stichpunkte wachsen mit (siehe oben) */
+      const st = ph.style || {}, groesseName = typeof st.size === 'number' ? 'n' + st.size : (st.size || 'body');
+      if (ph.typ === 'text') el.push(textEl(b, [{ text: String(v) }], st, { ph: ph.id }, st.font === 'heading' ? '' : `text:${groesseName}`));
+      else if (ph.typ === 'bullets') el.push(textEl(b, [].concat(v).map(t => ({ text: String(t), bullet: st.bullet || 'dot' })), st, { ph: ph.id }, `liste:${groesseName}`));
+      else if (ph.typ === 'items') el.push(...itemsEl(ph, [].concat(v).filter(x => x && typeof x === 'object').slice(0, ph.maxItems), farbeVon(C, ph.on || layout.background) || C.background));
     });
 
     /* Reihenfolge von hinten nach vorn: Deko „hinten“, Bilder, übrige Deko, feste Texte, Inhalte und Logos */

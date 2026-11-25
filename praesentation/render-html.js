@@ -62,9 +62,11 @@ function element(e) {
     return `<div class="pf-i" style="${pos(e)}${e.deckkraft !== undefined ? `opacity:${e.deckkraft};` : ''}${dreh(e)}"><img src="${esc(e.src)}" alt="${esc(e.alt)}" style="object-fit:${e.fit === 'contain' ? 'contain' : 'cover'}"></div>`;
   }
   if (e.art === 'tabelle') {
-    const zelle = (t, j, tag) => `<${tag} style="text-align:${e.spalten[j].align}">${esc(t)}</${tag}>`;
+    const zelle = (t, j, tag, extra = '') => `<${tag} style="text-align:${e.spalten[j].align};${extra}">${esc(t)}</${tag}>`;
     const kopf = e.kopf ? e.zellen[0] : null, rumpf = e.kopf ? e.zellen.slice(1) : e.zellen;
-    return `<div class="pf-tab" data-ph="tabelle" style="${pos(e)}font-family:${esc(e.schriftCss)};font-size:${cqw(e.pt)};line-height:${e.zeilenhoehe};color:${e.farbe};--pf-px:${cqw(e.px)};--pf-py:${cqw(e.py)};--pf-kopf:${e.kopfLinie};--pf-linie:${e.linie}"><table><colgroup>${e.spalten.map(sp => `<col style="width:${(sp.w / e.w * 100).toFixed(2)}%">`).join('')}</colgroup>${kopf ? `<thead><tr>${kopf.map((t, j) => zelle(t, j, 'th')).join('')}</tr></thead>` : ''}<tbody>${rumpf.map(z => `<tr>${z.map((t, j) => zelle(t, j, 'td')).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const kopfStil = `${e.kopfFlaeche ? `background:${e.kopfFlaeche};` : ''}${e.kopfText ? `color:${e.kopfText};` : ''}${e.kopfFett === false ? 'font-weight:400;' : ''}`;
+    const zeile = i => { const f = e.streifen && i % 2 === 0 ? e.streifen : e.flaeche; return f ? `background:${f};` : ''; };
+    return `<div class="pf-tab" data-ph="tabelle" style="${pos(e)}font-family:${esc(e.schriftCss)};font-size:${cqw(e.pt)};line-height:${e.zeilenhoehe};color:${e.farbe};--pf-px:${cqw(e.px)};--pf-py:${cqw(e.py)};--pf-kopf:${e.kopfFlaeche || e.kopfLinie};--pf-linie:${e.linie}"><table><colgroup>${e.spalten.map(sp => `<col style="width:${(sp.w / e.w * 100).toFixed(2)}%">`).join('')}</colgroup>${kopf ? `<thead><tr>${kopf.map((t, j) => zelle(t, j, 'th', kopfStil)).join('')}</tr></thead>` : ''}<tbody>${rumpf.map((z, i) => `<tr>${z.map((t, j) => zelle(t, j, 'td', zeile(i))).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   let n = 0;
   const abs = e.absaetze.map(a => a.bullet ? `<p class="pf-b" data-z="${esc(zeichen(a, ++n))}">${esc(a.text)}</p>` : `<p>${esc(a.text).replace(/\n/g, '<br>')}</p>`).join('');
